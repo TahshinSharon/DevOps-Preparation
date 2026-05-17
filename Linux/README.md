@@ -25,6 +25,9 @@ A personal collection of Linux commands, concepts, and notes gathered while lear
   - [wc](#wc)
   - [nl](#nl)
   - [grep](#grep)
+- [Advanced Text-Fu](#advanced-text-fu)
+  - [regex (Regular Expressions)](#regex-regular-expressions)
+  - [vim editor](#vim-editor)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -639,6 +642,152 @@ Shows every line **except** comments (lines starting with `#`).
 - `grep` reads stdin if no file is given — handy in pipes like `cat file | grep ...`.
 - For Perl-style regex (lookarounds, `\d`, etc.) use `grep -P`.
 - Variants: `egrep` ≈ `grep -E`, `fgrep` ≈ `grep -F` (fixed strings, no regex).
+
+---
+
+## Advanced Text-Fu
+
+Notes on more advanced text-processing tools — pattern matching, scripting, and stream editing.
+
+### `regex` (Regular Expressions)
+
+**Description:** A **regular expression** (regex) is a mini-language for describing **patterns** in text. Tools like `grep`, `sed`, `awk`, and many programming languages use regex to search, match, and transform strings. There are two common flavors on Linux: **BRE** (Basic Regular Expressions — used by `grep` by default) and **ERE** (Extended — used by `grep -E` / `egrep`).
+
+**Syntax:**
+```bash
+grep "PATTERN" file
+grep -E "PATTERN" file     # extended regex
+sed -E 's/PATTERN/REPL/g' file
+```
+
+**Common Metacharacters:**
+
+| Pattern   | Meaning |
+| --------- | ------- |
+| `.`       | Match **any single character** (except newline). |
+| `^`       | **Anchor** — start of a line. |
+| `$`       | **Anchor** — end of a line. |
+| `*`       | Match the previous element **0 or more** times. |
+| `+`       | Match the previous element **1 or more** times (ERE). |
+| `?`       | Match the previous element **0 or 1** times (ERE). |
+| `[abc]`   | **Character class** — match any one of `a`, `b`, `c`. |
+| `[^abc]`  | **Negated** class — match any character **not** in the set. |
+| `[a-z]`   | **Range** — match any lowercase letter. |
+| `\|`      | **Alternation** — match left OR right (ERE). |
+| `(...)`   | **Group** patterns together (ERE). |
+| `{n,m}`   | Match the previous element between **n** and **m** times. |
+| `\d` `\w` `\s` | Digit / word-char / whitespace (Perl regex, `grep -P`). |
+
+**Examples:**
+```bash
+grep "^Error" app.log
+```
+Matches lines that **start with** `Error`.
+
+```bash
+grep "failed$" app.log
+```
+Matches lines that **end with** `failed`.
+
+```bash
+grep -E "cat|dog" pets.txt
+```
+Matches lines containing either `cat` **or** `dog`.
+
+```bash
+grep -E "^[A-Z][a-z]+$" names.txt
+```
+Matches lines that are a single capitalized word (one uppercase letter followed by one or more lowercase letters).
+
+```bash
+grep -E "[0-9]{3}-[0-9]{4}" contacts.txt
+```
+Matches phone-number-style patterns like `555-1234`.
+
+```bash
+grep -Ev "^#|^$" config.conf
+```
+Shows the config file with **comments and blank lines removed** (`-v` inverts the match).
+
+**Notes:**
+- Quote your patterns with single or double quotes so the shell doesn't expand `*`, `?`, `$`, etc.
+- **BRE vs ERE:** in basic regex, `+`, `?`, `|`, `()`, `{}` must be **escaped** (`\+`, `\?`, `\|`, `\(\)`, `\{\}`). Use `grep -E` to drop the backslashes.
+- Use `grep -P` for Perl-compatible regex (lookaheads, `\d`, `\w`, non-greedy `*?`).
+- Test patterns interactively on sites like [regex101.com](https://regex101.com/) — pick the right flavor (BRE / ERE / PCRE) for the tool you're using.
+
+### `vim` editor
+
+**Description:** **Vim** is a powerful, keyboard-driven text editor that ships with almost every Linux system. It is **modal** — instead of typing directly, you switch between modes that decide what your keystrokes do. Knowing a handful of commands is enough to start editing files confidently over SSH or on servers without a GUI.
+
+**Syntax:**
+```bash
+vim [file]
+```
+Opens `file` in Vim. If the file doesn't exist, Vim creates it on save.
+
+**Vim Modes:**
+
+| Mode        | How to enter         | Purpose |
+| ----------- | -------------------- | ------- |
+| **Normal**  | Default / press `Esc`| Navigate, delete, copy, paste — keystrokes are **commands**, not text. |
+| **Insert**  | `i`, `a`, `o`, etc.  | Type text like a normal editor. |
+| **Visual**  | `v`, `V`, `Ctrl+v`   | Select text by character / line / block. |
+| **Command** | `:` from Normal mode | Run `:w`, `:q`, search/replace, settings, etc. |
+
+**Common Commands:**
+
+| Keys / Command  | Action |
+| --------------- | ------ |
+| `i`             | Enter **Insert** mode at the cursor. |
+| `a`             | Enter Insert mode **after** the cursor. |
+| `o`             | Open a **new line below** and enter Insert mode. |
+| `O`             | Open a new line **above** and enter Insert mode. |
+| `Esc`           | Return to **Normal** mode. |
+| `h` `j` `k` `l` | Move **left / down / up / right**. |
+| `w` / `b`       | Jump to next / previous **word**. |
+| `0` / `^` / `$` | Go to **start of line** / first non-blank / **end of line**. |
+| `gg` / `G`      | Go to **top** / **bottom** of file. |
+| `:N`            | Jump to **line N** (e.g. `:42`). |
+| `x`             | **Delete** the character under the cursor. |
+| `dd`            | **Delete (cut) the current line**. |
+| `yy`            | **Yank (copy) the current line**. |
+| `p` / `P`       | **Paste** after / before the cursor. |
+| `u`             | **Undo** last change. |
+| `Ctrl + r`      | **Redo**. |
+| `/pattern`      | **Search** forward for `pattern` (then `n` / `N` for next / previous). |
+| `:%s/old/new/g` | **Replace** every `old` with `new` in the whole file. |
+| `:w`            | **Write** (save) the file. |
+| `:q`            | **Quit** Vim. |
+| `:wq` or `ZZ`   | Save **and** quit. |
+| `:q!`           | Quit **without** saving (discard changes). |
+
+**Examples:**
+```bash
+vim notes.txt
+```
+Open `notes.txt` in Vim. You start in **Normal** mode — press `i` to type, `Esc` to stop typing, then `:wq` to save and quit.
+
+A typical first edit session:
+```
+i            # enter insert mode
+Hello Vim!   # type some text
+Esc          # back to normal mode
+:wq          # save and quit
+```
+
+Quick line edit:
+```
+5G           # jump to line 5
+dd           # delete that line
+u            # changed your mind — undo
+:w           # save
+```
+
+**Notes:**
+- If you're stuck inside Vim, press `Esc` a couple of times, then `:q!` to bail out without saving.
+- Run `vimtutor` in your terminal — it's a free, built-in 30-minute interactive tutorial that ships with Vim.
+- Vim has its own config file: `~/.vimrc` (e.g. `set number`, `syntax on`, `set tabstop=4`).
+- On many systems `vi` is just a symlink to `vim` (or a smaller `vi` variant). Commands above work on both.
 
 ---
 
