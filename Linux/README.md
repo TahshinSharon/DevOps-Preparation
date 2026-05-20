@@ -9,6 +9,7 @@ A personal collection of Linux commands, concepts, and notes gathered while lear
 - [Introduction](#introduction)
 - [Command Note Template](#command-note-template)
 - [Basic Commands](#basic-commands)
+  - [One Shot Revision](#one-shot-revision)
   - [The Shell](#the-shell)
   - [pwd](#pwd)
   - [cd](#cd)
@@ -28,29 +29,32 @@ A personal collection of Linux commands, concepts, and notes gathered while lear
   - [whatis](#whatis)
   - [alias](#alias)
   - [exit](#exit)
-- [](#text-fu)
-
-- [Pipe & Tee](#pipe--tee)
-- [Environment](#env-environment)
-- [cut](#cut)
-- [paste](#paste)
-- [head](#head)
-- [tail](#tail)
-- [expand](#expand)
-- [unexpand](#unexpand)
-- [join](#join)
-- [split](#split)
-- [sort](#sort)
-- [tr](#tr-translate)
-- [uniq](#uniq)
-- [wc](#wc)
-- [nl](#nl)
-- [grep](#grep)
+- [Text-Fu](#text-fu)
+  - [One Shot Revision](#one-shot-revision-1)
+  - [Pipe & Tee](#pipe--tee)
+  - [Environment](#env-environment)
+  - [cut](#cut)
+  - [paste](#paste)
+  - [head](#head)
+  - [tail](#tail)
+  - [expand](#expand)
+  - [unexpand](#unexpand)
+  - [join](#join)
+  - [split](#split)
+  - [sort](#sort)
+  - [tr](#tr-translate)
+  - [uniq](#uniq)
+  - [wc](#wc)
+  - [nl](#nl)
+  - [grep](#grep)
 - [Advanced Text-Fu](#advanced-text-fu)
+  - [One Shot Revision](#one-shot-revision-2)
   - [regex (Regular Expressions)](#regex-regular-expressions)
   - [vim editor](#vim-editor)
 - [User Management](#user-management)
+  - [One Shot Revision](#one-shot-revision-3)
   - [Users and Groups](#users-and-groups)
+  - [root](#root)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -107,7 +111,7 @@ command-name -l /path/to/file
 
 Everyday Linux commands for navigating the filesystem, working with files, and using the shell itself.
 
-**Quick Reference:**
+### One Shot Revision
 
 | Command                 | Short Description                                        |
 | ----------------------- | -------------------------------------------------------- |
@@ -327,7 +331,7 @@ Closes the current shell. If it was your login shell or terminal tab, that windo
 
 Notes on text processing commands in Linux — viewing, searching, filtering, and transforming text.
 
-**Quick Reference:**
+### One Shot Revision
 
 | Command                                         | Short Description                                                |
 | ----------------------------------------------- | ---------------------------------------------------------------- |
@@ -951,15 +955,15 @@ grep [options] PATTERN [file...]
 
 **Common Options:**
 
-| Option | Description                                    |
-| ------ | ---------------------------------------------- | ------------------------------- |
-| `-i`   | **Case-insensitive** match.                    |
-| `-v`   | **Invert** — show lines that do **not** match. |
-| `-n`   | Show **line numbers** with each match.         |
-| `-r`   | **Recursively** search through directories.    |
-| `-w`   | Match **whole words** only.                    |
-| `-c`   | Print only the **count** of matching lines.    |
-| `-E`   | Use **extended** regex (so `+`, `?`, `         | `, `()` work without escaping). |
+| Option | Description                                                                |
+| ------ | -------------------------------------------------------------------------- |
+| `-i`   | **Case-insensitive** match.                                                |
+| `-v`   | **Invert** — show lines that do **not** match.                             |
+| `-n`   | Show **line numbers** with each match.                                     |
+| `-r`   | **Recursively** search through directories.                                |
+| `-w`   | Match **whole words** only.                                                |
+| `-c`   | Print only the **count** of matching lines.                                |
+| `-E`   | Use **extended** regex (so `+`, `?`, `\|`, `()` work without escaping).    |
 
 **Examples:**
 
@@ -1005,7 +1009,7 @@ Shows every line **except** comments (lines starting with `#`).
 
 Notes on more advanced text-processing tools — pattern matching, scripting, and stream editing.
 
-**Quick Reference:**
+### One Shot Revision
 
 | Command                                                     | Short Description                                                         |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -1174,6 +1178,13 @@ u            # changed your mind — undo
 
 Notes on managing **users**, **groups**, and identities on a Linux system.
 
+### One Shot Revision
+
+| Command                               | Short Description                                                 |
+| ------------------------------------- | ----------------------------------------------------------------- |
+| [Users and Groups](#users-and-groups) | Create, modify, delete, and switch users and groups (UIDs / GIDs) |
+| [root](#root)                         | The superuser account (UID `0`) and how to act as it safely       |
+
 ### Users and Groups
 
 **Description:** Linux is **multi-user** — every process runs as a user and belongs to one or more groups. **Users** are identified by a **UID** and **groups** by a **GID**. User and group info lives in a few key files under `/etc`, and a set of standard commands lets you create, modify, inspect, and switch identities.
@@ -1195,6 +1206,36 @@ Notes on managing **users**, **groups**, and identities on a Linux system.
 - A user has **one primary group** (the GID in `/etc/passwd`) and may belong to many **secondary groups** (listed in `/etc/group`).
 - Always use `usermod -aG` (append) when adding secondary groups — plain `-G` **replaces** the list and can lock a user out of `sudo`.
 - View a user's password aging with `sudo chage -l <user>`.
+
+### root
+
+**Description:** **`root`** is the **superuser** on Linux — the special account with **UID `0`** that bypasses all permission checks. Anything root does, the system trusts: create / delete users, modify any file, install packages, change network settings, reboot, etc. Because mistakes as root can destroy the system, the modern convention is to **stay as a normal user** and elevate to root only when needed, via `sudo` (one command) or `su -` (a full root shell).
+
+**Common ways to act as root:**
+
+| Command          | What it does                                                                |
+| ---------------- | --------------------------------------------------------------------------- |
+| `sudo <command>` | Run **one** command as root (after entering your own password).             |
+| `sudo -i`        | Start a **root login shell** (loads root's environment).                    |
+| `su -`           | Switch to root — prompts for **root's** password.                           |
+| `sudo su -`      | Become root via your own password (works when root's password is disabled). |
+| `whoami`         | Confirm which user you are currently acting as.                             |
+
+**Example:**
+
+```bash
+sudo whoami
+```
+
+Runs the `whoami` command **as root** and prints `root`, confirming the privilege escalation worked. Use this pattern to verify `sudo` is configured for your user before running anything risky.
+
+**Notes:**
+
+- Root's home directory is **`/root`**, not `/home/root`.
+- On Ubuntu/Debian-based systems, the **root password is disabled by default** — use `sudo` instead of `su`. Set one with `sudo passwd root` only if you really need it.
+- A user can run `sudo` only if they're listed in `/etc/sudoers` (usually by being in the `sudo` or `wheel` group).
+- Prefer `sudo <cmd>` over a long-lived root shell — fewer accidental destructive commands, and every action is logged in `/var/log/auth.log`.
+- The shell prompt usually changes from `$` (regular user) to `#` (root) — a quick visual cue that you're operating with full privileges.
 
 ---
 
