@@ -54,6 +54,10 @@ A personal collection of Linux commands, concepts, and notes gathered while lear
 - [User Management](#user-management)
   - [One Shot Revision](#one-shot-revision-3)
   - [Users and Groups](#users-and-groups)
+  - [/etc/passwd](#etcpasswd)
+  - [/etc/shadow](#etcshadow)
+  - [/etc/group](#etcgroup)
+  - [User Management Tools](#user-management-tools)
   - [root](#root)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
@@ -1180,10 +1184,14 @@ Notes on managing **users**, **groups**, and identities on a Linux system.
 
 ### One Shot Revision
 
-| Command                               | Short Description                                                 |
-| ------------------------------------- | ----------------------------------------------------------------- |
-| [Users and Groups](#users-and-groups) | Create, modify, delete, and switch users and groups (UIDs / GIDs) |
-| [root](#root)                         | The superuser account (UID `0`) and how to act as it safely       |
+| Command                                           | Short Description                                                 |
+| ------------------------------------------------- | ----------------------------------------------------------------- |
+| [Users and Groups](#users-and-groups)             | Create, modify, delete, and switch users and groups (UIDs / GIDs) |
+| [/etc/passwd](#etcpasswd)                         | User account records — one line per user, 7 colon-separated fields |
+| [/etc/shadow](#etcshadow)                         | Encrypted passwords and aging info (root-readable only)           |
+| [/etc/group](#etcgroup)                           | Group definitions and secondary memberships                       |
+| [User Management Tools](#user-management-tools)   | Command-line tools that manage users, groups, and passwords       |
+| [root](#root)                                     | The superuser account (UID `0`) and how to act as it safely       |
 
 ### Users and Groups
 
@@ -1206,6 +1214,141 @@ Notes on managing **users**, **groups**, and identities on a Linux system.
 - A user has **one primary group** (the GID in `/etc/passwd`) and may belong to many **secondary groups** (listed in `/etc/group`).
 - Always use `usermod -aG` (append) when adding secondary groups — plain `-G` **replaces** the list and can lock a user out of `sudo`.
 - View a user's password aging with `sudo chage -l <user>`.
+
+### /etc/passwd
+
+**Description:** The **`/etc/passwd`** file holds an entry for every user account on the system — both human users and system accounts. It is **world-readable** so programs can map UIDs to usernames. Each line is a **colon-separated** record of 7 fields.
+
+**Format:**
+
+```
+username:x:UID:GID:GECOS:home:shell
+```
+
+| Field      | Meaning                                                                     |
+| ---------- | --------------------------------------------------------------------------- |
+| `username` | Login name (e.g. `tarek`).                                                  |
+| `x`        | Placeholder — the actual password hash lives in `/etc/shadow`.              |
+| `UID`      | **User ID** (e.g. `1000`). `0` is root; `<1000` is usually system accounts. |
+| `GID`      | **Primary group ID** (links to `/etc/group`).                               |
+| `GECOS`    | Full name / description (often the user's display name, may be empty).      |
+| `home`     | Path to the user's home directory (e.g. `/home/tarek`).                     |
+| `shell`    | Default login shell (e.g. `/bin/bash`, or `/usr/sbin/nologin` for daemons). |
+
+**Example:**
+
+```bash
+grep ^tarek /etc/passwd
+```
+
+Prints the line for user `tarek`, e.g. `tarek:x:1000:1000:Tarek Mahmud:/home/tarek:/bin/bash`.
+
+**Notes:**
+
+- Quick list of all usernames on the system: `cut -d ":" -f 1 /etc/passwd`.
+- Never edit this file by hand — use `useradd` / `usermod` / `userdel`, or `sudo vipw` (which locks the file safely while you edit).
+- A shell of `/usr/sbin/nologin` or `/bin/false` blocks interactive logins — common for service accounts.
+
+### /etc/shadow
+
+**Description:** The **`/etc/shadow`** file stores the **hashed passwords** and password-aging info for every account. It is **only readable by root** (mode `0640`, owner `root:shadow`) so the hashes are not exposed to attackers.
+
+**Format:**
+
+```
+username:hash:lastchange:min:max:warn:inactive:expire:reserved
+```
+
+| Field        | Meaning                                                                       |
+| ------------ | ----------------------------------------------------------------------------- |
+| `username`   | Login name — matches `/etc/passwd`.                                           |
+| `hash`       | The hashed password (e.g. `$6$...` for SHA-512). `!` or `*` means **locked**. |
+| `lastchange` | Days since 1970-01-01 when the password was last changed.                     |
+| `min`        | Minimum days between password changes.                                        |
+| `max`        | Maximum days the password is valid before it must be changed.                 |
+| `warn`       | Days of warning before the password expires.                                  |
+| `inactive`   | Days after expiry before the account is disabled.                             |
+| `expire`     | Account expiry date (days since 1970-01-01).                                  |
+
+**Example:**
+
+```bash
+sudo grep ^tarek /etc/shadow
+```
+
+Shows the shadow line for `tarek`, e.g. `tarek:$6$abc...:19500:0:99999:7:::`.
+
+**Notes:**
+
+- A `!` or `*` in the hash field means the account is **locked** (can't log in with a password). Lock with `sudo passwd -l <user>`, unlock with `sudo passwd -u <user>`.
+- Modify safely via `passwd`, `chage`, or `sudo vipw -s` (the shadow variant of `vipw`).
+- The `$6$` prefix in the hash indicates SHA-512; `$5$` is SHA-256; older systems used `$1$` (MD5, deprecated).
+
+### /etc/group
+
+**Description:** The **`/etc/group`** file lists every group on the system, along with its GID and the **secondary members** of that group. It is **world-readable**, like `/etc/passwd`.
+
+**Format:**
+
+```
+groupname:x:GID:member1,member2,...
+```
+
+| Field       | Meaning                                                                    |
+| ----------- | -------------------------------------------------------------------------- |
+| `groupname` | Group name (e.g. `sudo`, `developers`).                                    |
+| `x`         | Placeholder for the group password (rarely used, lives in `/etc/gshadow`). |
+| `GID`       | **Group ID** number.                                                       |
+| `members`   | Comma-separated list of users for whom this is a **secondary** group.      |
+
+**Example:**
+
+```bash
+grep ^sudo /etc/group
+```
+
+Prints the `sudo` group line, e.g. `sudo:x:27:tarek,alice` — meaning `tarek` and `alice` are members of `sudo` and can therefore run privileged commands.
+
+**Notes:**
+
+- A user's **primary group** is set by the `GID` field in `/etc/passwd`, not by being listed here — `/etc/group` only records **secondary** memberships.
+- `groups <user>` is the quickest way to see every group a user belongs to.
+- Manage with `groupadd`, `groupmod`, `groupdel`, and `gpasswd -a <user> <group>` / `gpasswd -d <user> <group>` to add or remove members.
+
+### User Management Tools
+
+**Description:** A bundle of **command-line tools** for creating, modifying, and inspecting users and groups. These all wrap reads / writes to `/etc/passwd`, `/etc/shadow`, and `/etc/group` — prefer them over editing the files by hand.
+
+**Common Tools:**
+
+| Tool                       | Purpose                                                                     |
+| -------------------------- | --------------------------------------------------------------------------- |
+| `useradd <user>`           | Create a new user account.                                                  |
+| `usermod <options> <user>` | Modify an existing user (shell, home, groups, name, ...).                   |
+| `userdel <user>`           | Delete a user (`-r` also removes the home directory).                       |
+| `passwd <user>`            | Set or change a user's password (run as root for other users).              |
+| `chage <user>`             | View or change password **aging** info (`chage -l <user>` to view).         |
+| `groupadd <group>`         | Create a new group.                                                         |
+| `groupmod <opts> <group>`  | Rename or change the GID of a group.                                        |
+| `groupdel <group>`         | Delete a group.                                                             |
+| `gpasswd <group>`          | Manage group members and admins (`-a` to add, `-d` to delete).              |
+| `id <user>`                | Show UID, GID, and group memberships.                                       |
+| `getent passwd <user>`     | Look up a user via NSS (works for LDAP / SSSD users, not just local files). |
+| `who` / `w` / `last`       | Show currently / recently logged-in users.                                  |
+
+**Example:**
+
+```bash
+sudo useradd -m -s /bin/bash -G sudo alice && sudo passwd alice
+```
+
+Creates user `alice` with a **home directory** (`-m`), `bash` as the **login shell** (`-s`), adds her to the `sudo` group (`-G`), then prompts you to set her password.
+
+**Notes:**
+
+- On Debian / Ubuntu, **`adduser`** is a friendlier, interactive wrapper around `useradd` that prompts for each option and sets sane defaults.
+- Always use `usermod -aG <group> <user>` (note the `-a`!) when adding to **secondary** groups — without `-a`, `-G` overwrites the entire group list.
+- For service accounts, pair `useradd` with `--system --shell /usr/sbin/nologin --no-create-home` so the account can own files / processes without being usable for login.
 
 ### root
 
