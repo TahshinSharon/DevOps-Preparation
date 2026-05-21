@@ -60,7 +60,7 @@ This repo is my **DevOps learning journal** — a growing collection of focused 
 DevOps-Preparation/
 ├── README.md                ← you are here
 ├── Linux/
-│   └── README.md            ← Linux commands, text-fu, user management, ...
+│   └── README.md            ← Linux commands, text formating, user management, ...
 └── Git-Github/
     └── README.md            ← Git workflows, branching, GitHub & gh CLI, Actions, ...
 ```
@@ -102,8 +102,8 @@ Inside every command entry you'll find:
 Foundational shell skills — the bread and butter of any DevOps role.
 
 - **Basic Commands** — `pwd`, `cd`, `ls`, `cp`, `mv`, `rm`, `find`, `man`, ...
-- **Text-Fu** — pipes, redirection, `cut`, `sort`, `uniq`, `grep`, `wc`, ...
-- **Advanced Text-Fu** — regular expressions and the `vim` editor.
+- **Text-Formating** — pipes, redirection, `cut`, `sort`, `uniq`, `grep`, `wc`, ...
+- **Advanced Text-Formating** — regular expressions and the `vim` editor.
 - **User Management** — `/etc/passwd`, `/etc/shadow`, `useradd`, `usermod`, `sudo`, root.
 
 → [Open the Linux notes](./Linux/README.md)

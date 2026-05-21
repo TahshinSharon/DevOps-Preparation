@@ -53,7 +53,7 @@
   - [whatis](#whatis)
   - [alias](#alias)
   - [exit](#exit)
-- [Text-Fu](#text-fu)
+- [Text-Formating](#text-formating)
   - [One Shot Revision](#one-shot-revision-1)
   - [Pipe & Tee](#pipe--tee)
   - [Environment](#env-environment)
@@ -71,7 +71,7 @@
   - [wc](#wc)
   - [nl](#nl)
   - [grep](#grep)
-- [Advanced Text-Fu](#advanced-text-fu)
+- [Advanced Text-Formating](#advanced-text-formating)
   - [One Shot Revision](#one-shot-revision-2)
   - [regex (Regular Expressions)](#regex-regular-expressions)
   - [vim editor](#vim-editor)
@@ -355,7 +355,7 @@ Closes the current shell. If it was your login shell or terminal tab, that windo
 
 ---
 
-## Text-Fu
+## Text-Formating
 
 Notes on text processing commands in Linux — viewing, searching, filtering, and transforming text.
 
@@ -1033,7 +1033,7 @@ Shows every line **except** comments (lines starting with `#`).
 
 ---
 
-## Advanced Text-Fu
+## Advanced Text-Formating
 
 Notes on more advanced text-processing tools — pattern matching, scripting, and stream editing.
 
