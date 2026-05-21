@@ -1399,3 +1399,5 @@ Runs the `whoami` command **as root** and prints `root`, confirming the privileg
 
 - [Linux Journey on LabEx](https://labex.io/linuxjourney)
 - [tldr pages](https://tldr.sh/)
+- [BongoDev](https://www.bongodev.com/)
+- [BongoDev on GitHub](https://github.com/bongodev)
