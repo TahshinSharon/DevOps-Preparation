@@ -2,6 +2,10 @@
 
 A personal collection of Linux commands, concepts, and notes gathered while learning.
 
+<p align="center">
+  <a href="https://tahshinsharon.github.io/"><b>Visit My Portfolio</b></a>
+</p>
+
 ---
 
 ## Table of Contents
