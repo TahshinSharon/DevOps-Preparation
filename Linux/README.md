@@ -1,9 +1,29 @@
-# Linux Learning Notes
+<h1 align="center">Linux Learning Notes</h1>
 
-A personal collection of Linux commands, concepts, and notes gathered while learning.
+<p align="center">
+  A personal collection of Linux commands, concepts,<br>
+  and notes gathered while learning.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux">
+  <img src="https://img.shields.io/badge/Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white" alt="Bash">
+  <img src="https://img.shields.io/badge/Zsh-89E051?style=for-the-badge&logo=zsh&logoColor=black" alt="Zsh">
+  <img src="https://img.shields.io/badge/Vim-019733?style=for-the-badge&logo=vim&logoColor=white" alt="Vim">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Sections-4-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
+  <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
+</p>
 
 <p align="center">
   <a href="https://tahshinsharon.github.io/"><b>Visit My Portfolio</b></a>
+  &nbsp;·&nbsp;
+  <a href="../README.md"><b>Back to DevOps Prep</b></a>
+  &nbsp;·&nbsp;
+  <a href="../Git-Github/README.md"><b>Git &amp; GitHub Notes</b></a>
 </p>
 
 ---
@@ -1401,3 +1421,15 @@ Runs the `whoami` command **as root** and prints `root`, confirming the privileg
 - [tldr pages](https://tldr.sh/)
 - [BongoDev](https://www.bongodev.com/)
 - [BongoDev on GitHub](https://github.com/bongodev)
+
+---
+
+<p align="center">
+  <sub>Part of the <a href="../README.md"><b>DevOps Preparation</b></a> repository — maintained by <b>Tahshin Sharon</b></sub>
+</p>
+
+<p align="center">
+  <a href="https://tahshinsharon.github.io/"><b>Visit My Portfolio</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/TahshinSharon"><b>GitHub</b></a>
+</p>

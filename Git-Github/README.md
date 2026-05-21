@@ -1,9 +1,29 @@
-# Git & GitHub Learning Notes
+<h1 align="center">Git &amp; GitHub Learning Notes</h1>
 
-A personal collection of Git commands, GitHub workflows, concepts, and notes gathered while learning.
+<p align="center">
+  A personal collection of Git commands, GitHub workflows,<br>
+  concepts, and notes gathered while learning.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Git-F05032?style=for-the-badge&logo=git&logoColor=white" alt="Git">
+  <img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub">
+  <img src="https://img.shields.io/badge/GitHub%20Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white" alt="GitHub Actions">
+  <img src="https://img.shields.io/badge/GitHub%20CLI-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub CLI">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Sections-8-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Level-Beginner→Advanced-orange?style=flat-square" alt="Level">
+  <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
+</p>
 
 <p align="center">
   <a href="https://tahshinsharon.github.io/"><b>Visit My Portfolio</b></a>
+  &nbsp;·&nbsp;
+  <a href="../README.md"><b>Back to DevOps Prep</b></a>
+  &nbsp;·&nbsp;
+  <a href="../Linux/README.md"><b>Linux Notes</b></a>
 </p>
 
 ---
@@ -1741,3 +1761,15 @@ on:
 - [Atlassian Git Tutorials](https://www.atlassian.com/git/tutorials)
 - [BongoDev](https://www.bongodev.com/)
 - [BongoDev on GitHub](https://github.com/bongodev)
+
+---
+
+<p align="center">
+  <sub>Part of the <a href="../README.md"><b>DevOps Preparation</b></a> repository — maintained by <b>Tahshin Sharon</b></sub>
+</p>
+
+<p align="center">
+  <a href="https://tahshinsharon.github.io/"><b>Visit My Portfolio</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/TahshinSharon"><b>GitHub</b></a>
+</p>
