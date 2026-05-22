@@ -105,6 +105,7 @@ Foundational shell skills — the bread and butter of any DevOps role.
 - **Text-Formating** — pipes, redirection, `cut`, `sort`, `uniq`, `grep`, `wc`, ...
 - **Advanced Text-Formating** — regular expressions and the `vim` editor.
 - **User Management** — `/etc/passwd`, `/etc/shadow`, `useradd`, `usermod`, `sudo`, root.
+- **Permissions** — file permission bits (`rwx`), user/group/other classes, symbolic vs octal notation.
 
 → [Open the Linux notes](./Linux/README.md)
 
