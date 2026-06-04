@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-5-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-6-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -93,6 +93,22 @@
   - [Setgid](#setgid)
   - [Process Permissions](#process-permissions)
   - [The Sticky Bit](#the-sticky-bit)
+- [Processes](#processes)
+  - [One Shot Revision](#one-shot-revision-5)
+  - [Process Concepts](#process-concepts)
+  - [ps](#ps)
+  - [Controlling Terminal](#controlling-terminal)
+  - [Process Details](#process-details)
+  - [top](#top)
+  - [htop](#htop)
+  - [pstree](#pstree)
+  - [pgrep & pkill](#pgrep--pkill)
+  - [kill](#kill)
+  - [Signals](#signals)
+  - [Job Control](#job-control)
+  - [nohup & disown](#nohup--disown)
+  - [nice & renice](#nice--renice)
+  - [/proc Filesystem](#proc-filesystem)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -2146,6 +2162,835 @@ Common results: `/tmp`, `/var/tmp`, `/dev/shm`.
 - **Root bypasses the sticky check** — root can rename or delete anything regardless of who owns the file.
 - The **file's permissions are not checked** for the sticky restriction; only the **ownership** of the file and the directory matter. You can't grant deletion rights to others by tweaking the file's mode — they have to be the file's owner.
 - Sticky pairs naturally with `chmod o+rwx` for shared dirs; for **group-only** drop folders, use **setgid + write-for-group** instead (see [Setgid](#setgid)) — sticky is overkill when access is already restricted by group membership.
+
+---
+
+## Processes
+
+Notes on Linux **processes** — every running program is a process, identified by a **PID**, owned by a user, and reachable through **signals**. This section covers how to list them, watch them, signal them, and control them from the shell.
+
+### One Shot Revision
+
+| Command                                       | Short Description                                                            |
+| --------------------------------------------- | ---------------------------------------------------------------------------- |
+| [Process Concepts](#process-concepts)         | PID, PPID, the **fork / exec** model, and the process **state** codes        |
+| [ps](#ps)                                     | One-shot **snapshot** of running processes                                   |
+| [Controlling Terminal](#controlling-terminal) | The **TTY** a process is tied to — TTY column, `?` for daemons, `setsid`     |
+| [Process Details](#process-details)           | Drill into one PID — `pidof`, `lsof`, `pwdx`, fd / cwd / env via `/proc`     |
+| [top](#top)                                   | Real-time, interactive view of CPU / memory usage                            |
+| [htop](#htop)                                 | Friendlier, colorized alternative to `top` with mouse and tree view          |
+| [pstree](#pstree)                             | Show the **parent / child** process hierarchy as a tree                      |
+| [pgrep & pkill](#pgrep--pkill)                | Find or signal processes **by name / pattern** instead of PID                |
+| [kill](#kill)                                 | Send a signal to a process by **PID** — defaults to `SIGTERM`                |
+| [Signals](#signals)                           | The signal table — `TERM`, `KILL`, `HUP`, `INT`, `STOP`, `CONT`, ...         |
+| [Job Control](#job-control)                   | `&`, `Ctrl+Z`, `jobs`, `fg`, `bg` — shell foreground / background management |
+| [nohup & disown](#nohup--disown)              | Keep a job running **after the shell exits**                                 |
+| [nice & renice](#nice--renice)                | Adjust a process's **scheduling priority** (CPU politeness)                  |
+| [/proc Filesystem](#proc-filesystem)          | Virtual filesystem exposing **live kernel and process state** as files       |
+
+### Process Concepts
+
+**Description:** A **process** is a running instance of a program. The kernel gives every process a unique **PID** (process ID), records its **PPID** (parent's PID), tracks which **user** it runs as (RUID/EUID), and accounts for its CPU time, memory, and open files. New processes are created by **`fork()`** (which clones the parent) and then usually call **`exec()`** to replace themselves with a new program — that's how every command you type from the shell actually starts.
+
+**Key identifiers:**
+
+| Field   | Meaning                                                                            |
+| ------- | ---------------------------------------------------------------------------------- |
+| `PID`   | Process ID — unique integer assigned by the kernel.                                |
+| `PPID`  | Parent PID — the process that `fork()`ed this one.                                 |
+| `UID`   | Real user ID — the user who originally started the process.                        |
+| `EUID`  | Effective UID — the identity used for **permission checks** (changed by setuid).   |
+| `PGID`  | Process group ID — used for **signal delivery** to a whole pipeline.               |
+| `SID`   | Session ID — usually the shell that started the job; `setsid` detaches from it.    |
+| `TTY`   | Controlling terminal — `?` means **no terminal** (typical for daemons).            |
+| `NI`    | Nice value — scheduling politeness (`-20` highest priority → `+19` lowest).        |
+
+**Process states (`STAT` column in `ps`):**
+
+| Code | Meaning                                                                              |
+| ---- | ------------------------------------------------------------------------------------ |
+| `R`  | **Running** or runnable — on the CPU, or in the run queue waiting for it.            |
+| `S`  | **Interruptible sleep** — waiting for an event (most processes are here most of the time). |
+| `D`  | **Uninterruptible sleep** — usually blocked on I/O; cannot be killed until it returns. |
+| `T`  | **Stopped** — paused by a signal (`SIGSTOP` / `SIGTSTP`, e.g. after `Ctrl+Z`).        |
+| `Z`  | **Zombie** — exited but not yet reaped by its parent; only a `task_struct` remains.  |
+| `I`  | **Idle** kernel thread — like `S` but excluded from load average.                    |
+
+Additional flags often appended: `s` (session leader), `+` (foreground group), `l` (multi-threaded), `<` (high priority), `N` (low priority).
+
+**The lifecycle in one diagram:**
+
+```
+fork()      → child created (copy of parent)
+exec()      → child replaces itself with a new program
+wait()      → parent collects the child's exit status
+              (without wait(), the child becomes a zombie)
+```
+
+A process whose parent dies before it does is **reparented to PID 1** (init / systemd), which keeps calling `wait()` so orphans don't accumulate as zombies.
+
+**Notes:**
+
+- **PID 1** is special — it's the first process the kernel starts (today: `systemd` on most distros) and the ancestor of every other process. Killing PID 1 kernel-panics the system.
+- **Zombies** are not dangerous in small numbers but indicate a buggy parent that isn't reaping its children. A flood of zombies can exhaust the PID table.
+- A process inherits the parent's **environment variables, open file descriptors, working directory, umask, and UID/GID** at `fork()` time. `exec()` keeps the file descriptors and identity but replaces the code and memory map.
+- The kernel addresses processes by **PID**, but PIDs are **reused** after a process exits — long-lived scripts that store a PID should re-check it (or use cgroups / `systemd` units) before signaling.
+
+### ps
+
+**Description:** `ps` prints a **one-shot snapshot** of the processes running at the moment you run it — unlike `top`, it doesn't refresh. It accepts two competing flag families: **BSD style** (no dashes, e.g. `aux`) and **UNIX style** (with dashes, e.g. `-ef`). Both are universally accepted; pick one and stick with it.
+
+**Syntax:**
+
+```bash
+ps [options]
+```
+
+**Common Options:**
+
+| Option       | Style  | Description                                                              |
+| ------------ | ------ | ------------------------------------------------------------------------ |
+| `aux`        | BSD    | **All** processes, **u**ser-oriented format, including those **x** without a TTY |
+| `-ef`        | UNIX   | **Every** process, **f**ull format (PID, PPID, command, time, ...)         |
+| `-eLf`       | UNIX   | Like `-ef` but show **threads** (LWPs) too                               |
+| `-u <user>`  | UNIX   | Only processes owned by `<user>`                                         |
+| `-p <pid>`   | UNIX   | Only the given PID(s) — comma-separated                                  |
+| `-o <cols>`  | UNIX   | Pick output columns — e.g. `-o pid,user,stat,cmd`                        |
+| `--sort`     | GNU    | Sort by a column — `--sort=-%cpu` for highest CPU first                  |
+| `-H`         | UNIX   | Indent children under parents (forest view)                              |
+| `--forest`   | GNU    | ASCII tree view (similar to `pstree`)                                    |
+
+**Examples:**
+
+```bash
+ps aux
+# Snapshot of every process on the system, with USER, %CPU, %MEM, STAT, START, COMMAND
+
+ps -ef
+# Same idea in UNIX format — shows PPID (useful for finding parents)
+
+ps -ef | grep nginx
+# Quick search by command name — pipe into grep
+# (prefer `pgrep nginx` for cleaner output; see below)
+
+ps -u tarek
+# Only processes owned by user 'tarek'
+
+ps -o pid,ppid,user,stat,%cpu,%mem,cmd --sort=-%cpu | head
+# Top 10 processes by CPU, custom columns
+```
+
+**Notes:**
+
+- **`ps aux`** is the most common everyday invocation — memorize it. `aux` and `-ef` show roughly the same data in different column orders.
+- The `STAT` column merges the **process state** (see [Process Concepts](#process-concepts)) with flags like `+` (foreground), `s` (session leader), `<` (high priority).
+- Use **`--sort=-%cpu`** or **`--sort=-rss`** to surface the heaviest processes without piping into `sort`.
+- `ps` reads from **`/proc`** — the data is as live as the kernel, but it's still a snapshot. For continuous monitoring, use [top](#top) or [htop](#htop).
+- On macOS / BSD, only the **BSD-style** flags work and column names differ — these notes target Linux.
+
+### Controlling Terminal
+
+**Description:** The **controlling terminal** (sometimes called the **controlling TTY**) is the terminal device a process is attached to for keyboard input and signal delivery. It's how `Ctrl+C`, `Ctrl+Z`, and `Ctrl+\` reach the right job — the kernel routes those keystrokes through the TTY driver into the **foreground process group** of the terminal's **session**. A process **without** a controlling terminal — typical for daemons — shows up as `?` in the `TTY` column of `ps`.
+
+**How TTYs appear in `ps`:**
+
+| `TTY` value     | Meaning                                                                          |
+| --------------- | -------------------------------------------------------------------------------- |
+| `tty1`–`tty6`   | Local **virtual console** on the physical machine (Ctrl+Alt+F1…F6)               |
+| `pts/0`, `pts/1`| **Pseudo-terminal** — every SSH session, terminal emulator, `tmux` pane gets one |
+| `console`       | The kernel's primary console — boot messages, single-user mode                   |
+| `?`             | **No controlling terminal** — daemon, kernel thread, or process detached via `setsid` |
+
+**Who controls what:**
+
+- Each **session** has at most **one** controlling terminal.
+- Each controlling terminal has at most **one foreground process group** at a time — the one that receives keyboard signals.
+- Background jobs (`cmd &`) share the same TTY but are **not** in the foreground group; they get `SIGTTIN` / `SIGTTOU` if they try to read from / write to the terminal.
+- The shell's **job control** (`fg`, `bg`) is just the shell moving job groups in and out of the terminal's foreground slot via `tcsetpgrp(2)`.
+
+**Inspecting and detaching:**
+
+```bash
+tty
+# Print the TTY of the current shell, e.g. /dev/pts/3
+
+ps -o pid,tty,stat,cmd
+# See which TTY each process is on, and whether it's foreground (`+` in STAT)
+
+ps -eo pid,tty,user,cmd | awk '$2 == "?"'
+# Every process with NO controlling terminal — daemons, kernel threads
+
+who
+# Logged-in users and the TTYs they're attached to
+
+setsid ./long_job.sh &
+# Start the job in a NEW session with no controlling terminal —
+# stronger than `nohup` because there's no TTY to send SIGHUP from
+
+stty -a
+# Dump the current terminal's settings — line discipline, control chars
+# (this is what maps Ctrl+C → SIGINT for your TTY)
+```
+
+**Examples:**
+
+```bash
+sleep 1000 &
+ps -o pid,tty,stat,cmd -p $!
+#   PID TT       STAT CMD
+#  4321 pts/3    S    sleep 1000
+# Same TTY as the shell, but state is `S` (not `S+`) — background, no `+`.
+
+# Daemons typically show no TTY:
+ps -eo pid,tty,cmd | grep -E 'sshd|cron|systemd' | head
+#   1 ?        /sbin/init
+# 712 ?        /usr/sbin/sshd -D
+# 813 ?        /usr/sbin/cron -f
+```
+
+**Notes:**
+
+- The `+` in the **STAT** column (`R+`, `S+`) means the process is in the **foreground group** of its controlling terminal — it'll catch your `Ctrl+C`. Without `+`, it's a background job.
+- **Closing a terminal sends `SIGHUP`** to its session leader (usually your shell), which by default propagates to every job in that session. That's the exact mechanism [nohup and disown](#nohup--disown) protect against.
+- **`setsid` is stronger than `nohup`** — it creates a brand-new session with no controlling terminal at all, so `SIGHUP` has nowhere to originate from. Modern service managers like `systemd` use this internally.
+- **Daemons explicitly detach** via the classic `fork → setsid → fork` dance to guarantee they never reacquire a TTY — important because a process *with* a controlling terminal can die unexpectedly when that terminal goes away.
+- The kernel exposes the TTY in **`/proc/<pid>/stat`** (field 7, `tty_nr`) — `ps` decodes it back into a name. A `0` there means no controlling terminal.
+
+### Process Details
+
+**Description:** Sometimes you've already pinned down **which PID** you care about — now you want everything about it: its full command line, who started it, where it's running from, what files it has open, how much memory it's using. This subsection collects the everyday tools for that drill-down. Every one of them is a wrapper around **`/proc/<pid>/`** (see [/proc Filesystem](#proc-filesystem)) plus a few syscalls.
+
+**The toolkit:**
+
+| Tool / Path                          | What it tells you                                                          |
+| ------------------------------------ | -------------------------------------------------------------------------- |
+| `pidof <name>`                       | PID(s) of every process running `<name>`                                   |
+| `pgrep -a <pattern>`                 | PIDs **plus** the command line — handier than `pidof` for fuzzy matches    |
+| `ps -fp <pid>`                       | Full **one-line** summary of one PID (user, PPID, start time, command)     |
+| `ps -o pid,ppid,user,etime,cmd -p N` | Custom columns — start with `etime` (elapsed run time) and `cmd`           |
+| `pwdx <pid>`                         | Current **working directory** of a process                                 |
+| `lsof -p <pid>`                      | Every **open file / socket / pipe** the process holds                      |
+| `lsof -i :<port>`                    | Who's listening on or connected to that port (reverse lookup)              |
+| `fuser <file>`                       | Which PIDs have **this file** open — e.g. who's holding `/var/log/...`     |
+| `readlink /proc/<pid>/exe`           | Path to the actual **executable** on disk                                  |
+| `readlink /proc/<pid>/cwd`           | Same idea for **cwd** (what `pwdx` reports)                                |
+| `cat /proc/<pid>/status`             | Human-readable: state, UIDs, threads, memory, signal masks                 |
+| `cat /proc/<pid>/cmdline`            | Full argv (null-byte separated — pipe through `tr '\0' ' '`)               |
+| `cat /proc/<pid>/environ`            | Environment variables the process started with                             |
+| `ls -l /proc/<pid>/fd`               | Every open file descriptor, as symlinks to the underlying target           |
+
+**Examples:**
+
+```bash
+pidof sshd
+# 712 698 654 ...   — every sshd process at once
+
+pgrep -a "python.*train"
+# 4321 python train.py --epochs 50   — PID plus matching command line
+
+ps -fp 4321
+# UID    PID  PPID  C STIME TTY      TIME     CMD
+# tarek 4321  4100  3 14:02 pts/3    00:00:42 python train.py --epochs 50
+
+ps -o pid,etime,user,cmd -p 4321
+#   PID     ELAPSED USER     CMD
+#  4321    00:42:18 tarek    python train.py --epochs 50
+
+pwdx 4321
+# 4321: /home/tarek/projects/ml-experiment
+
+readlink /proc/4321/exe
+# /usr/bin/python3.11   — even survives if the binary was upgraded mid-run
+
+lsof -p 4321 | head
+# Open files: the script, libraries (.so), log files, sockets, /dev/null, ...
+
+lsof -i :8080
+# Who is listening on (or connected to) port 8080
+
+fuser -v /var/log/app.log
+# Every PID that currently has app.log open — find the writer before rotating
+
+ls -l /proc/4321/fd
+# lr-x------ ... 0 -> /dev/null
+# l-wx------ ... 1 -> /home/tarek/job.log
+# l-wx------ ... 2 -> /home/tarek/job.log
+# lrwx------ ... 3 -> 'socket:[12345678]'
+
+tr '\0' '\n' < /proc/4321/environ | grep -E '^(PATH|HOME|LD_)'
+# Useful slice of the process's environment — debug "why isn't it finding X?"
+```
+
+**Putting it together — typical "what is this process actually doing?" combo:**
+
+```bash
+PID=4321
+ps -fp "$PID"                           # who / when / what command
+pwdx "$PID"                             # where it's running from
+readlink /proc/$PID/exe                 # which binary on disk
+ls -l /proc/$PID/fd                     # open files & sockets
+awk '/State|Uid|Threads|VmRSS/' /proc/$PID/status   # state + memory snapshot
+```
+
+**Notes:**
+
+- **`lsof` needs root** to see other users' open files in full — without it you only see your own processes.
+- **`pidof` matches only the basename of the executable** (the `comm` field, max 15 chars). For scripts run via interpreters (`python foo.py`), `pidof foo.py` returns nothing — use `pgrep -f` instead.
+- **`/proc/<pid>/cmdline` is empty for kernel threads** (PIDs in square brackets in `ps`, like `[kworker/0:1]`). They have no user-space command line.
+- The **`exe` symlink survives upgrades** — if a long-running process was started from `/usr/bin/python3.10` and the package is replaced, `readlink` still shows the path with a ` (deleted)` suffix, telling you the running binary no longer matches the file on disk. Good early warning for "needs restart after upgrade."
+- For a **live, top-style breakdown of one PID** (CPU, memory, syscalls, I/O), look at `pidstat -p <pid> 1`, `top -p <pid>`, or `strace -p <pid>` — each is a deeper drill-down than the snapshot tools above.
+
+### top
+
+**Description:** `top` is the classic **real-time** process viewer — it redraws every few seconds and shows CPU, memory, load average, and a sortable per-process table. It ships on every Linux system, so it's the fallback when you can't install [htop](#htop).
+
+**Syntax:**
+
+```bash
+top [options]
+```
+
+**Common Options:**
+
+| Option        | Description                                                              |
+| ------------- | ------------------------------------------------------------------------ |
+| `-d <secs>`   | Refresh **delay** in seconds (default ~3)                                |
+| `-n <count>`  | Exit after `<count>` refreshes (useful for scripting)                    |
+| `-u <user>`   | Only show processes owned by `<user>`                                    |
+| `-p <pids>`   | Watch only specific PIDs                                                 |
+| `-H`          | Show **threads** instead of just processes                               |
+| `-b`          | **Batch** mode — print to stdout (no curses), good for logging           |
+| `-o <field>`  | Sort by the given field — e.g. `-o %MEM`                                 |
+
+**Interactive keys (while top is running):**
+
+| Key       | Action                                                                |
+| --------- | --------------------------------------------------------------------- |
+| `P`       | Sort by **CPU%** (the default)                                        |
+| `M`       | Sort by **memory** (RES)                                              |
+| `T`       | Sort by **TIME+** (cumulative CPU time)                               |
+| `k`       | **Kill** a process — prompts for PID, then signal                     |
+| `r`       | **Renice** a process — prompts for PID, then new nice value           |
+| `u`       | Filter by **user**                                                    |
+| `1`       | Toggle **per-CPU** breakdown in the header                            |
+| `c`       | Toggle **full command line** vs short command name                    |
+| `H`       | Toggle thread view                                                    |
+| `q`       | Quit                                                                  |
+
+**Examples:**
+
+```bash
+top
+# Standard interactive view
+
+top -d 1
+# Refresh every 1 second (default is ~3s) — heavier but more responsive
+
+top -bn1 | head -20
+# One-shot batch dump — useful in scripts and ssh-loops
+# `-b` = batch mode, `-n1` = a single iteration
+
+top -u www-data
+# Only show processes owned by the web server user
+```
+
+**Notes:**
+
+- The header shows **load averages** (1 / 5 / 15-minute) — a load above your CPU count means there's a queue, not just busy CPUs.
+- **CPU% in `top` can exceed 100%** for multi-threaded processes — `100%` = one full core. A process pinning four cores will read `400%`.
+- **`Shift+E`** toggles memory units in the header (KB / MB / GB / TB); **`e`** toggles them in the per-process column.
+- `top` reads its config from `~/.config/procps/toprc` — press **`W`** while running to save your current layout (columns, sort, refresh) for next time.
+- For continuous logging, prefer **`top -b -d 5 >> top.log`** over piping the interactive view.
+
+### htop
+
+**Description:** `htop` is a **friendlier `top` replacement** — colorized, mouse-aware, with built-in tree view, easy multi-selection, and visible CPU / memory bars in the header. It's not installed by default on most distros (`apt install htop`, `dnf install htop`).
+
+**Syntax:**
+
+```bash
+htop [options]
+```
+
+**Common Options:**
+
+| Option        | Description                                                              |
+| ------------- | ------------------------------------------------------------------------ |
+| `-d <secs>`   | Refresh delay in **tenths** of a second (so `-d 10` = 1s)                |
+| `-u <user>`   | Only show `<user>`'s processes                                           |
+| `-p <pids>`   | Only show specific PIDs                                                  |
+| `-t`          | Start in **tree** view                                                   |
+| `-s <col>`    | Sort by column at startup — e.g. `-s PERCENT_MEM`                        |
+
+**Interactive keys:**
+
+| Key       | Action                                                                |
+| --------- | --------------------------------------------------------------------- |
+| `F2`      | Setup — customize meters, columns, colors                             |
+| `F3`      | Search (like `vim`'s `/`) — jumps to matching process                 |
+| `F4`      | Filter — only matching processes shown                                |
+| `F5`      | Toggle **tree** view                                                  |
+| `F6`      | Pick sort column                                                      |
+| `F7 / F8` | Decrease / increase nice value of selected process                    |
+| `F9`      | Send signal (kill menu)                                               |
+| `F10`     | Quit                                                                  |
+| `Space`   | Tag a process (act on multiple at once)                               |
+| `U`       | Untag all                                                             |
+| `H`       | Toggle user-thread display                                            |
+| `K`       | Toggle kernel-thread display                                          |
+
+**Examples:**
+
+```bash
+htop
+# Default interactive view
+
+htop -u tarek
+# Only show your own processes
+
+htop -t
+# Start directly in tree view — handy for tracing parent-child relationships
+```
+
+**Notes:**
+
+- The CPU / memory / swap **bars** at the top are the headline feature — instant load visibility without parsing numbers.
+- **Tagging with `Space`** then pressing `F9` lets you kill or renice many processes at once — useful when a runaway service has spawned dozens of workers.
+- htop relies on `/proc`; inside an unprivileged container it may show host-level numbers in the header but only the container's processes in the list — don't trust the CPU bars from inside Docker without checking cgroup limits.
+- Config lives at `~/.config/htop/htoprc` — back it up across machines for a consistent layout.
+
+### pstree
+
+**Description:** `pstree` prints the **process hierarchy as a tree** — a much easier way to see parent / child relationships than scrolling through `ps` looking for matching PPIDs. Useful for understanding how a shell, daemon, or container's processes are structured.
+
+**Syntax:**
+
+```bash
+pstree [options] [pid | user]
+```
+
+**Common Options:**
+
+| Option        | Description                                                              |
+| ------------- | ------------------------------------------------------------------------ |
+| `-p`          | Show **PIDs** next to each process name                                  |
+| `-a`          | Show full **command-line arguments**                                     |
+| `-u`          | Show the process **user** in parentheses when it changes                 |
+| `-T`          | Hide **threads** (default on newer versions)                             |
+| `-H <pid>`    | Highlight the given PID in the tree                                      |
+| `-n`          | Sort children by **PID** rather than name                                |
+| `-s <pid>`    | Show only the **ancestors** of `<pid>`                                   |
+
+**Examples:**
+
+```bash
+pstree
+# Tree from PID 1 down — quick overview of the whole system
+
+pstree -p
+# Same, with PIDs in parentheses next to each name
+
+pstree -ap $$
+# Tree starting at your current shell ($$), with arguments and PIDs
+# Great for seeing your own background jobs and subshells
+
+pstree -s 1234
+# Walk from PID 1234 up to PID 1 — find a process's ancestry chain
+```
+
+**Notes:**
+
+- Identical sibling processes are **collapsed** with a count, like `nginx───4*[nginx]` — pass `-c` to expand them.
+- **`pstree -ap | less`** is the fastest way to audit "what is this machine actually running" after SSHing into an unfamiliar box.
+- The forest view in `ps --forest` or `ps f` produces similar output and is available when `pstree` isn't installed.
+
+### pgrep & pkill
+
+**Description:** `pgrep` finds PIDs **by name or pattern**; `pkill` does the same but **sends a signal** to each match. Together they replace the clunky `ps aux | grep ... | awk '{print $2}' | xargs kill` pipeline that everyone writes once and then never wants to write again.
+
+**Syntax:**
+
+```bash
+pgrep [options] <pattern>
+pkill [options] [-SIGNAL] <pattern>
+```
+
+**Common Options (shared):**
+
+| Option         | Description                                                              |
+| -------------- | ------------------------------------------------------------------------ |
+| `-u <user>`    | Only processes owned by `<user>`                                         |
+| `-U <uid>`     | Same, by numeric UID                                                     |
+| `-f`           | Match against the **full command line**, not just the program name       |
+| `-x`           | **Exact** match on the name (no substring)                               |
+| `-n`           | Only the **newest** matching process                                     |
+| `-o`           | Only the **oldest** matching process                                     |
+| `-c`           | Print **count** of matches instead of PIDs                               |
+| `-l`           | (`pgrep` only) Also show process names                                   |
+| `-a`           | (`pgrep` only) Show full command lines                                   |
+| `-SIGNAL`      | (`pkill` only) Signal to send — default is `SIGTERM`                     |
+
+**Examples:**
+
+```bash
+pgrep nginx
+# Print PIDs of every nginx process
+
+pgrep -a sshd
+# PIDs + full command lines for sshd workers
+
+pgrep -u tarek -f "python.*train.py"
+# PIDs of my python training jobs (full cmdline match)
+
+pkill -HUP nginx
+# Send SIGHUP to every nginx process — tells nginx to reload its config
+
+pkill -9 -u alice
+# Force-kill every process owned by alice
+# (-9 = SIGKILL; only use after a polite SIGTERM has failed)
+
+pkill -f "node.*server.js"
+# Kill node processes whose full command line matches — useful when the
+# binary is just 'node' but you want to target a specific script
+```
+
+**Notes:**
+
+- Without `-f`, the pattern only matches the **process name** (first 15 chars, the `comm` field). Use `-f` whenever you care about arguments — e.g. distinguishing two `python` processes by their script name.
+- `pkill` returns **0 if it signaled at least one process**, non-zero otherwise — handy in scripts: `pkill myapp || echo "not running"`.
+- Always **start polite** — `pkill myapp` (SIGTERM) lets the program clean up; `pkill -9 myapp` (SIGKILL) is for processes that ignored the polite request.
+- **Test patterns with `pgrep` first** before running `pkill` — same flags, no side effects. `pgrep -af '^java'` shows you exactly what `pkill -f '^java'` would hit.
+- These are **part of `procps`** on most distros — installed by default alongside `ps`.
+
+### kill
+
+**Description:** `kill` sends a **signal** to a process by PID. The name is a historical leftover — by default it sends `SIGTERM` (a polite "please exit"), not `SIGKILL`. Most everyday uses are reload (`-HUP`) and termination (`-TERM` or `-KILL`).
+
+**Syntax:**
+
+```bash
+kill [-SIGNAL | -s NAME] <pid>...
+kill -l                          # list all signal names
+```
+
+**Common Options:**
+
+| Option            | Description                                                              |
+| ----------------- | ------------------------------------------------------------------------ |
+| `-l`              | List signal **names** and numbers                                        |
+| `-<N>`            | Send signal **number** N (e.g. `-9`)                                     |
+| `-<NAME>`         | Send signal by **name** without the `SIG` prefix (e.g. `-TERM`, `-HUP`)  |
+| `-s <NAME>`       | POSIX form of `-<NAME>`                                                  |
+| `-0 <pid>`        | Send **no signal** — just check whether the PID exists / you can signal it |
+
+**Examples:**
+
+```bash
+kill 4321
+# Send SIGTERM to PID 4321 — the polite default
+
+kill -HUP 4321
+# Send SIGHUP — typically asks daemons to reload their config
+
+kill -9 4321
+# Send SIGKILL — kernel kills the process; cannot be caught or ignored
+# Use this only after SIGTERM has been ignored
+
+kill -STOP 4321
+# Pause the process (like Ctrl+Z) without ending it
+
+kill -CONT 4321
+# Resume a previously stopped process
+
+kill -0 4321 && echo "still running"
+# Check whether PID 4321 exists and you have permission to signal it,
+# without actually disturbing it
+
+kill -- -4321
+# Negative PID = send to entire process **group** 4321
+# (the `--` stops kill from parsing `-4321` as a flag)
+
+kill -l
+# Print the full signal table
+```
+
+**Notes:**
+
+- **Always try `-TERM` first**, then `-KILL`. `SIGTERM` lets the program flush buffers, close files, and exit cleanly; `SIGKILL` can corrupt state.
+- **`SIGKILL` (9) and `SIGSTOP` cannot be caught, blocked, or ignored** — that's by design. A process stuck in **`D` state** (uninterruptible I/O wait) won't even die from `-9` until the I/O completes.
+- **You can only signal your own processes** (real UID match), unless you're root.
+- The **shell built-in `kill`** (in bash / zsh) accepts **job specs** like `kill %1` in addition to PIDs — see [Job Control](#job-control).
+- A **negative PID** signals an entire **process group** — handy for killing a whole pipeline. The leader's PID is the group ID.
+
+### Signals
+
+**Description:** A **signal** is an asynchronous notification the kernel delivers to a process — telling it to terminate, pause, resume, reload, or just "something happened." Most signals can be **caught** (the program installs a handler), **ignored**, or left to the **default action**. Two — **`SIGKILL`** and **`SIGSTOP`** — cannot be touched.
+
+**The signals you'll actually use:**
+
+| #   | Name      | Default Action       | Typical Use                                                       |
+| --- | --------- | -------------------- | ----------------------------------------------------------------- |
+| 1   | `SIGHUP`  | Terminate            | "Hang-up" — daemons treat it as **reload config**                 |
+| 2   | `SIGINT`  | Terminate            | **Interrupt** from keyboard (`Ctrl+C`)                            |
+| 3   | `SIGQUIT` | Terminate + core     | Quit from keyboard (`Ctrl+\`) — dumps core for debugging          |
+| 9   | `SIGKILL` | **Terminate** (forced) | The hammer — kernel kills the process; **cannot be caught**       |
+| 15  | `SIGTERM` | Terminate            | The default for `kill` — **polite** termination request           |
+| 17  | `SIGCHLD` | Ignore               | A child process changed state (exited / stopped)                  |
+| 18  | `SIGCONT` | Continue             | Resume a stopped process                                          |
+| 19  | `SIGSTOP` | **Stop**             | Pause the process; **cannot be caught**                           |
+| 20  | `SIGTSTP` | Stop                 | "Terminal stop" — `Ctrl+Z` from the keyboard                      |
+| 10  | `SIGUSR1` | Terminate            | **User-defined** — many daemons use it for log rotation / reopen  |
+| 12  | `SIGUSR2` | Terminate            | Second user-defined signal                                        |
+| 13  | `SIGPIPE` | Terminate            | Wrote to a pipe with no reader (e.g. `cmd | head` after head exits) |
+| 14  | `SIGALRM` | Terminate            | Timer expired (set by `alarm(2)` or `setitimer`)                  |
+| 11  | `SIGSEGV` | Terminate + core     | Invalid memory access — the classic segfault                      |
+
+Signal numbers vary slightly between architectures — **always prefer names** (`-HUP`, `-TERM`) over numbers in scripts. Run `kill -l` for the canonical list on your system.
+
+**The two unstoppable signals:**
+
+- **`SIGKILL` (9)** — the kernel terminates the process immediately. No cleanup, no chance to flush, no handler runs. Use only when `SIGTERM` is ignored.
+- **`SIGSTOP` (19)** — the kernel suspends the process. It stays in `T` state until it receives `SIGCONT`. Cannot be intercepted, which is what makes it useful for debugging frozen daemons.
+
+**Examples:**
+
+```bash
+kill -HUP $(pgrep -f nginx.conf)
+# Tell every nginx master/worker to re-read its config
+
+kill -USR1 $(pidof rsyslogd)
+# Many syslog daemons reopen their log files on SIGUSR1 — used by logrotate
+
+kill -STOP 4321 ; sleep 30 ; kill -CONT 4321
+# Pause a CPU-hungry job for 30s without losing its state
+
+trap 'echo "got SIGTERM, cleaning up"; exit 0' TERM
+# (inside a shell script) — install a handler so the script exits gracefully
+# when killed
+```
+
+**Notes:**
+
+- **Job-control terminal keys map to signals:** `Ctrl+C` → `SIGINT`, `Ctrl+Z` → `SIGTSTP`, `Ctrl+\` → `SIGQUIT`.
+- A **zombie cannot be signaled** — it's already dead, just waiting to be reaped. Signal its parent (so the parent calls `wait()`) instead.
+- Daemons usually treat **`SIGHUP` as reload** because they have no controlling terminal — there's no real "hangup" to handle, so the signal got repurposed.
+- In containers, **`SIGTERM` is what `docker stop` sends** before falling back to `SIGKILL` after the grace period — your app should handle it cleanly to support fast shutdowns.
+
+### Job Control
+
+**Description:** **Job control** is the shell's mechanism for running multiple commands from a single terminal — pushing one to the **background**, pausing another, and bringing yet another to the **foreground**. Each shell maintains a small table of **jobs** (numbered `%1`, `%2`, …) backed by real PIDs.
+
+**The toolkit:**
+
+| Action / Command          | What it does                                                       |
+| ------------------------- | ------------------------------------------------------------------ |
+| `cmd &`                   | Run `cmd` in the **background** from the start                     |
+| `Ctrl+Z`                  | **Suspend** the current foreground job (sends `SIGTSTP`)           |
+| `jobs`                    | List the shell's jobs with their numbers and states                |
+| `jobs -l`                 | Same, plus PIDs                                                    |
+| `fg %1`                   | Bring job `%1` to the **foreground**                               |
+| `bg %1`                   | Resume job `%1` in the **background**                              |
+| `kill %1`                 | Signal job `%1` (default `SIGTERM`)                                |
+| `wait %1`                 | Block until job `%1` finishes                                      |
+| `%1`                      | Shortcut for `fg %1` (just type the job spec)                      |
+
+**Job specs:**
+
+| Spec      | Means                                            |
+| --------- | ------------------------------------------------ |
+| `%1`      | Job number 1                                     |
+| `%+` / `%%` | The **current** (most recent) job              |
+| `%-`      | The **previous** job                             |
+| `%str`    | Most recent job whose command **starts with** `str` |
+| `%?str`   | Most recent job whose command **contains** `str` |
+
+**Examples:**
+
+```bash
+sleep 300 &
+# Start sleep in background — shell prints "[1] 4321" (job 1, PID 4321)
+
+jobs
+# [1]+  Running   sleep 300 &
+
+# Run a build in the foreground, then realize you want it backgrounded:
+make build         # ... too long ...
+^Z                 # Ctrl+Z — suspends make; shell says "Stopped"
+bg                 # resumes it in the background, prompt comes back
+jobs               # confirms it's "Running"
+
+fg %1
+# Pull job 1 back to the foreground (waits for it, Ctrl+C now works)
+
+kill %2
+# Politely terminate job 2 — no need to look up its PID
+```
+
+**Notes:**
+
+- **`&` returns immediately** but the job stays attached to your **terminal** — if you log out, the shell sends `SIGHUP` and the job typically dies. Use [nohup or disown](#nohup--disown) to detach.
+- **Suspended ≠ killed.** A `Ctrl+Z`'d job is still in memory (state `T`), holding its file descriptors. Use `bg` to resume it or `kill %N` to discard it.
+- The job table is **per-shell** — open a new terminal and you won't see the jobs of the old one. Use `ps` / `pgrep` to find them across shells.
+- The shell prints job state changes (`Done`, `Stopped`, `Terminated`) just before your **next prompt**, not at the moment they happen.
+- Inside scripts, job control is off by default — use `set -m` if you actually need it, but most scripts manage children directly via `&`, `wait`, and PIDs.
+
+### nohup & disown
+
+**Description:** Both let a process **survive logging out**, but in different ways. **`nohup`** is a wrapper you run at the start; **`disown`** is a shell built-in you run after the fact. The problem they solve is the same: when your shell exits, it sends `SIGHUP` to every job in its job table, killing them unless they're detached or immune.
+
+**Syntax:**
+
+```bash
+nohup <command> [args...] [&]
+disown [-h] [-a] [%jobspec | pid]
+```
+
+**Common Options:**
+
+| Option        | Tool      | Description                                                              |
+| ------------- | --------- | ------------------------------------------------------------------------ |
+| (`nohup` core)| `nohup`   | Ignores `SIGHUP`, **redirects stdout/stderr to `nohup.out`** if attached to a TTY, redirects stdin from `/dev/null` |
+| `-h`          | `disown`  | Don't remove from job table — just **mark** it so `SIGHUP` is not sent at exit |
+| `-a`          | `disown`  | Apply to **all** jobs                                                    |
+| `-r`          | `disown`  | Apply only to **running** jobs                                           |
+
+**Examples:**
+
+```bash
+nohup ./long_job.sh &
+# Start long_job.sh, immune to SIGHUP, output → ./nohup.out
+# Safe to close the terminal afterward.
+
+nohup ./long_job.sh > job.log 2>&1 &
+# Same idea, with explicit log destination — no nohup.out clutter
+
+./long_job.sh &        # forgot nohup
+disown %1
+# Removes job 1 from the shell's job table — it survives logout
+# (still keeps its stdout/stderr pointing at the current terminal)
+
+disown -h %1
+# Keep it in the job list so `jobs` still shows it, but don't SIGHUP at exit
+
+disown -a
+# Detach every backgrounded job in one shot
+```
+
+**Notes:**
+
+- **`nohup` doesn't background by itself** — you still need the trailing `&`. It just makes the process ignore `SIGHUP` and tidies up its standard streams.
+- **The output redirection matters.** If you don't redirect, `nohup` writes to `./nohup.out` (or `$HOME/nohup.out` if cwd isn't writable). For long-running jobs, redirect explicitly to a file you control.
+- **`disown` only affects the current shell's job table** — once disowned, the process can't be referenced as `%N` anymore. Look it up by PID with `ps`.
+- For a serious long-running job, the modern alternatives are **`systemd-run --user`**, **`tmux` / `screen`**, or wrapping the command in a proper **systemd service**. `nohup` is a quick fix, not a daemon framework.
+- **SSH disconnect ≠ logout in all cases** — modern login shells often leave background jobs running after the SSH session dies anyway (the kernel hands them to init). Test before relying on it.
+
+### nice & renice
+
+**Description:** Adjust a process's **nice value** — a politeness score from `-20` (greedy, highest priority) to `+19` (gentle, lowest). The kernel's scheduler uses it to bias CPU time toward less-nice processes. Only **root** can lower (more negative) the value; any user can raise it on their own processes.
+
+**Syntax:**
+
+```bash
+nice [-n <adjustment>] <command> [args...]
+renice [-n] <priority> [-p <pid>...] [-u <user>...] [-g <pgid>...]
+```
+
+**Common Options:**
+
+| Option        | Tool      | Description                                                              |
+| ------------- | --------- | ------------------------------------------------------------------------ |
+| `-n N`        | both      | Set / adjust the nice value to **N** (`renice`) or **by N** (`nice`)     |
+| `-p`          | `renice`  | Target by **PID**                                                        |
+| `-u`          | `renice`  | Target by **user**                                                       |
+| `-g`          | `renice`  | Target by **process group**                                              |
+
+**Examples:**
+
+```bash
+nice -n 10 ./encode.sh
+# Start encode.sh with nice value +10 — it yields CPU to anything more important
+
+nice ./encode.sh
+# Default adjustment is +10 (so equivalent to the line above)
+
+sudo nice -n -5 ./latency-critical
+# Start with HIGHER priority — only root can pass negative values
+
+renice -n 15 -p 4321
+# Make running PID 4321 nicer (lower priority) by setting nice=+15
+
+renice -n 5 -u tarek
+# Adjust every process owned by 'tarek' to nice=+5
+
+ps -eo pid,ni,user,cmd --sort=ni | head
+# List processes by nice value — see who's been nice'd / renice'd
+```
+
+**Notes:**
+
+- **Nice values are advisory** — they bias the scheduler, they don't guarantee anything. On a lightly loaded system, a +19 process can still get plenty of CPU.
+- The kernel maps nice values to **scheduling weights**, not slices. A `-20` process gets roughly **1000×** the CPU share of a `+19` process under contention.
+- **You cannot make your own process more aggressive without `sudo`** — even reverting your own +10 back to 0 may require root, depending on `RLIMIT_NICE` (set per-user in `/etc/security/limits.conf`).
+- For **I/O priority** (disk bandwidth, not CPU), use **`ionice`** — a separate but conceptually similar tool.
+- **`cgroups` and `systemd` slices** are the modern, more reliable way to bound a workload's resource share. `nice` is the legacy knob and is still useful for one-off jobs.
+
+### /proc Filesystem
+
+**Description:** `/proc` is a **virtual filesystem** the kernel exposes — its files don't live on disk; reading them returns **live data** about processes and the kernel itself. Almost every tool in this section (`ps`, `top`, `htop`, `pstree`, `pgrep`) is just a pretty wrapper around `/proc`.
+
+**Layout:**
+
+| Path                          | Contents                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| `/proc/<pid>/`                | Per-process directory — one for every running PID                         |
+| `/proc/<pid>/cmdline`         | The **full command line** that started the process (null-byte separated)  |
+| `/proc/<pid>/cwd`             | Symlink to the process's **current working directory**                    |
+| `/proc/<pid>/exe`             | Symlink to the actual **executable** on disk                              |
+| `/proc/<pid>/environ`         | Process's **environment variables** (null-byte separated)                 |
+| `/proc/<pid>/status`          | Human-readable summary: UID, GID, threads, memory, **state**, signals     |
+| `/proc/<pid>/stat`            | Compact, space-separated version of the same — what `ps` parses           |
+| `/proc/<pid>/fd/`             | Symlinks to every **open file descriptor**                                |
+| `/proc/<pid>/maps`            | The process's **memory map** — every mapped region, library, stack, heap  |
+| `/proc/<pid>/limits`          | Resource limits in effect (`ulimit`)                                      |
+| `/proc/<pid>/io`              | Bytes read / written from disk                                            |
+| `/proc/cpuinfo`               | CPU model, cores, flags                                                   |
+| `/proc/meminfo`               | Memory totals and breakdowns                                              |
+| `/proc/loadavg`               | The three load averages plus running/total tasks                          |
+| `/proc/uptime`                | Seconds since boot, seconds idle                                          |
+| `/proc/mounts`                | Currently mounted filesystems (also `findmnt` / `mount`)                  |
+| `/proc/self/`                 | Shortcut to **the reader's own** `/proc/<pid>/` — handy in scripts        |
+
+**Examples:**
+
+```bash
+cat /proc/$$/status | head
+# Show the status of the current shell ($$) — Name, State, PID, PPID, UID, ...
+
+tr '\0' ' ' < /proc/$$/cmdline ; echo
+# Print the shell's command line with spaces instead of NULs
+
+ls -l /proc/$(pgrep -n nginx)/fd
+# Every file descriptor the newest nginx worker has open
+# (sockets, log files, /dev/null, ...)
+
+cat /proc/loadavg
+# 0.34 0.21 0.18 1/523 18432
+# 1-min, 5-min, 15-min load averages; running/total tasks; last PID issued
+
+cat /proc/meminfo | head -5
+# Live memory stats — what `free`, `top`, and `vmstat` are all reading
+
+readlink /proc/self/exe
+# /usr/bin/cat   (or whatever binary just ran this command)
+```
+
+**Notes:**
+
+- `/proc/<pid>/` **disappears** the instant the process exits — racing against the kernel is a common gotcha when scripting. Capture the data, then process it.
+- **`/proc/<pid>/exe` is the canonical way to find a binary's real path**, even if the original file was deleted or replaced — the symlink still points to the inode the kernel has open.
+- Many `/proc` files are **null-byte separated** (`cmdline`, `environ`) — pipe through `tr '\0' '\n'` or `tr '\0' ' '` to make them readable.
+- Writing to `/proc/sys/...` tunes **runtime kernel parameters** (the same knobs `sysctl` exposes). Don't poke around in `/proc/sys` without knowing what you're changing.
+- `/sys` is the modern cousin — it exposes **device and driver state** in a more structured tree. `/proc` is older and a bit of a junk drawer, but it's the one every tool still reads.
 
 ---
 
