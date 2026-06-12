@@ -14,7 +14,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/Topics-2-blue?style=flat-square" alt="Topics">
+  <img src="https://img.shields.io/badge/Topics-3-blue?style=flat-square" alt="Topics">
   <img src="https://img.shields.io/badge/Made%20For-DevOps%20Prep-orange?style=flat-square" alt="Made For">
 </p>
 
@@ -24,6 +24,8 @@
   <a href="./Linux/README.md"><b>Linux Notes</b></a>
   &nbsp;·&nbsp;
   <a href="./Git-Github/README.md"><b>Git &amp; GitHub Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="./Networking/README.md"><b>Networking Notes</b></a>
 </p>
 
 ---
@@ -36,6 +38,7 @@
 - [Sections](#sections)
   - [Linux](#linux)
   - [Git & GitHub](#git--github)
+  - [Networking](#networking)
 - [Conventions](#conventions)
 - [Contributing / Personal Use](#contributing--personal-use)
 - [References](#references)
@@ -61,8 +64,10 @@ DevOps-Preparation/
 ├── README.md                ← you are here
 ├── Linux/
 │   └── README.md            ← Linux commands, text formating, user management, ...
-└── Git-Github/
-    └── README.md            ← Git workflows, branching, GitHub & gh CLI, Actions, ...
+├── Git-Github/
+│   └── README.md            ← Git workflows, branching, GitHub & gh CLI, Actions, ...
+└── Networking/
+    └── README.md            ← OSI/TCP-IP, ip/ss/dig/curl/ssh, firewalls, packet capture, ...
 ```
 
 Every topic folder holds a single `README.md` that acts as the full reference for that subject. New topics (Docker, Kubernetes, CI/CD, Networking, Cloud, etc.) will be added the same way — one folder, one self-contained `README.md`.
@@ -123,6 +128,22 @@ Distributed version control plus the collaboration layer on top.
 - **GitHub & Collaboration** — SSH keys, PR workflow, `gh` CLI, GitHub Actions.
 
 → [Open the Git & GitHub notes](./Git-Github/README.md)
+
+### Networking
+
+The Linux networking stack and the tools used to inspect, configure, and troubleshoot it.
+
+- **Networking Fundamentals** — OSI/TCP-IP models, IP addressing, subnetting, ports, ARP.
+- **Network Configuration** — `ip`, `ifconfig`, `hostname`, `/etc/hosts`, `nmcli`.
+- **Connectivity & Diagnostics** — `ping`, `traceroute`, `mtr`, `telnet`, `nc`.
+- **DNS Tools** — `dig`, `nslookup`, `host`.
+- **Sockets & Ports** — `ss`, `netstat`, `lsof`.
+- **HTTP & Transfer Tools** — `curl`, `wget`.
+- **Remote Access** — `ssh`, `scp`, `rsync`, SSH keys & config.
+- **Firewall & Security** — `iptables`, `nftables`, `ufw`, `firewalld`.
+- **Packet Analysis** — `tcpdump`, `wireshark`/`tshark`, `nmap`.
+
+→ [Open the Networking notes](./Networking/README.md)
 
 ---
 

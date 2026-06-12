@@ -24,6 +24,8 @@
   <a href="../README.md"><b>Back to DevOps Prep</b></a>
   &nbsp;·&nbsp;
   <a href="../Linux/README.md"><b>Linux Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="../Networking/README.md"><b>Networking Notes</b></a>
 </p>
 
 ---

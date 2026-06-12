@@ -24,6 +24,8 @@
   <a href="../README.md"><b>Back to DevOps Prep</b></a>
   &nbsp;·&nbsp;
   <a href="../Git-Github/README.md"><b>Git &amp; GitHub Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="../Networking/README.md"><b>Networking Notes</b></a>
 </p>
 
 ---
@@ -99,6 +101,9 @@
   - [ps](#ps)
   - [Controlling Terminal](#controlling-terminal)
   - [Process Details](#process-details)
+  - [Process Creation](#process-creation)
+  - [Process Termination](#process-termination)
+  - [Process States](#process-states)
   - [top](#top)
   - [htop](#htop)
   - [pstree](#pstree)
@@ -109,6 +114,30 @@
   - [nohup & disown](#nohup--disown)
   - [nice & renice](#nice--renice)
   - [/proc Filesystem](#proc-filesystem)
+- [Packages](#packages)
+  - [One Shot Revision](#one-shot-revision-6)
+  - [Software Distribution](#software-distribution)
+  - [Package Repositories](#package-repositories)
+  - [tar and gzip](#tar-and-gzip)
+  - [Package Dependencies](#package-dependencies)
+  - [rpm and dpkg](#rpm-and-dpkg)
+  - [yum and apt](#yum-and-apt)
+  - [Compile Source Code](#compile-source-code)
+- [Devices](#devices)
+  - [One Shot Revision](#one-shot-revision-7)
+  - [/dev directory](#dev-directory)
+  - [Device Types](#device-types)
+  - [Device Names](#device-names)
+  - [sysfs](#sysfs)
+  - [udev](#udev)
+  - [lsusb / lspci / lsscsi](#lsusb--lspci--lsscsi)
+  - [dd](#dd)
+- [The Filesystem](#the-filesystem)
+  - [One Shot Revision](#one-shot-revision-8)
+  - [Filesystem Hierarchy](#filesystem-hierarchy)
+  - [Filesystem Types](#filesystem-types)
+  - [Anatomy of a Disk](#anatomy-of-a-disk)
+  - [Disk Partitioning](#disk-partitioning)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -2177,6 +2206,9 @@ Notes on Linux **processes** — every running program is a process, identified 
 | [ps](#ps)                                     | One-shot **snapshot** of running processes                                   |
 | [Controlling Terminal](#controlling-terminal) | The **TTY** a process is tied to — TTY column, `?` for daemons, `setsid`     |
 | [Process Details](#process-details)           | Drill into one PID — `pidof`, `lsof`, `pwdx`, fd / cwd / env via `/proc`     |
+| [Process Creation](#process-creation)         | How new processes are born — `fork()` + `exec()`, copy-on-write, PID 1       |
+| [Process Termination](#process-termination)   | `exit()`, signals, exit codes, **zombies** vs **orphans**, reparenting       |
+| [Process States](#process-states)             | The `STAT` codes — `R`, `S`, `D`, `T`, `Z`, `I` — and what they really mean  |
 | [top](#top)                                   | Real-time, interactive view of CPU / memory usage                            |
 | [htop](#htop)                                 | Friendlier, colorized alternative to `top` with mouse and tree view          |
 | [pstree](#pstree)                             | Show the **parent / child** process hierarchy as a tree                      |
@@ -2439,6 +2471,232 @@ awk '/State|Uid|Threads|VmRSS/' /proc/$PID/status   # state + memory snapshot
 - **`/proc/<pid>/cmdline` is empty for kernel threads** (PIDs in square brackets in `ps`, like `[kworker/0:1]`). They have no user-space command line.
 - The **`exe` symlink survives upgrades** — if a long-running process was started from `/usr/bin/python3.10` and the package is replaced, `readlink` still shows the path with a ` (deleted)` suffix, telling you the running binary no longer matches the file on disk. Good early warning for "needs restart after upgrade."
 - For a **live, top-style breakdown of one PID** (CPU, memory, syscalls, I/O), look at `pidstat -p <pid> 1`, `top -p <pid>`, or `strace -p <pid>` — each is a deeper drill-down than the snapshot tools above.
+
+### Process Creation
+
+**Description:** A new process is born when an existing one calls **`fork()`** and (almost always) follows it with **`exec()`**. `fork()` creates a near-perfect copy of the caller — same memory, same open file descriptors, same working directory — but with a new **PID** and a **PPID** pointing back at the parent. `exec()` then replaces the cloned program with a brand-new executable, keeping the file descriptors and identity intact. Every command you run from the shell, every service `systemd` launches, every worker a web server spawns is some variation of this two-step dance.
+
+**The fork / exec / wait pipeline:**
+
+| Syscall                | What it does                                                                       |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| `fork()`               | Clones the caller. Returns **`0` to the child**, the **child's PID to the parent**, `-1` on failure. |
+| `clone()`              | Lower-level variant — what threads use (flags choose what's shared: memory, FDs, signals, ...). |
+| `vfork()`              | Legacy fast `fork()` — parent is suspended until child `exec`s or exits.           |
+| `exec*()` family       | Replaces the current process image with a new program. On success **never returns**. |
+| `wait()` / `waitpid()` | Parent blocks until a child exits and collects its **exit status**.                |
+| `posix_spawn()`        | Shortcut for the common `fork+exec` pair — skips the page-table copy entirely.     |
+
+**The lifecycle in one diagram:**
+
+```
+parent ──fork()──▶ child (exact copy, new PID)
+                     │
+                     └── exec("/usr/bin/ls") ──▶ ls now runs in the child
+                                                   │
+parent ──wait()──◀───────────────────── exit(0) ──┘
+            (reaps the child's exit status)
+```
+
+**Examples:**
+
+```bash
+ps -eo pid,ppid,cmd --forest | head -20
+# Parent / child hierarchy of every process — the tree your shell sits inside
+
+strace -f -e trace=fork,vfork,clone,execve,wait4 ls /tmp 2>&1 | head
+# clone(...)                      = 4322     — fork
+# execve("/usr/bin/ls", [...])              — exec replaces the cloned program
+# wait4(-1, ...)                  = 4322     — parent reaps the child
+
+# Run the same command from two different shells and watch the PIDs differ:
+bash -c 'echo "child pid=$$  ppid=$PPID"'
+# child pid=4811  ppid=4100      — 4100 is the calling shell
+
+# Confirm fork() returns twice (once per process):
+python3 -c 'import os; pid=os.fork()
+print("hello from", "child" if pid==0 else "parent", "pid=", os.getpid())'
+# hello from parent pid= 4900
+# hello from child  pid= 4901
+```
+
+**Cost of `fork()` — copy-on-write:**
+
+- Linux doesn't physically copy the parent's memory at `fork()` time. It marks every page **read-only** and shares them; the kernel clones a page only on the **first write**. That's why forking a 4 GB process is still cheap.
+- Because `exec()` almost always follows, the COW pages are usually **discarded before they're ever written** — `exec()` blows away the cloned memory map and loads the new program.
+- **`posix_spawn()`** skips the page-table walk entirely for the `fork+exec` case and is what `bash`, `python`'s `subprocess`, and most modern runtimes use under the hood.
+
+**Notes:**
+
+- After `fork()`, the **only differences** between parent and child are: the return value of `fork()` itself, the **PID** / **PPID**, pending signals, file locks, and timers. Everything else (env, cwd, umask, open FDs, signal handlers) is inherited.
+- File descriptors inherited across `fork()` share their **file offsets** — both processes reading the same FD advance the same cursor. That's how shell pipelines (`a | b`) actually pass data.
+- **PID 1** (`systemd` / `init`) is the only process the kernel creates directly. Every other process traces its ancestry back to PID 1 through `fork()`.
+- `fork()` can fail with **`EAGAIN`** when the system hits `kernel.pid_max` or the user's `RLIMIT_NPROC` — that's exactly what a **fork bomb** triggers.
+- **Threads are not processes** — they're created with `clone()` and share the address space, FD table, and signal handlers of the calling task. They show up in `ps -eLf` as separate **LWPs** with the same TGID.
+
+### Process Termination
+
+**Description:** A process ends one of two ways: it **exits voluntarily** by calling `exit()` / `_exit()` (or `return`ing from `main`), or it's **terminated by a signal** like `SIGTERM`, `SIGKILL`, or `SIGSEGV`. Either way the kernel keeps a tiny **`task_struct`** around — holding the exit status — until the parent calls **`wait()`** to reap it. The brief window between "exited" and "reaped" is the **zombie** state. Once reaped, the slot is freed and the PID becomes reusable.
+
+**Exit paths:**
+
+| Path                                                  | What happens                                                                  |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `exit(N)` / `return N` from `main`                    | Normal exit — status `N` (low 8 bits) returned to the parent via `wait()`.    |
+| `_exit(N)`                                            | Same, but **skips** stdio flushing and `atexit()` handlers — used after `fork()`. |
+| Uncaught signal (`SIGTERM`, `SIGKILL`, `SIGINT`, ...) | Kernel terminates the process; `wait()` reports `WTERMSIG` instead of `WEXITSTATUS`. |
+| Fatal fault (`SIGSEGV`, `SIGABRT`, `SIGFPE`)          | Same as above, plus a **core dump** if `ulimit -c` allows it.                 |
+| Parent dies first                                     | Child is **reparented to PID 1**, which always reaps. No zombie ever accumulates. |
+
+**Exit status conventions (shell `$?`):**
+
+| Code      | Meaning                                                                |
+| --------- | ---------------------------------------------------------------------- |
+| `0`       | Success                                                                |
+| `1`       | Generic error                                                          |
+| `2`       | Misuse / bad usage (bash convention)                                   |
+| `126`     | Command found but **not executable**                                   |
+| `127`     | Command **not found**                                                  |
+| `128 + N` | Killed by signal **N** (e.g. `137` = `128 + 9` = `SIGKILL`)            |
+| `130`     | Killed by `SIGINT` (Ctrl+C — `128 + 2`)                                |
+| `143`     | Killed by `SIGTERM` (`128 + 15`)                                       |
+
+**The zombie / orphan distinction:**
+
+| Term       | State of the process | What's going on                                                                          |
+| ---------- | -------------------- | ---------------------------------------------------------------------------------------- |
+| **Zombie** | **Exited**, not yet reaped | Parent is still alive but hasn't called `wait()`. Shows as `Z` (or `<defunct>`) in `ps`. |
+| **Orphan** | **Still running**          | Parent **died first**. Kernel reparents the child to PID 1, which always reaps on exit. |
+
+**Examples:**
+
+```bash
+ls /no/such/path; echo "exit=$?"
+# ls: cannot access ...: No such file or directory
+# exit=2
+
+bash -c 'kill -9 $$'; echo "exit=$?"
+# Killed
+# exit=137                  — 128 + SIGKILL(9)
+
+sleep 100 &
+kill -INT $!
+wait $!; echo "exit=$?"
+# exit=130                  — 128 + SIGINT(2)
+
+# Find zombies on the system right now:
+ps -eo pid,ppid,stat,cmd | awk '$3 ~ /^Z/'
+#   PID  PPID STAT CMD
+# 18234  4100 Z    [worker] <defunct>
+# PPID = 4100 → that's the buggy parent that isn't reaping its children
+
+# Create a zombie on purpose (for testing):
+bash -c 'sleep 5 & exec sleep 30'   # parent execs into sleep — never reaps the bg child
+# In another terminal: ps -eo pid,ppid,stat,cmd | grep Z
+```
+
+**Notes:**
+
+- **You can't kill a zombie** — it's already dead. The fix is to kill (or restart) the **parent**, which lets PID 1 adopt and reap it.
+- A flood of zombies can exhaust **`kernel.pid_max`** (default 4 194 304 on 64-bit). The symptom is `fork()` returning `EAGAIN` system-wide — even `ssh` and `ps` start failing.
+- `bash` reaps its **direct children** automatically when job control is on. Long-running daemons that fork helpers must run their own `wait()` loop, install a `SIGCHLD` handler, or set `SA_NOCLDWAIT` to tell the kernel "don't bother me with zombies."
+- **`exit(0)` vs `_exit(0)`**: `exit()` flushes `stdio` buffers and runs `atexit()` hooks before calling `_exit()`. After `fork()`, the child should call `_exit()` directly — otherwise both parent and child flush the same buffered output and you get **doubled output**.
+- The status returned by `wait()` is **encoded in 16 bits**: low byte = signal number (if any), high byte = exit code. Use `WIFEXITED` / `WEXITSTATUS` / `WIFSIGNALED` / `WTERMSIG` in C, or just `$?` in shell.
+- A **core dump** lands wherever `kernel.core_pattern` says (often `/var/lib/systemd/coredump/` on systemd distros, viewable via `coredumpctl list`).
+
+### Process States
+
+**Description:** At any instant, every process in the kernel's task list is in **exactly one state** — running, sleeping, stopped, or dead-but-not-reaped. The state is what the scheduler uses to decide whether to run, skip, or wake the process. It's exposed as a **single letter** in the `STAT` column of `ps` (and the `S` column of `top`), and as a more readable phrase in `/proc/<pid>/status`. Knowing what each state means is the difference between "this process is stuck" and "this process is doing exactly what it should."
+
+**The state table:**
+
+| Code | Name                       | Meaning                                                                              |
+| ---- | -------------------------- | ------------------------------------------------------------------------------------ |
+| `R`  | **Running** / runnable     | Currently on a CPU **or** in the run queue waiting for one. The only "actively executing" state. |
+| `S`  | **Interruptible sleep**    | Blocked on an event (`read()`, `select()`, `sleep()`), and **can** be woken by a signal. Most processes live here. |
+| `D`  | **Uninterruptible sleep**  | Blocked deep in the kernel (usually disk / NFS I/O); **ignores all signals**, even `SIGKILL`. |
+| `T`  | **Stopped**                | Paused by `SIGSTOP` / `SIGTSTP` (e.g. Ctrl+Z) — won't be scheduled until `SIGCONT`.  |
+| `t`  | **Traced**                 | Stopped by a debugger via `ptrace` — `gdb`, `strace`, `perf` put their targets here. |
+| `Z`  | **Zombie** / defunct       | Exited, waiting for the parent's `wait()`. Holds only a `task_struct`, no memory.    |
+| `X`  | **Dead**                   | Transient — about to vanish. You almost never see it in `ps`.                        |
+| `I`  | **Idle** kernel thread     | Like `S` but **excluded from load average** — used for kernel worker threads.        |
+
+**STAT-column suffix flags (BSD `ps`):**
+
+| Flag | Meaning                                                                |
+| ---- | ---------------------------------------------------------------------- |
+| `+`  | In the **foreground process group** of its controlling terminal.       |
+| `s`  | **Session leader** (top of a session — usually the shell).             |
+| `l`  | **Multi-threaded** (process has more than one task / LWP).             |
+| `<`  | **High priority** — negative nice value.                               |
+| `N`  | **Low priority** — positive nice value.                                |
+| `L`  | Pages **locked** in memory (`mlock` / real-time).                      |
+
+**State transitions in one diagram:**
+
+```
+                       fork()
+                         │
+                         ▼
+            wakeup     ┌───┐    schedule
+        ┌─────────────▶│ R │─────────────▶ on CPU
+        │              └───┘
+        │                │  I/O / sleep            exit()
+   ┌────┴────┐           ▼                            │
+   │    S    │◀──── interruptible                     ▼
+   └─────────┘                                     ┌───┐    wait()
+        ▲                                          │ Z │──────────▶ reaped
+        │  I/O complete                            └───┘
+        │
+   ┌────┴────┐  uninterruptible (disk / NFS)
+   │    D    │
+   └─────────┘
+
+         SIGSTOP / Ctrl+Z       SIGCONT
+   ┌───┐ ────────────────▶ ┌───┐ ────────▶ back to R / S
+   │ R │                   │ T │
+   └───┘ ◀──────────────── └───┘
+```
+
+**Examples:**
+
+```bash
+# System-wide state histogram:
+ps -eo stat,cmd | awk '{print $1}' | sort | uniq -c | sort -rn
+#  248 Ss      — sessions sleeping
+#   42 S       — regular sleepers
+#   11 R+      — running, foreground
+#    3 Z       — three zombies (find their parent!)
+#    1 D       — one stuck in uninterruptible I/O
+
+# Find anything stuck in D (sign of a hung disk / NFS mount):
+ps -eo pid,stat,wchan,cmd | awk '$2 ~ /^D/'
+#   PID STAT WCHAN        CMD
+#  4321 D    io_schedule  dd if=/dev/sdb of=/tmp/dump.bin
+# WCHAN tells you exactly which kernel function it's blocked in.
+
+# Watch the state flip live:
+sleep 1000 &
+PID=$!
+ps -o pid,stat,cmd -p $PID    # S    sleep 1000
+kill -STOP $PID
+ps -o pid,stat,cmd -p $PID    # T    sleep 1000     — Stopped
+kill -CONT $PID
+ps -o pid,stat,cmd -p $PID    # S    sleep 1000     — back to sleep
+
+# Human-readable state from /proc:
+grep '^State:' /proc/$PID/status
+# State:  S (sleeping)
+```
+
+**Notes:**
+
+- **`D` state can't be killed** — not even by `SIGKILL`. The process resumes only when the kernel operation it's blocked on returns. If that never happens (broken NFS, dead disk, frozen driver), the only fix is a reboot. Check `cat /proc/<pid>/wchan` or `ps -o wchan` to see which kernel function it's parked in.
+- **`R` doesn't mean "using CPU"** — it means **runnable**. A box with 1000 `R` processes on 8 cores has 992 of them sitting in the run queue. High `R` count = CPU-bound workload; high `D` count = I/O-bound or stuck.
+- **Zombies (`Z`) cost almost nothing individually** — just a `task_struct` (a few KB) — but they each hold a **PID slot**. Thousands of them can starve the PID space; see [Process Termination](#process-termination) for the fix.
+- A **multi-threaded process** in `ps -eLf` may show different states **per thread** — the process-level state is the "most active" one (e.g. one thread `R`, the others `S` → process reports `Rl`).
+- **`top` shows the state as a single letter** in the `S` column, same codes as `ps`. **`htop`** shows the long name (`Running`, `Sleeping`, ...) in the same place.
+- For the most human-readable form, use **`/proc/<pid>/status`**'s `State:` line; for "what is this `S` or `D` process *actually* waiting on", look at **`/proc/<pid>/wchan`**.
 
 ### top
 
@@ -2991,6 +3249,1548 @@ readlink /proc/self/exe
 - Many `/proc` files are **null-byte separated** (`cmdline`, `environ`) — pipe through `tr '\0' '\n'` or `tr '\0' ' '` to make them readable.
 - Writing to `/proc/sys/...` tunes **runtime kernel parameters** (the same knobs `sysctl` exposes). Don't poke around in `/proc/sys` without knowing what you're changing.
 - `/sys` is the modern cousin — it exposes **device and driver state** in a more structured tree. `/proc` is older and a bit of a junk drawer, but it's the one every tool still reads.
+
+---
+
+## Packages
+
+Notes on Linux **packages** — how software is bundled, shipped, installed, updated, and (when needed) compiled from source. Every distro answers the same questions differently: which **format** do packages use (`.rpm` vs `.deb`), which **tool** installs them (`rpm` / `dpkg`), and which **front-end** resolves dependencies and talks to repositories (`yum`/`dnf` vs `apt`). This section walks that stack from the bottom (raw tarballs) to the top (a one-line `apt install` that pulls in 40 dependencies).
+
+### One Shot Revision
+
+| Command                                         | Short Description                                                            |
+| ----------------------------------------------- | ---------------------------------------------------------------------------- |
+| [Software Distribution](#software-distribution) | How Linux software is shipped — source, tarballs, **`.rpm`** / **`.deb`**, Snap/Flatpak |
+| [Package Repositories](#package-repositories)   | Central servers of packages — `/etc/apt/sources.list`, `/etc/yum.repos.d/`, GPG keys |
+| [tar and gzip](#tar-and-gzip)                   | Bundle and compress files — the `.tar.gz` (tarball) workflow                 |
+| [Package Dependencies](#package-dependencies)   | Shared libraries, version pinning, and how dependency hell happens           |
+| [rpm and dpkg](#rpm-and-dpkg)                   | **Low-level** package tools — install one file, query, list — **no** dependency resolution |
+| [yum and apt](#yum-and-apt)                     | **High-level** front-ends — resolve dependencies, talk to repos, upgrade the system |
+| [Compile Source Code](#compile-source-code)     | The classic `./configure && make && make install` workflow                   |
+
+### Software Distribution
+
+**Description:** Linux software reaches your machine in one of four shapes: as **source code** (a tarball you compile yourself), as a **binary package** (`.rpm` for the Red Hat family, `.deb` for the Debian family), as a **distro-agnostic bundle** (Snap, Flatpak, AppImage), or as a **container image** (Docker / OCI). Each form trades off install speed, isolation, distro coupling, and how easy it is to upgrade. Knowing which one you're dealing with tells you which tool to reach for.
+
+**The shapes of Linux software:**
+
+| Form                 | Example file              | Installed with                | Notes                                                                  |
+| -------------------- | ------------------------- | ----------------------------- | ---------------------------------------------------------------------- |
+| **Source tarball**   | `foo-1.2.3.tar.gz`        | `./configure && make && make install` | Most flexible, slowest, no automatic upgrades. See [Compile Source Code](#compile-source-code). |
+| **RPM package**      | `foo-1.2.3-1.el9.x86_64.rpm` | `rpm` (low-level) / `yum`/`dnf` (high-level) | RHEL, CentOS, Fedora, Rocky, Alma, openSUSE.                  |
+| **DEB package**      | `foo_1.2.3-1_amd64.deb`   | `dpkg` (low-level) / `apt` (high-level) | Debian, Ubuntu, Mint, Kali, Pop!_OS.                              |
+| **Snap**             | `foo_42.snap`             | `snap install foo`            | Canonical's distro-agnostic format; auto-updates; sandboxed.           |
+| **Flatpak**          | `org.foo.App.flatpak`     | `flatpak install ...`         | Cross-distro desktop apps; user-level installs; runtime-based.         |
+| **AppImage**         | `foo-1.2.3.AppImage`      | `chmod +x && ./foo.AppImage`  | Single-file portable binary — no install step at all.                  |
+| **Container image**  | `foo:1.2.3` (OCI)         | `docker run` / `podman run`   | Full userspace + app, isolated from the host.                          |
+| **Language registries** | `pip install`, `npm i`, `cargo install`, `go install` | Per-ecosystem | Install *into* an existing system — not OS packages.            |
+
+**Where each form lives on disk (typical):**
+
+```
+/usr/bin/                ← binaries from distro packages (rpm/deb)
+/usr/lib/                ← shared libraries from distro packages
+/usr/share/              ← arch-independent data (docs, icons, locales)
+/etc/                    ← config files owned by packages
+/usr/local/bin/          ← binaries you compiled from source (don't conflict with the package manager)
+/opt/<vendor>/           ← self-contained third-party software (Slack, Chrome, custom RPMs)
+/var/lib/snapd/snaps/    ← Snap squashfs files
+/var/lib/flatpak/        ← Flatpak runtimes and apps
+~/.local/bin/            ← per-user installs (pip --user, cargo, language tools)
+```
+
+**Examples:**
+
+```bash
+# Identify what a downloaded file actually is:
+file ./mystery-download
+# foo-1.2.3.tar.gz:       gzip compressed data, from Unix
+# foo-1.2.3-1.x86_64.rpm: RPM v3.0 bin i386/x86_64 foo-1.2.3-1
+# foo_1.2.3-1_amd64.deb:  Debian binary package (format 2.0)
+
+# Find out which "family" your distro belongs to:
+cat /etc/os-release | grep -E '^ID|ID_LIKE'
+# ID=ubuntu             ID_LIKE=debian      → use apt / dpkg
+# ID=rocky              ID_LIKE="rhel centos fedora"  → use dnf / yum / rpm
+
+# Which package owns a file already on disk?
+# (Debian)
+dpkg -S /usr/bin/ls
+# coreutils: /usr/bin/ls
+# (RPM)
+rpm -qf /usr/bin/ls
+# coreutils-9.0-5.el9.x86_64
+```
+
+**Notes:**
+
+- **Pick the right form for the job.** Distro packages give you automatic security updates and dependency resolution. Snap/Flatpak win when you need a newer version than the distro ships. Source builds win when nothing else exists. Containers win when you don't want to touch the host.
+- **Never mix and match for the same software.** Installing `nginx` from a tarball *and* from `apt` puts two copies on disk; only one will be on your `$PATH`, and the package manager won't know about the other.
+- **`/usr/local`** is the convention for "I built this from source" — it's not managed by `apt` / `yum`, so it never fights with the package manager.
+- **AppImages don't auto-update** — you're responsible for replacing the file when a new version drops. Tools like `appimaged` / `AppImageUpdate` add that layer.
+- **Language package managers (`pip`, `npm`, `gem`, `cargo`) are not OS package managers** — they install into a language-specific tree (`site-packages`, `node_modules`, ...) and ignore the system package database. Mixing `pip install` with `apt install python3-foo` is a classic source of breakage; that's why modern Python pushes `venv` / `pipx` / `uv`.
+
+### Package Repositories
+
+**Description:** A **repository** is a server (or a mirror of one) that hosts packages plus a **signed index** describing what's available, which versions, and how the packages depend on each other. When you run `apt install nginx` or `dnf install nginx`, the front-end downloads that index, finds `nginx` and its dependencies, fetches the right `.deb` / `.rpm` files, verifies the GPG signatures, and installs them. Configuring repos correctly — official, third-party, version-pinned — is what separates a maintainable box from a fragile one.
+
+**Where repos are configured:**
+
+| Family       | Config location                          | Index file the tool downloads                          |
+| ------------ | ---------------------------------------- | ------------------------------------------------------ |
+| **Debian / Ubuntu** | `/etc/apt/sources.list` + `/etc/apt/sources.list.d/*.list` | `Packages.gz` / `Release` per suite & component        |
+| **RHEL / Fedora**   | `/etc/yum.repos.d/*.repo`                | `repodata/repomd.xml` + `primary.xml.gz`               |
+| **GPG keys (Debian)** | `/etc/apt/trusted.gpg.d/*.gpg` or `/etc/apt/keyrings/*.gpg` | Used to verify the `Release` file's signature |
+| **GPG keys (RPM)**  | `/etc/pki/rpm-gpg/`                      | Referenced from each `.repo` file via `gpgkey=`        |
+
+**Anatomy of a Debian source line:**
+
+```
+deb [signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable
+ │                                            │                                       │      │
+ └─ type (deb / deb-src)                       └─ base URL                              │      └─ component
+                                                                                       └─ suite (release codename)
+```
+
+**Anatomy of an RPM `.repo` file:**
+
+```ini
+[docker-ce-stable]
+name=Docker CE Stable - $basearch
+baseurl=https://download.docker.com/linux/centos/$releasever/$basearch/stable
+enabled=1
+gpgcheck=1
+gpgkey=https://download.docker.com/linux/centos/gpg
+```
+
+**Examples:**
+
+```bash
+# Debian: list every configured source
+grep -hrE '^deb ' /etc/apt/sources.list /etc/apt/sources.list.d/
+
+# RHEL: list every enabled repo
+dnf repolist enabled        # or: yum repolist enabled
+
+# Refresh the local index (always do this before installing on Debian):
+sudo apt update
+# Reading package lists... Done
+# All packages are up to date.
+
+# Add a third-party repo the modern (keyring-based) way on Debian/Ubuntu:
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+$(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt update
+
+# Add a repo on RHEL/Fedora:
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo rpm --import https://download.docker.com/linux/centos/gpg
+sudo dnf install docker-ce
+
+# Which repo did a given package come from?
+apt-cache policy nginx        # Debian — shows priority and origin URL
+dnf info nginx                # RPM — shows "From repo : ..."
+```
+
+**Common repository types:**
+
+| Repo                | Family       | What's in it                                                         |
+| ------------------- | ------------ | -------------------------------------------------------------------- |
+| `main` / `universe` / `multiverse` / `restricted` | Ubuntu | Ubuntu's four standard components (license + support tier).         |
+| `BaseOS` / `AppStream` / `CRB`                  | RHEL 9 | The split that replaced the old single `base` repo.                  |
+| **EPEL** (Extra Packages for Enterprise Linux)  | RHEL    | Community-maintained extras not in RHEL itself — `htop`, `jq`, etc. |
+| **RPM Fusion**                                  | Fedora  | Codecs and software with licensing issues.                           |
+| **PPAs** (`ppa:user/name`)                      | Ubuntu  | Personal Package Archives — third-party repos hosted on Launchpad.   |
+
+**Notes:**
+
+- **Always verify GPG signatures.** A repo without a key is a repo that can ship you anything. Modern Debian rejects unsigned repos by default; modern RHEL uses `gpgcheck=1` in every `.repo` file.
+- **Run `apt update` before `apt install`.** APT only knows what was in the index at the last update — installing without refreshing can pull stale or missing-from-mirror versions.
+- **`apt-key` is deprecated** — the `signed-by=` syntax pointing at a file in `/etc/apt/keyrings/` is the new way (Debian 11+, Ubuntu 22.04+).
+- **EPEL is almost mandatory on RHEL.** Many common tools (`htop`, `jq`, `ncdu`, `tmux` on older releases) live there, not in BaseOS.
+- **Don't enable random copy-pasted repos as root** without reading them first — a malicious `.repo` or `sources.list` line can pull packages that overwrite system files. Pin third-party repos to **only the packages you actually want** (`apt-pinning`, `dnf includepkgs=`).
+- For air-gapped boxes, you can host a **local mirror** with `apt-mirror`, `reposync`, or just an `nginx` serving a directory of `.deb` / `.rpm` files plus the generated metadata.
+
+### tar and gzip
+
+**Description:** **`tar`** ("tape archive") bundles many files into one — preserving paths, permissions, timestamps, and ownership — but does **not** compress. **`gzip`** compresses a single file. Together they form the canonical **`.tar.gz`** (a.k.a. **tarball**) workflow: source releases, backups, and the raw payload inside every `.rpm` / `.deb` are all just tarballs underneath. Modern `tar` calls the compressor for you (`-z` for gzip, `-j` for bzip2, `-J` for xz), so you rarely run `gzip` directly.
+
+**Syntax:**
+
+```bash
+tar [operation][options] [-f archive] [files...]
+gzip [options] <file>          # in-place: creates <file>.gz, removes original
+gunzip <file.gz>               # in-place: restores <file>, removes .gz
+```
+
+**`tar` cheat sheet — the verbs:**
+
+| Flag | Long              | What it does                                       |
+| ---- | ----------------- | -------------------------------------------------- |
+| `-c` | `--create`        | **Create** a new archive                           |
+| `-x` | `--extract`       | **Extract** files from an archive                  |
+| `-t` | `--list`          | **List** archive contents without extracting       |
+| `-r` | `--append`        | Append to an existing (uncompressed) archive       |
+| `-u` | `--update`        | Append only files newer than what's in the archive |
+
+**`tar` cheat sheet — the modifiers:**
+
+| Flag       | What it does                                                             |
+| ---------- | ------------------------------------------------------------------------ |
+| `-f FILE`  | Use `FILE` as the archive (use `-` for stdin/stdout)                     |
+| `-v`       | Verbose — list every file as it's processed                              |
+| `-z`       | Compress / decompress with **gzip** (`.tar.gz`, `.tgz`)                  |
+| `-j`       | Compress / decompress with **bzip2** (`.tar.bz2`)                        |
+| `-J`       | Compress / decompress with **xz** (`.tar.xz`)                            |
+| `-C DIR`   | `cd` into `DIR` before doing anything                                    |
+| `--strip-components=N` | Drop `N` leading path components on extract (handy for vendored tarballs) |
+| `-p`       | Preserve permissions on extract (default when run as root)               |
+
+**`gzip` essentials:**
+
+| Flag      | What it does                                                |
+| --------- | ----------------------------------------------------------- |
+| `-k`      | **Keep** the original file (default behavior is to delete it) |
+| `-d`      | Decompress — same as `gunzip`                               |
+| `-1` .. `-9` | Trade speed for ratio (`-1` fastest, `-9` smallest)      |
+| `-l`      | List compression info for a `.gz` file                      |
+| `-c`      | Write to stdout (let you pipe / redirect)                   |
+
+**Examples:**
+
+```bash
+# Create a gzipped tarball of a directory:
+tar -czvf backup.tar.gz /home/tarek/project
+# c=create  z=gzip  v=verbose  f=output file
+
+# Inspect without extracting:
+tar -tzvf backup.tar.gz | head
+# -rw-r--r-- tarek/tarek  1024 2026-06-10 14:22 project/README.md
+# ...
+
+# Extract into the current directory:
+tar -xzvf backup.tar.gz
+
+# Extract somewhere specific, stripping the top folder:
+mkdir -p /opt/app
+tar -xzvf app-1.2.3.tar.gz -C /opt/app --strip-components=1
+# Drops "app-1.2.3/" from every path — files land directly in /opt/app/
+
+# Just compress a single file:
+gzip -k report.log
+# Creates report.log.gz, keeps report.log (without -k it'd delete the original)
+
+# Decompress without removing the .gz:
+gunzip -k report.log.gz
+
+# Stream a tarball over SSH (no temp file on either side):
+tar -czf - ./src | ssh user@host 'tar -xzf - -C /opt/dest'
+
+# Compare the contents of a tarball against the live filesystem:
+tar -dzvf backup.tar.gz -C /home/tarek/project
+# d=diff — shows files that have changed since the archive was made
+```
+
+**Notes:**
+
+- The flag order **does not require dashes** historically — `tar czvf foo.tar.gz dir/` is the same as `tar -czvf foo.tar.gz dir/`. Both still work.
+- **`tar` does not compress on its own** — `tar -cf x.tar dir/` produces an uncompressed archive. The `-z` / `-j` / `-J` flag is what calls `gzip` / `bzip2` / `xz`.
+- **Auto-detect on extract:** modern `tar` (GNU `tar` ≥ 1.15) detects the compression automatically — `tar -xf archive.???` works for `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz` without specifying which.
+- **`xz` (`-J`) is ~30% smaller than gzip** but much slower to compress. It's now the default for kernel and many distro tarballs.
+- **`tar` preserves UID/GID by number, not by name.** Extracting an archive made on another system as root can produce files owned by a UID that doesn't exist locally — use `--no-same-owner` (default for non-root) to extract as the current user.
+- **`zcat`, `zless`, `zgrep`** read a `.gz` file without explicitly decompressing — handy for searching gzipped logs (`zgrep ERROR /var/log/nginx/access.log.*.gz`).
+- For directory-tree archives where you'll later want to **extract just one file**, `tar` is fine; for random access into a huge archive, prefer `zip` (per-file compression, indexed) or `squashfs`.
+
+### Package Dependencies
+
+**Description:** Almost no real software is self-contained — a single `.deb` or `.rpm` typically declares a list of **other packages it needs** (`libssl`, `python3`, `glibc ≥ 2.34`, ...) and the package manager's job is to walk that graph, resolve all the transitive needs, pick compatible versions, and install everything in the right order. When that graph has no solution — two packages need conflicting versions of the same library, a needed package was removed from the repo, a downgrade would break something else — you've hit **dependency hell**. Modern front-ends (`apt`, `dnf`) are mostly about preventing it.
+
+**Kinds of dependency relationships:**
+
+| Term                | Example                                              | Meaning                                                            |
+| ------------------- | ---------------------------------------------------- | ------------------------------------------------------------------ |
+| **Depends / Requires** | `nginx` depends on `libssl3`                       | Must be installed for this package to work at all.                 |
+| **Recommends**      | `git` recommends `less`                              | Strongly suggested — `apt` installs it by default; `--no-install-recommends` skips. |
+| **Suggests**        | `vim` suggests `ctags`                               | Optional add-on — never installed automatically.                   |
+| **Conflicts**       | `sendmail` conflicts with `postfix`                  | Can't coexist — installing one removes the other.                  |
+| **Provides**        | `postfix` provides `mail-transport-agent`            | A **virtual package** name that anything in the same role can satisfy. |
+| **Replaces / Obsoletes** | `apt` replaces / obsoletes `apt-utils-old`       | This package supersedes another — used during upgrades.            |
+| **Pre-Depends**     | (Debian) `dpkg` pre-depends on `tar`                 | Must be **fully configured** before this package is even unpacked. |
+
+**Shared libraries — the real dependency layer:**
+
+Most "this package needs that package" rules exist because the binary inside dynamically links to a **shared library** (`.so`). The package manager doesn't read the ELF headers itself — the *package builder* declared the dependency — but the underlying truth lives in `ldd`:
+
+```bash
+ldd /usr/bin/nginx
+#   linux-vdso.so.1
+#   libssl.so.3 => /lib/x86_64-linux-gnu/libssl.so.3
+#   libcrypto.so.3 => /lib/x86_64-linux-gnu/libcrypto.so.3
+#   libpthread.so.0 => /lib/x86_64-linux-gnu/libpthread.so.0
+#   libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6
+#   ...
+
+# Which package provides that library?
+dpkg -S /lib/x86_64-linux-gnu/libssl.so.3
+# libssl3:amd64: /usr/lib/x86_64-linux-gnu/libssl.so.3
+```
+
+**Examples:**
+
+```bash
+# Show what a package depends on:
+apt-cache depends nginx                  # Debian
+dnf repoquery --requires nginx           # RPM
+
+# Show what depends on a given package (reverse deps):
+apt-cache rdepends libssl3
+dnf repoquery --whatrequires libssl3
+
+# Find every broken dependency on the system:
+sudo apt --fix-broken install            # Debian
+sudo dnf check                           # RPM
+# `dnf check` reports unresolved deps, duplicates, and conflicts.
+
+# Hold a package at its current version (prevent upgrade):
+sudo apt-mark hold nginx                 # Debian
+sudo dnf versionlock add nginx           # RPM (needs the versionlock plugin)
+
+# Why did apt want to install all these extras?
+apt install nginx --dry-run
+# The following additional packages will be installed:
+#   libssl3 nginx-common nginx-core ...
+
+# Don't pull in "Recommends" (smaller install footprint):
+sudo apt install --no-install-recommends nginx
+```
+
+**Dependency hell — the classic shapes:**
+
+| Symptom                                                       | What's happening                                                            |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `Depends: foo (>= 1.5) but 1.3 is to be installed`            | The repo doesn't carry a new enough version — add a backports / EPEL repo.  |
+| `Conflicts: bar but baz is already installed`                 | Two packages claim the same files or the same role — pick one.              |
+| `Held broken packages`                                        | You ran a half-finished install — `apt --fix-broken install` to resolve.    |
+| `Requires: libfoo.so.1()(64bit)` and no package provides it   | A library that used to ship with the distro was renamed/removed — find the new package via `dnf provides */libfoo.so.1`. |
+| `error: Failed dependencies` from `rpm -i ...`                | You're using the low-level tool, which **does no resolution**. Use `dnf` instead. |
+
+**Notes:**
+
+- **The package manager solves a SAT problem.** `apt`'s solver and `dnf`'s `libsolv` are both real constraint solvers — when they refuse to install something, they have a reason. Read the error before forcing.
+- **`Recommends` defaults to ON in Debian/Ubuntu.** That's why `apt install foo` sometimes pulls in 30 packages instead of 5. `--no-install-recommends` is a common flag in `Dockerfile`s and container images.
+- **Held packages can wreck upgrades.** If `apt upgrade` refuses to upgrade something, check `apt-mark showhold` and `dpkg --get-selections | grep hold`.
+- **Don't `--force` your way through.** `rpm -i --nodeps`, `dpkg -i --force-depends`, `apt-get install --allow-unauthenticated` — these *appear* to work and silently break later. Almost always the right answer is to add the missing repo or fix the conflict.
+- **Snap / Flatpak / containers sidestep dependency hell** by bundling their own runtime — at the cost of disk space and slower security patching (every bundled `libssl` is its own update problem).
+- **Pinning** (Debian: `/etc/apt/preferences.d/`, RPM: `versionlock`) is how you keep one package at version X while everything else moves — useful for production servers that need a specific kernel or DB version.
+
+### rpm and dpkg
+
+**Description:** **`rpm`** (Red Hat family) and **`dpkg`** (Debian family) are the **low-level** package tools — they install, remove, query, and inspect a *single* package file you've already downloaded. They do **not** talk to repositories, and they do **not** resolve dependencies for you — if `foo.rpm` needs `libbar`, `rpm -i foo.rpm` fails with `Failed dependencies` and stops. That's why everyday work uses [yum and apt](#yum-and-apt) on top. Reach for `rpm` / `dpkg` when you need to query the package database, inspect a downloaded file, or install a one-off `.deb` / `.rpm` that isn't in any repo.
+
+**Syntax:**
+
+```bash
+rpm  <operation> [options] <package-or-query>
+dpkg <operation> [options] <package-or-query>
+```
+
+**Common `rpm` operations:**
+
+| Command                  | What it does                                                       |
+| ------------------------ | ------------------------------------------------------------------ |
+| `rpm -ivh foo.rpm`       | **Install** package (`v` verbose, `h` progress hashes)             |
+| `rpm -Uvh foo.rpm`       | **Upgrade** (install if missing, else replace)                     |
+| `rpm -e foo`             | **Erase** (uninstall) a package                                    |
+| `rpm -q foo`             | Is `foo` installed? (and which version)                            |
+| `rpm -qa`                | List **all** installed packages                                    |
+| `rpm -ql foo`            | List every **file** that `foo` installed                           |
+| `rpm -qf /path/to/file`  | Which package owns this file?                                      |
+| `rpm -qi foo`            | Full **info** — version, license, summary, vendor, install date    |
+| `rpm -qp foo.rpm` (+ above flags) | Query **a `.rpm` file** that isn't installed yet          |
+| `rpm -V foo`             | **Verify** — show files that have changed since install            |
+
+**Common `dpkg` operations:**
+
+| Command                   | What it does                                                       |
+| ------------------------- | ------------------------------------------------------------------ |
+| `dpkg -i foo.deb`         | **Install** a `.deb` file                                          |
+| `dpkg -r foo`             | **Remove** (keep config files)                                     |
+| `dpkg -P foo`             | **Purge** (remove + delete config files)                           |
+| `dpkg -l`                 | List **all** installed packages                                    |
+| `dpkg -l foo`             | Show status of `foo` (`ii` = installed, `rc` = removed-config-left)|
+| `dpkg -L foo`             | List every **file** that `foo` installed                           |
+| `dpkg -S /path/to/file`   | Which package owns this file?                                      |
+| `dpkg -s foo`             | **Status** — info about an installed package                       |
+| `dpkg -I foo.deb`         | Show metadata of a `.deb` **file** (before installing)             |
+| `dpkg -c foo.deb`         | List the files **inside** a `.deb` without installing              |
+| `dpkg --configure -a`     | Finish configuring any half-installed packages                     |
+
+**Examples:**
+
+```bash
+# Install a one-off .rpm you downloaded:
+sudo rpm -ivh google-chrome-stable_current_x86_64.rpm
+# error: Failed dependencies:
+#   liberation-fonts is needed by google-chrome-stable-...
+# → rpm tells you what's missing; install with dnf instead:
+sudo dnf install ./google-chrome-stable_current_x86_64.rpm
+# (dnf resolves the deps and uses rpm under the hood)
+
+# Same idea on Debian:
+sudo dpkg -i ./code_1.95.0-amd64.deb
+# Errors were encountered while processing:
+#   code depends on libnss3 (>= 3.26); ...
+sudo apt --fix-broken install        # pulls the missing deps
+# (or use `apt install ./code_*.deb` directly — apt accepts a local file)
+
+# Find which package owns a file:
+rpm -qf /usr/bin/curl
+# curl-7.76.1-26.el9.x86_64
+dpkg -S /usr/bin/curl
+# curl: /usr/bin/curl
+
+# List every file a package put on disk:
+rpm -ql nginx | head
+dpkg -L nginx | head
+
+# Inspect a .deb you haven't installed yet:
+dpkg -I ./somepackage.deb     # metadata
+dpkg -c ./somepackage.deb     # file list
+
+# What changed since install? (great for detecting tampering or config drift)
+rpm -V openssh-server
+# S.5....T.  c /etc/ssh/sshd_config
+# S=size differs, 5=md5 differs, T=mtime differs, c=config file
+
+# Pending half-installed packages causing apt errors:
+sudo dpkg --configure -a
+```
+
+**Notes:**
+
+- **`rpm -i` and `dpkg -i` do not resolve dependencies.** When they fail, don't add `--nodeps` / `--force` — let `dnf` or `apt` handle the install instead. They use the low-level tool under the hood **and** read the repo metadata.
+- **`apt install ./file.deb`** is the modern shortcut for "install a downloaded `.deb` with dependency resolution." Same for `dnf install ./file.rpm`. You almost never need raw `dpkg -i` or `rpm -i` directly.
+- **`-U` (upgrade) is safer than `-i` (install) for `rpm`** — it handles "install or upgrade" in one shot.
+- The **package database** lives at `/var/lib/rpm/` (RPM) and `/var/lib/dpkg/` (Debian). Corruption is rare but recoverable: `rpm --rebuilddb`, `dpkg --configure -a`.
+- `dpkg -l` first-column status codes: `ii` = installed, `rc` = removed but config remains, `un` = never installed, `iU` = unpacked but unconfigured.
+- **`rpm -V`** is a quick poor-man's tripwire — it shows every file that's been modified since the package was installed, including config files. The leading flag letters (`S`/`5`/`T`/`M`/`U`/`G`/`L`/`c`) decode in `man rpm`.
+
+### yum and apt
+
+**Description:** **`apt`** (Debian / Ubuntu) and **`yum`** / **`dnf`** (RHEL / Fedora) are the **high-level** front-ends — they read your configured [package repositories](#package-repositories), resolve [dependencies](#package-dependencies), download the right `.deb` / `.rpm` files, verify their GPG signatures, and hand them off to [dpkg / rpm](#rpm-and-dpkg) to install. They also handle **search**, **upgrade**, and **removal** in one fluent CLI. `yum` is the older RHEL tool; **`dnf`** is its modern replacement (RHEL 8+, Fedora) and has the same commands. This is the layer you use every day.
+
+**Syntax:**
+
+```bash
+apt <command> [options] [packages...]
+dnf <command> [options] [packages...]      # yum <command> works the same
+```
+
+**Side-by-side cheat sheet:**
+
+| Goal                          | Debian / Ubuntu (`apt`)           | RHEL / Fedora (`dnf` / `yum`)         |
+| ----------------------------- | --------------------------------- | ------------------------------------- |
+| Refresh repo metadata         | `apt update`                      | `dnf check-update` (auto on most cmds)|
+| Install a package             | `apt install <pkg>`               | `dnf install <pkg>`                   |
+| Install a local file          | `apt install ./file.deb`          | `dnf install ./file.rpm`              |
+| Upgrade one package           | `apt install --only-upgrade <pkg>`| `dnf upgrade <pkg>`                   |
+| Upgrade **everything**        | `apt upgrade` / `apt full-upgrade`| `dnf upgrade`                         |
+| Remove a package              | `apt remove <pkg>`                | `dnf remove <pkg>`                    |
+| Remove + delete config files  | `apt purge <pkg>`                 | (config files aren't tracked the same way) |
+| Clean up unused dependencies  | `apt autoremove`                  | `dnf autoremove`                      |
+| Search for a package          | `apt search <term>`               | `dnf search <term>`                   |
+| Show package details          | `apt show <pkg>`                  | `dnf info <pkg>`                      |
+| Which package owns a file?    | `apt-file search /path` (after `apt-file update`) | `dnf provides /path`        |
+| List installed packages       | `apt list --installed`            | `dnf list installed`                  |
+| History of transactions       | `cat /var/log/apt/history.log`    | `dnf history`                         |
+| Undo last transaction         | (none built-in)                   | `dnf history undo <id>`               |
+
+**Examples:**
+
+```bash
+# Day-one install flow on Debian/Ubuntu:
+sudo apt update                              # refresh the index FIRST
+sudo apt install -y nginx                    # install
+sudo apt upgrade -y                          # bring everything else up to date
+
+# Same flow on Fedora/RHEL:
+sudo dnf install -y nginx
+sudo dnf upgrade -y                          # also refreshes metadata automatically
+
+# Search for a package by topic:
+apt search "json processor"
+# jq/jammy 1.6-2.1 amd64 — lightweight and flexible command-line JSON processor
+dnf search json | head
+
+# Look up which package would provide a missing library:
+dnf provides */libssl.so.3
+# openssl-libs-3.0.7-25.el9.x86_64 : A general purpose cryptography library...
+apt-file search libssl.so.3                  # needs `apt install apt-file` first
+
+# Remove a package and its unused dependencies:
+sudo apt remove nginx && sudo apt autoremove
+sudo dnf remove nginx
+
+# Inspect what would change before upgrading (Debian):
+apt list --upgradable
+apt-get -s upgrade                           # -s = simulate, no changes
+
+# `dnf` has a real undo system:
+sudo dnf history
+#  ID | Command line                | Date and time    | Action(s)     | Altered
+# ----------------------------------------------------------------------------
+#   42 | install nginx              | 2026-06-10 14:22 | Install       | 7
+sudo dnf history undo 42
+# Rolls back transaction 42 — uninstalls nginx and its newly-pulled deps.
+
+# Hold a package at its current version:
+sudo apt-mark hold nginx                     # Debian
+sudo dnf versionlock add nginx               # RPM (needs versionlock plugin)
+```
+
+**`apt` vs `apt-get` / `apt-cache`:**
+
+- **`apt`** is the modern, user-facing wrapper (Ubuntu 16.04+). Colored output, progress bar, sensible defaults — use it interactively.
+- **`apt-get`** is the older, stable, **scriptable** front-end. Use it in shell scripts, Dockerfiles, and CI — its output format is guaranteed not to change.
+- **`apt-cache`** is the search/query half (`apt-cache search`, `apt-cache policy`, `apt-cache depends`). `apt` rolled some of these into itself.
+
+**Notes:**
+
+- **Always `apt update` before `apt install`.** On RPM systems `dnf` refreshes metadata automatically on most operations, so the extra step isn't needed.
+- **`apt upgrade` vs `apt full-upgrade` (`dist-upgrade`)**: `upgrade` will *never* remove packages to satisfy dependencies — if an upgrade needs a removal, it just skips that package. `full-upgrade` *will* remove things. Use `upgrade` for routine patching, `full-upgrade` for major version bumps.
+- **`autoremove` cleans up orphans** — packages that were pulled in as dependencies and are no longer needed. Run it after `remove` to keep the disk tidy. Beware: a misconfigured manual install can land important packages on the "autoremove" list — read the list before confirming.
+- **`-y` accepts all prompts** non-interactively. Standard in scripts and Dockerfiles, but it also accepts destructive things like "remove this list of 47 packages" — don't use `-y` interactively when running broad operations.
+- **`dnf` is `yum`** for all practical purposes on RHEL 8+ / Fedora — every command above works under either name. RHEL 9 ships `yum` as a symlink to `dnf`.
+- **Idempotent scripts:** use `apt-get install -y --no-install-recommends` in Dockerfiles, follow it with `rm -rf /var/lib/apt/lists/*` to shrink the image. On RPM: `dnf clean all`.
+
+### Compile Source Code
+
+**Description:** When a package isn't in any repo, or you need a version newer/older than what your distro ships, or you want to patch it — you build from source. The classic **autotools** workflow is **`./configure && make && sudo make install`**: a shell script that probes your system, a `Makefile`-driven compile, and an install step that copies the resulting binaries into place. Modern projects use **CMake**, **Meson**, or language-native build systems (`cargo`, `go build`, `setup.py`) — but the *shape* is the same: configure → build → install.
+
+**The classic autotools workflow:**
+
+```bash
+tar -xzvf foo-1.2.3.tar.gz       # 1. unpack
+cd foo-1.2.3
+./configure --prefix=/usr/local  # 2. probe the system, decide where to install
+make -j"$(nproc)"                # 3. compile (parallel — one job per core)
+sudo make install                # 4. copy binaries / libs / man pages into --prefix
+```
+
+**The phases in detail:**
+
+| Step               | What happens                                                                  |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `./configure`      | Checks for required headers, libs, tools (e.g. "does `libssl` ≥ 3.0 exist?"). Generates a `Makefile` matching your system. Common flags: `--prefix=`, `--with-FEATURE`, `--without-FEATURE`, `--enable-FEATURE`, `--disable-FEATURE`. |
+| `make`             | Reads the generated `Makefile`, runs the compiler (`gcc` / `clang`), and links objects into the final binary. `-j N` runs `N` jobs in parallel. |
+| `make install`     | Copies the artifacts into `--prefix` (default `/usr/local`) — binaries to `bin/`, libs to `lib/`, headers to `include/`, man pages to `share/man/`. Needs `sudo` unless `--prefix` is in your home. |
+| `make uninstall`   | If the project supports it — deletes whatever `make install` put down.        |
+| `make clean` / `distclean` | Remove build artifacts; `distclean` also removes `./configure`-generated files. |
+
+**Common build-time dependencies:**
+
+| Package family                 | Why you need it                                                |
+| ------------------------------ | -------------------------------------------------------------- |
+| `build-essential` (Debian) / `@"Development Tools"` (RHEL) | `gcc`, `g++`, `make`, the C library headers — the bare minimum |
+| `autoconf`, `automake`, `libtool` | If the project ships only `configure.ac` (no `./configure`) — you regenerate it via `autoreconf -i` |
+| `pkg-config`                   | The `./configure` script uses it to locate library `.pc` files                  |
+| **`-dev` / `-devel` packages** | Header files and `.pc` files for any library you link against (e.g. `libssl-dev`, `openssl-devel`) |
+| `cmake`, `ninja`, `meson`      | For projects that use those build systems instead of autotools |
+
+**Examples:**
+
+```bash
+# Bootstrap a build environment:
+sudo apt install -y build-essential autoconf automake libtool pkg-config   # Debian
+sudo dnf groupinstall -y "Development Tools"                                # RHEL/Fedora
+sudo dnf install -y pkgconf-pkg-config                                      # RHEL/Fedora extras
+
+# Build into /opt so you can throw it away cleanly:
+./configure --prefix=/opt/foo-1.2.3
+make -j"$(nproc)"
+sudo make install
+# Binaries land in /opt/foo-1.2.3/bin/ — add to PATH or symlink into /usr/local/bin/
+
+# See every option ./configure accepts:
+./configure --help | less
+
+# Build with extra warnings or a specific compiler:
+CC=clang CFLAGS="-O2 -march=native" ./configure
+make -j"$(nproc)"
+
+# CMake projects (the modern equivalent):
+mkdir build && cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_BUILD_TYPE=Release
+cmake --build . -j"$(nproc)"
+sudo cmake --install .
+
+# Meson projects:
+meson setup build --prefix=/usr/local
+meson compile -C build
+sudo meson install -C build
+
+# Track what `make install` puts on disk so you can remove it later:
+sudo make install DESTDIR=/tmp/staging
+find /tmp/staging -type f | sed 's|/tmp/staging||' > install.list
+# install.list now contains every path that was installed.
+```
+
+**Wrapping a source build into a real package:**
+
+For anything you'll deploy to more than one machine, wrap the build into an `.rpm` or `.deb` so the package manager can track it:
+
+| Tool         | What it does                                                                       |
+| ------------ | ---------------------------------------------------------------------------------- |
+| `checkinstall` | Watches `make install` and produces a `.deb` / `.rpm` from the resulting files.  |
+| `fpm`        | "Effing Package Management" — builds `.deb` / `.rpm` / `tar` from a directory.     |
+| `debuild` / `dpkg-buildpackage` | Build a proper `.deb` from a Debian source package.                |
+| `rpmbuild`   | Build an `.rpm` from a `.spec` file.                                               |
+
+**Notes:**
+
+- **Always install source builds into `/usr/local/` or `/opt/`** — never `/usr/`. Anything under `/usr/` is "owned by the package manager" territory; dropping files there shadows distro binaries and breaks future upgrades.
+- **`-dev` / `-devel` packages are the most common source of `./configure: error: ... not found`** — the runtime package (`libssl3`) doesn't ship headers, you need `libssl-dev` (Debian) or `openssl-devel` (RHEL).
+- **`make -j$(nproc)`** speeds up builds dramatically — `-j` runs N compile jobs in parallel, `nproc` returns your core count. Without `-j`, `make` builds one file at a time.
+- **`sudo make install` is dangerous and untracked.** It scatters files across `/usr/local` with no record. Prefer building into a `--prefix` you can `rm -rf`, or using `checkinstall` / `fpm` to produce a real package.
+- **Reproducibility matters.** Save the exact source tarball, the `./configure` flags you used, and your distro version. Six months later you'll need to rebuild and the upstream may have moved on.
+- **For one-off binaries, language tooling often beats configure/make** — `cargo install <crate>`, `go install <module>@latest`, `pipx install <pkg>`. They build into per-user trees (`~/.cargo/bin`, `~/go/bin`, `~/.local/bin`) so `sudo` isn't needed.
+
+---
+
+## Devices
+
+Notes on Linux **devices** — how the kernel exposes hardware (disks, USB sticks, network cards, terminals, even pseudo-random bytes) as **files** under `/dev`. The Unix mantra "everything is a file" is most visible here: you read a webcam by `open()`-ing `/dev/video0`, zero out a disk by writing to `/dev/sdb`, and probe the kernel's view of devices through `/sys`. This section covers the directory layout, device types, naming rules, the **sysfs** kernel view, the **udev** rule engine that names devices on hotplug, and the bus-specific listing tools.
+
+### One Shot Revision
+
+| Command                                                   | Short Description                                                            |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [/dev directory](#dev-directory)                          | Where device files live — block, character, pseudo, and virtual devices      |
+| [Device Types](#device-types)                             | **Block** vs **character** devices, and how to tell them apart in `ls -l`    |
+| [Device Names](#device-names)                             | Naming conventions — `sdX`, `nvmeXnY`, `ttyN`, `loopN`, and persistent IDs   |
+| [sysfs](#sysfs)                                           | `/sys` — the kernel's structured view of every device, driver, and bus       |
+| [udev](#udev)                                             | The hotplug daemon — names, permissions, and symlinks on device arrival      |
+| [lsusb / lspci / lsscsi](#lsusb--lspci--lsscsi)           | List devices on the USB, PCI, and SCSI buses                                 |
+| [dd](#dd)                                                 | The byte-level read/write tool — bootable USBs, disk imaging, careful wipes  |
+
+### /dev directory
+
+**Description:** **`/dev`** is the kernel's "device folder" — every piece of hardware (or virtual hardware) the kernel knows about appears here as a **special file**. Reading or writing one of these files turns into a syscall into the matching driver. On modern Linux the directory is **not on disk at all** — it's a `devtmpfs` filesystem populated by the kernel at boot and continuously updated by **[udev](#udev)** as devices come and go.
+
+**What you find inside:**
+
+| Path / pattern              | Kind                | What it is                                                             |
+| --------------------------- | ------------------- | ---------------------------------------------------------------------- |
+| `/dev/sda`, `/dev/sda1`     | Block (SCSI/SATA)   | First SCSI/SATA disk and its first partition                           |
+| `/dev/nvme0n1`, `/dev/nvme0n1p1` | Block (NVMe)    | First NVMe device, namespace 1, partition 1                            |
+| `/dev/mmcblk0`, `/dev/mmcblk0p1` | Block (eMMC/SD)| First MMC/SD card and its first partition                              |
+| `/dev/loop0`–`loop7`        | Block (virtual)     | **Loopback** devices — mount a file as if it were a disk               |
+| `/dev/dm-0`, `/dev/mapper/*`| Block (virtual)     | Device-mapper targets — LVM volumes, dm-crypt, multipath               |
+| `/dev/tty`, `/dev/tty1`–`tty6` | Character (TTY)  | The current controlling terminal + virtual consoles                    |
+| `/dev/pts/0`, `/dev/pts/1`  | Character (PTY)     | Pseudo-terminals (one per SSH session / terminal emulator / tmux pane) |
+| `/dev/null`                 | Character (virtual) | The bit bucket — writes vanish, reads return EOF                       |
+| `/dev/zero`                 | Character (virtual) | Infinite stream of `\0` bytes                                          |
+| `/dev/random`, `/dev/urandom` | Character (virtual) | Kernel cryptographic RNG (`random` blocks if low entropy; use `urandom`) |
+| `/dev/stdin`, `/dev/stdout`, `/dev/stderr` | Symlinks | Per-process FDs 0/1/2, served by `/proc/self/fd/{0,1,2}`         |
+| `/dev/shm/`                 | Directory (tmpfs)   | POSIX shared memory — RAM-backed files                                 |
+| `/dev/disk/by-id/`, `by-uuid/`, `by-label/`, `by-path/` | Symlinks | **Persistent device names** — survive hotplug reordering              |
+
+**Examples:**
+
+```bash
+ls /dev | head -20
+# autofs    block     bus       char      console   core      cpu      cpu_dma_latency
+# disk      dri       fd        full      hugepages hwrng     ...
+
+ls -l /dev/sda /dev/null /dev/tty
+# brw-rw----  1 root disk  8,  0 ...  /dev/sda      ← b = block
+# crw-rw-rw-  1 root root  1,  3 ...  /dev/null     ← c = character
+# crw-rw-rw-  1 root tty   5,  0 ...  /dev/tty      ← c = character
+# The two numbers in place of "size" are MAJOR, MINOR — see "Device Types".
+
+# Persistent identifiers — survive across reboots and hotplug:
+ls -l /dev/disk/by-id/
+# ata-Samsung_SSD_870_EVO_500GB_S5RRNF0... -> ../../sda
+# nvme-WD_BLACK_SN850X_1TB_...             -> ../../nvme0n1
+
+# Some classic "device files that aren't really devices":
+cat /dev/null    # returns immediately, nothing to read
+echo "drop"  > /dev/null    # silently consumed
+head -c 16 /dev/urandom | xxd    # 16 random bytes from the kernel RNG
+```
+
+**Notes:**
+
+- `/dev` is **`devtmpfs`** — a RAM-backed pseudo-filesystem the kernel populates. **Files created there don't persist across reboots**; udev re-creates them every boot.
+- The `crw-` / `brw-` first character of `ls -l` is the **easiest way to tell device class** at a glance (`c` = character, `b` = block). See [Device Types](#device-types).
+- **`/dev/null` writes are free** — the syscall returns immediately. It's the canonical way to discard output (`cmd > /dev/null 2>&1`).
+- **Prefer `/dev/urandom` over `/dev/random`** for everything except very early-boot key generation. Modern kernels treat the two identically once initialized; `/dev/random` only blocks on a cold boot before the entropy pool is seeded.
+- **Use `/dev/disk/by-id/` or `by-uuid/` in `/etc/fstab` and scripts**, never `/dev/sdX`. The `sdX` letters can shift if you add a disk, plug in a USB, or change the boot order; the `by-id/` symlinks are stable.
+
+### Device Types
+
+**Description:** Every device file is either a **block** device or a **character** device — that's the kernel's most fundamental classification. **Block devices** are addressed in fixed-size chunks (sectors / 512 B blocks) and the kernel caches their I/O — disks, SSDs, CD-ROMs, USB sticks, loopback mounts. **Character devices** are streams of bytes with no random access and no caching — terminals, serial ports, keyboards, mice, audio cards, `/dev/null`. The kernel routes I/O to a driver using two integers stored in the device file itself: the **major** number picks the driver, the **minor** number picks the specific device that driver manages.
+
+**Telling them apart in `ls -l`:**
+
+```
+brw-rw----  1 root disk    8,   0 Jun 12 09:14 /dev/sda
+^                          ^    ^
+│                          │    └── minor number  (which sda* — 0=whole disk, 1=sda1, ...)
+│                          └─────── major number  (8 = SCSI/SATA disk driver)
+└──────────────────────── 'b' = block device
+
+crw-rw-rw-  1 root root    1,   3 Jun 12 09:14 /dev/null
+^                          ^    ^
+│                          │    └── minor (3 = null)
+│                          └─────── major (1 = mem driver: null, zero, random, ...)
+└──────────────────────── 'c' = character device
+```
+
+**The two families side by side:**
+
+| Aspect             | Block device                                | Character device                                 |
+| ------------------ | ------------------------------------------- | ------------------------------------------------ |
+| Addressing         | Fixed-size **blocks** (512 B / 4 KB sectors)| **Byte stream**                                  |
+| Random access      | **Yes** — seek anywhere by block number     | Usually **no** — read what arrives next          |
+| Kernel page cache  | **Yes** — reads/writes go through it        | **No** — typically direct to driver              |
+| Common users       | Filesystems mount on top                    | `read()` / `write()` / `ioctl()` directly        |
+| Examples           | `sda`, `nvme0n1`, `loop0`, `dm-0`           | `tty`, `pts/0`, `null`, `zero`, `random`         |
+| `mknod` flag       | `b`                                         | `c`                                              |
+
+**A few common major numbers (Linux):**
+
+| Major  | Driver / family                              |
+| ------ | -------------------------------------------- |
+| `1`    | `mem` — `/dev/null`, `/dev/zero`, `/dev/random`, `/dev/urandom`, `/dev/mem` |
+| `4`    | TTY (`/dev/tty1`..`tty63`)                   |
+| `5`    | TTY auxiliary (`/dev/tty`, `/dev/console`)   |
+| `7`    | `loop` (loopback block devices)              |
+| `8`    | `sd` — SCSI/SATA disks (`sda`..`sdh` etc.)   |
+| `9`    | `md` — software RAID                         |
+| `136+` | `pts` — pseudo-terminal slaves               |
+| `259`  | NVMe block devices                           |
+| `253`  | Device-mapper (LVM, dm-crypt — dynamic)      |
+
+The authoritative list lives in **`/proc/devices`** (and `Documentation/admin-guide/devices.txt` in the kernel source).
+
+**Examples:**
+
+```bash
+cat /proc/devices
+# Character devices:
+#   1 mem
+#   4 /dev/vc/0
+#   5 /dev/tty
+# ...
+# Block devices:
+#   7 loop
+#   8 sd
+# 259 blkext
+
+# Find every block device on the system:
+find /dev -type b 2>/dev/null | head
+# /dev/sda  /dev/sda1  /dev/loop0  /dev/nvme0n1  ...
+
+# Find every character device:
+find /dev -type c 2>/dev/null | head
+
+# Create a device file by hand (rare — udev does this for you):
+sudo mknod /dev/mynull c 1 3      # character device, major=1, minor=3 → same as /dev/null
+ls -l /dev/mynull
+# crw-r--r-- 1 root root 1, 3 ... /dev/mynull
+sudo rm /dev/mynull
+```
+
+**Notes:**
+
+- **`ls -l` reports major,minor in place of size** for device files — it's the easiest at-a-glance lookup. The same numbers appear under `Maj:Min` in `lsblk` and in `/sys/dev/block/<maj>:<min>/`.
+- **Filesystems sit on block devices.** You can't `mount` a character device — `mount /dev/null /mnt` fails with `wrong fs type`. Block-vs-character is enforced at the syscall layer.
+- **`mknod` is almost never needed by hand** — `udev` (via `devtmpfs`) creates device nodes automatically. The exception is **inside containers** that don't run udev, or when bootstrapping a minimal rootfs.
+- **Pseudo / virtual devices count.** `/dev/null`, `/dev/zero`, `/dev/urandom` are character devices backed by kernel code, not hardware. `/dev/loop0` is a block device backed by a file on disk.
+- The **major number is fixed per driver** by `Documentation/admin-guide/devices.txt`, but **modern allocations are dynamic** — device-mapper (253), NVMe (259), and most new subsystems request a major at module load time. Hardcoding major numbers in scripts is a bug.
+
+### Device Names
+
+**Description:** Linux uses a small set of **naming conventions** for device files — `sdX` for SCSI/SATA disks, `nvmeXnYpZ` for NVMe, `mmcblkX` for SD cards, `ttyN` for virtual consoles, `pts/N` for pseudo-terminals, `loopN` for loopback. These names are **not stable** across reboots once you add or remove hardware — a USB stick that was `sdb` today can become `sdc` after the next plug-in. For anything that needs to survive a reboot or a hotplug, use the **persistent symlinks** under `/dev/disk/`.
+
+**The naming map:**
+
+| Pattern               | What it names                                                            |
+| --------------------- | ------------------------------------------------------------------------ |
+| `sda`, `sdb`, `sdc`…  | SCSI / SATA / USB-attached disks, in **discovery order**                 |
+| `sda1`, `sda2`, …     | Partitions on `sda`                                                      |
+| `nvme0n1`             | NVMe controller 0, namespace 1                                           |
+| `nvme0n1p1`           | First partition on that namespace (note the `p`)                         |
+| `mmcblk0`, `mmcblk0p1`| SD / eMMC card 0 and its first partition                                 |
+| `vda`, `vdb`…         | **Virtio** disks — typical inside KVM/QEMU guests                        |
+| `xvda`, `xvdb`…       | **Xen** virtual block devices                                            |
+| `dm-0`, `dm-1`…       | Device-mapper devices (LVM logical volumes, dm-crypt). Use `/dev/mapper/<name>` instead. |
+| `md0`, `md1`…         | Software RAID arrays (`mdadm`)                                           |
+| `loop0`–`loop7`       | Loopback devices (mount a file as if it were a disk)                     |
+| `tty0`–`tty63`        | Virtual consoles (Ctrl+Alt+F1…F6)                                        |
+| `pts/0`, `pts/1`, …   | Pseudo-terminals — one per SSH session / terminal emulator / tmux pane   |
+| `ttyS0`, `ttyS1`      | Hardware serial ports                                                    |
+| `ttyUSB0`, `ttyACM0`  | USB-to-serial adapters                                                   |
+| `eth0`, `enp3s0`, `wlp2s0` | Network interfaces — see [systemd predictable names](https://systemd.io/PREDICTABLE_INTERFACE_NAMES/) |
+
+**Persistent identifiers — what to use in `/etc/fstab` and scripts:**
+
+| Directory                  | What its symlinks key on                                                |
+| -------------------------- | ----------------------------------------------------------------------- |
+| `/dev/disk/by-uuid/`       | Filesystem **UUID** (stable until you reformat). **Best default.**      |
+| `/dev/disk/by-label/`      | Filesystem **label** — human-readable but only if you set one          |
+| `/dev/disk/by-id/`         | Vendor + model + serial number — stable even across reformats           |
+| `/dev/disk/by-path/`       | Physical port / bus path — stable if you don't move the cable           |
+| `/dev/disk/by-partuuid/`   | GPT **partition** UUID — for partition-level pinning                    |
+
+**Examples:**
+
+```bash
+# Map device → persistent ID (and vice versa):
+lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINT
+# NAME    SIZE TYPE FSTYPE LABEL  UUID                                  MOUNTPOINT
+# sda     500G disk
+# ├─sda1    1G part vfat   EFI    A1B2-C3D4                             /boot/efi
+# └─sda2  499G part ext4   root   1234abcd-...-ef56                     /
+
+# Find every persistent symlink to a device:
+ls -l /dev/disk/by-*/ | grep -E 'sda1\b|sda2\b'
+# by-uuid/A1B2-C3D4                -> ../../sda1
+# by-uuid/1234abcd-...-ef56        -> ../../sda2
+# by-id/ata-Samsung_SSD_870_EVO_..-part2 -> ../../sda2
+# by-label/EFI                     -> ../../sda1
+
+# Get just the UUID of a device:
+blkid /dev/sda2
+# /dev/sda2: LABEL="root" UUID="1234abcd-...-ef56" TYPE="ext4"
+
+# Resolve the other direction:
+findfs UUID=1234abcd-...-ef56
+# /dev/sda2
+
+# Why an NVMe layout looks weird:
+ls /dev/nvme0n1*
+# /dev/nvme0n1   /dev/nvme0n1p1   /dev/nvme0n1p2
+# - nvme0    = controller 0
+# - n1       = namespace 1 (most consumer SSDs have just one)
+# - p1, p2   = partitions (note the `p` — sd disks just use sda1, no `p`)
+```
+
+**Notes:**
+
+- **`sdX` letters are not persistent.** Linux assigns them in the order disks are detected at boot. Add or remove a drive (or boot with a USB stick plugged in) and the letter assignments can shift. **Always use UUID or by-id in `/etc/fstab`.**
+- **NVMe drives use `p` between namespace and partition** (`nvme0n1p1`), but SATA drives don't (`sda1`, not `sdap1`). Loopback and mmcblk match NVMe (`loop0p1`, `mmcblk0p1`).
+- **`/dev/disk/by-*/` symlinks are managed by udev** — they reappear automatically after a reboot or hotplug.
+- **Network interface naming is its own game.** `eth0`/`wlan0` was the old scheme; modern systemd uses **predictable names** like `enp3s0` (PCI slot 3, port 0) or `wlp2s0` (wireless, PCI slot 2). They survive hotplug; `eth0` did not.
+- **LVM and crypto layers expose friendly names.** `/dev/mapper/vg_root-lv_home` is the symlink you should use, not the underlying `/dev/dm-2`.
+
+### sysfs
+
+**Description:** **`/sys`** is the kernel's **structured, hierarchical view of every device, driver, and bus** on the system. Where `/proc` is the old junk-drawer of "everything running," `/sys` is the modern, tidy answer to "what hardware exists and how is it wired together." It's a virtual filesystem (`sysfs`) — directories are kernel objects, files are their attributes. Most attribute files are tiny (a single line) and writing to them tunes runtime hardware behavior — LED brightness, fan PWM, CPU governor, USB power management.
+
+**The top-level layout:**
+
+| Path                      | Contains                                                                   |
+| ------------------------- | -------------------------------------------------------------------------- |
+| `/sys/devices/`           | **The canonical tree** — every device, organized by physical topology      |
+| `/sys/bus/`               | One subdir per bus (`pci/`, `usb/`, `scsi/`, `i2c/`) — symlinks to devices |
+| `/sys/class/`             | One subdir per **device class** (`block/`, `net/`, `tty/`, `power_supply/`) |
+| `/sys/block/`             | One subdir per block device — `sda/`, `nvme0n1/`, `loop0/`                 |
+| `/sys/module/`            | One subdir per loaded kernel module                                        |
+| `/sys/firmware/`          | Firmware tables — ACPI, EFI, device tree                                   |
+| `/sys/fs/`                | Per-filesystem-type knobs and counters                                     |
+| `/sys/kernel/`            | Misc kernel-wide tunables (slab info, debugfs mount, kobjects)             |
+| `/sys/power/`             | Suspend / hibernate controls                                               |
+
+**Examples:**
+
+```bash
+# Size of every block device, in 512 B sectors:
+cat /sys/block/sda/size
+# 976773168                    — × 512 = ~500 GB
+
+# Rotational? (1 = spinning HDD, 0 = SSD)
+cat /sys/block/sda/queue/rotational
+
+# What scheduler is sda using right now?
+cat /sys/block/sda/queue/scheduler
+# [none] mq-deadline bfq kyber           ← brackets = active
+
+# Switch to a different scheduler (live, no reboot):
+echo bfq | sudo tee /sys/block/sda/queue/scheduler
+
+# CPU temperature (one of the most-asked sysfs queries):
+cat /sys/class/thermal/thermal_zone0/temp
+# 47000                        — millidegrees Celsius → 47 °C
+
+# Current CPU frequency governor on every core:
+for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+  echo "$f: $(cat "$f")"
+done
+
+# Battery state on a laptop:
+cat /sys/class/power_supply/BAT0/{status,capacity,energy_now,energy_full}
+# Discharging
+# 74
+# 35720000
+# 48190000
+
+# Find every network interface and its MAC:
+for i in /sys/class/net/*; do
+  echo "$(basename "$i"): $(cat "$i/address")"
+done
+
+# Walk back from a device to its driver:
+ls -l /sys/class/net/eth0
+# -> ../../devices/pci0000:00/0000:00:1f.6/net/eth0
+ls -l /sys/class/net/eth0/device/driver
+# -> ../../../../bus/pci/drivers/e1000e
+
+# Unbind a device from its driver (advanced):
+echo 0000:03:00.0 | sudo tee /sys/bus/pci/drivers/e1000e/unbind
+```
+
+**Notes:**
+
+- **`/sys/devices/` is the source of truth** — every other path under `/sys` is either a symlink into it (`/sys/class/`, `/sys/block/`, `/sys/bus/*/devices/`) or a different way of grouping the same kobjects.
+- **Read-only attributes are reads; writable ones tune the kernel.** A file with `0644` and contents `1` is a runtime toggle — `echo 0 | sudo tee <file>` flips it. Changes are usually **not persistent across reboots** — use `udev` rules or `tuned`/`tlp` to make them stick.
+- **Don't `cat` everything.** Some files are debug interfaces (`/sys/kernel/debug/...`) and reading them can be slow or have side effects. Stick to documented attributes.
+- **Hotplug events come from sysfs.** When the kernel creates a kobject under `/sys`, it sends a `uevent` netlink message that **[udev](#udev)** consumes — that's how `/dev` nodes appear in real time.
+- **`/proc/sys/` is different from `/sys/`.** `/proc/sys/` is `sysctl` (kernel tunables); `/sys/` is the device model. Easy to confuse — the names rhyme but the contents don't overlap.
+
+### udev
+
+**Description:** **`udev`** is the **device manager** — the userspace daemon (`systemd-udevd` on modern systems) that listens for kernel **uevents** and, for every device that appears or disappears, creates / removes the matching `/dev` node, sets its ownership and permissions, runs match-and-act **rules**, and creates the persistent symlinks under `/dev/disk/`, `/dev/serial/by-id/`, etc. It's the reason plugging in a USB stick "just works" — the kernel emits the event, udev names the device, creates `/dev/sdb`, and (on a desktop) the file manager auto-mounts it.
+
+**Where the rules live:**
+
+| Path                                  | Purpose                                                              |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| `/lib/udev/rules.d/`                  | Distribution / package-shipped rules — don't edit                    |
+| `/run/udev/rules.d/`                  | Runtime rules (lost at reboot)                                       |
+| `/etc/udev/rules.d/`                  | **Your custom rules** — override the distro ones                     |
+
+Rules are loaded in **lexical order** across all three directories. A file in `/etc/udev/rules.d/` with the same name as one in `/lib/udev/rules.d/` **replaces** it; that's the standard override pattern.
+
+**Anatomy of a rule:**
+
+```
+SUBSYSTEM=="usb", ATTRS{idVendor}=="2341", ATTRS{idProduct}=="0043", \
+    SYMLINK+="arduino", MODE="0660", GROUP="dialout"
+└──────────────── match keys ───────────────┘   └──────── actions ─────────┘
+```
+
+| Operator | Meaning                                                             |
+| -------- | ------------------------------------------------------------------- |
+| `==`     | **Match** — rule applies only if the value matches                  |
+| `!=`     | Negated match                                                       |
+| `=`      | **Assign** — set the value                                          |
+| `+=`     | Append to a list (e.g. `SYMLINK+=`)                                 |
+| `:=`     | Assign and **forbid further changes** to this key                   |
+
+Common match / action keys: `KERNEL`, `SUBSYSTEM`, `DRIVER`, `ATTR{...}`, `ATTRS{...}` (walks up the parent chain), `ENV{...}`, `ACTION` (`add`, `remove`, `change`); on the action side: `NAME`, `SYMLINK+=`, `MODE`, `OWNER`, `GROUP`, `RUN+=`, `TAG+=`, `ENV{...}`.
+
+**Examples:**
+
+```bash
+# Watch udev events live (plug a USB stick in another terminal):
+sudo udevadm monitor --udev --property
+# UDEV  [12345.678] add /devices/.../block/sdb (block)
+#   ACTION=add
+#   DEVNAME=/dev/sdb
+#   ...
+
+# Dump every attribute udev sees for a given device — your reference for writing rules:
+udevadm info -a -n /dev/sdb
+# looking at device '/devices/.../block/sdb':
+#     KERNEL=="sdb"
+#     SUBSYSTEM=="block"
+#     ATTR{size}=="61057024"
+#     ATTR{removable}=="1"
+#     ...
+
+# Verify what udev thinks about a device right now:
+udevadm info -q all -n /dev/sda
+# Shows every property: DEVPATH, DEVNAME, ID_FS_UUID, ID_SERIAL, SYMLINKs, ...
+
+# Reload rules and re-trigger events without rebooting:
+sudo udevadm control --reload
+sudo udevadm trigger --action=change /dev/sdb
+
+# Test what a rule *would* do without committing:
+sudo udevadm test /sys/class/block/sdb 2>&1 | head -40
+```
+
+**A real custom rule — `/etc/udev/rules.d/99-arduino.rules`:**
+
+```
+# Give every member of the `dialout` group rw access to the Arduino,
+# and create a stable /dev/arduino symlink so scripts don't chase ttyUSBN reordering.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2341", ATTRS{idProduct}=="0043", \
+    SYMLINK+="arduino", MODE="0660", GROUP="dialout"
+```
+
+After saving:
+
+```bash
+sudo udevadm control --reload
+sudo udevadm trigger
+# Unplug + replug the Arduino — /dev/arduino appears.
+```
+
+**Notes:**
+
+- **Custom rules go in `/etc/udev/rules.d/`** with a numeric prefix (`70-`, `99-`) that controls load order. Lower numbers run first; the `99-` prefix is the convention for "last-word" user rules.
+- **One file = one logical purpose.** Don't dump everything into one rule file — the lexical-order override behavior gets confusing.
+- **Predictable network interface names** (`enp3s0`, `wlp2s0`) are produced by `/lib/udev/rules.d/80-net-setup-link.rules` + systemd. If you want to force a name, drop a `.link` file into `/etc/systemd/network/` (the modern way) rather than fighting the udev rule.
+- **`udevadm info -a`** is the workflow when writing a rule — find the unique attribute set for your device first, *then* write the matcher.
+- **Rules are not for one-shot side effects.** Don't `RUN+=` long-running scripts — udev waits on them and can hang the whole device-arrival path. Use a `systemd` unit (`SYSTEMD_WANTS=`) instead.
+- **`udevadm trigger`** replays "add" events for already-present devices — handy after rule changes so you don't have to physically unplug.
+
+### lsusb / lspci / lsscsi
+
+**Description:** Three sibling tools that **enumerate devices on a specific bus** and print a human-readable summary. `lspci` lists everything on the **PCI / PCIe** bus (graphics card, NVMe, NIC, audio, USB host controllers); `lsusb` lists **USB** devices (keyboards, mice, webcams, thumb drives); `lsscsi` lists **SCSI** devices, which on Linux includes SATA and USB-mass-storage too. They all read from `/sys` underneath — they're just nicely formatted views.
+
+**`lspci` — PCI / PCIe:**
+
+| Flag       | What it does                                                          |
+| ---------- | --------------------------------------------------------------------- |
+| (no flags) | One device per line — slot, class, vendor:device, friendly name       |
+| `-v`       | **Verbose** — IRQ, memory regions, kernel driver in use               |
+| `-vv`      | More verbose still — capabilities, link speed                         |
+| `-vvv`     | Maximum verbosity — register dumps                                    |
+| `-k`       | Show the **kernel driver** and modules for each device                |
+| `-nn`      | Numeric **and** name — both `8086:1234` and "Intel ..." together      |
+| `-tv`      | **Tree** view — show the PCI bus topology                             |
+
+**`lsusb` — USB:**
+
+| Flag      | What it does                                                           |
+| --------- | ---------------------------------------------------------------------- |
+| (no flags)| One device per line — bus, device, vendor:product, name                |
+| `-v`      | **Verbose** — descriptors, endpoints, max packet size                  |
+| `-t`      | **Tree** view — physical port topology, USB speeds per link            |
+| `-s BUS:DEV` | Show only that bus / device                                         |
+| `-d VID:PID` | Show only devices matching that vendor / product ID                 |
+
+**`lsscsi` — SCSI / SATA / USB-mass-storage:**
+
+| Flag      | What it does                                                           |
+| --------- | ---------------------------------------------------------------------- |
+| (no flags)| One device per line — host:channel:id:lun, type, vendor, model         |
+| `-s`      | Include **size**                                                       |
+| `-l`      | Long format — include `/sys` path and transport info                   |
+| `-d`      | Include the major,minor of the resulting block device                  |
+| `-H`      | Just list SCSI **hosts** (adapters)                                    |
+
+**Examples:**
+
+```bash
+lspci -nnk | head
+# 00:00.0 Host bridge [0600]: Intel ... [8086:9b53]
+#         Subsystem: ... [1043:8694]
+#         Kernel driver in use: skl_uncore
+# 00:02.0 VGA compatible controller [0300]: Intel ... [8086:9bca]
+#         Kernel driver in use: i915
+#         Kernel modules: i915
+
+lspci -tv | head
+# -[0000:00]-+-00.0  Intel ... Host bridge
+#            +-02.0  Intel ... VGA controller
+#            +-04.0  Intel ... Power management
+
+lsusb
+# Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+# Bus 001 Device 005: ID 046d:c52b Logitech, Inc. Unifying Receiver
+# Bus 001 Device 003: ID 0bda:0129 Realtek Card Reader
+
+lsusb -t
+# /:  Bus 02.Port 1: Dev 1, Class=root_hub, Driver=xhci_hcd/4p, 5000M
+#     |__ Port 1: Dev 2, ... 5000M
+# /:  Bus 01.Port 1: Dev 1, Class=root_hub, Driver=xhci_hcd/12p, 480M
+
+lsscsi -s
+# [0:0:0:0]  disk  ATA    Samsung SSD 870  1B6Q  /dev/sda   500GB
+# [1:0:0:0]  cd/dvd HL-DT-ST DVDRAM GH24NSC0      /dev/sr0
+# [6:0:0:0]  disk  Generic Mass-Storage 1.00     /dev/sdb   16.0GB
+
+# Find which driver is bound to a specific PCI device:
+lspci -k -s 00:1f.6
+# 00:1f.6 Ethernet controller: Intel Corporation Ethernet Connection (12) I219-V
+#         Kernel driver in use: e1000e
+#         Kernel modules: e1000e
+```
+
+**Notes:**
+
+- **`lspci`'s vendor/device IDs come from `/usr/share/hwdata/pci.ids`** (and `usb.ids` for `lsusb`). If a brand-new device shows up as "Unknown vendor", update `pci.ids` (Debian: `update-pciids`, RHEL: `update-pciids` from `pciutils`).
+- **`-nnk`** is the cheat-code combo for `lspci` — it gives you numeric IDs (great for matching kernel modules by `modinfo`) **and** the kernel driver currently bound, all in one shot.
+- **`lsusb -t` shows speeds per port** (`480M` = USB 2.0, `5000M` = USB 3.0, `10000M` = USB 3.1 Gen 2). Useful for diagnosing "my USB 3 device is plugged into a USB 2 port."
+- **`lsscsi` reports SATA disks too.** Linux treats SATA as SCSI under the hood — the SATA driver speaks to the SCSI mid-layer, which is why your `sda` is "SCSI device 0:0:0:0."
+- **`lshw -short`** is a higher-level alternative that walks PCI, USB, IDE, SCSI, and DMI into one tree — install separately on most distros.
+- All three tools just **format `/sys` data nicely.** When a tool isn't installed (minimal container, embedded box), the same info is in `/sys/bus/pci/devices/`, `/sys/bus/usb/devices/`, `/sys/class/scsi_device/`.
+
+### dd
+
+**Description:** **`dd`** ("data duplicator", though the name predates the acronym) is the **byte-level read/write tool** — it reads from one file and writes to another, in fixed-size blocks, with no understanding of filesystems. That makes it the canonical tool for **writing an ISO to a USB stick**, **imaging or wiping a disk**, **creating sparse / zero files**, and **benchmarking raw I/O**. It also makes it **extremely dangerous**: a single typo in the `of=` target (`/dev/sda` instead of `/dev/sdb`) wipes the wrong disk. Doubly check the device name, every time.
+
+**Syntax:**
+
+```bash
+dd if=<input> of=<output> [bs=N] [count=N] [skip=N] [seek=N] [status=progress] [conv=...]
+```
+
+**Common options:**
+
+| Option            | What it does                                                            |
+| ----------------- | ----------------------------------------------------------------------- |
+| `if=FILE`         | **In**put file (default: stdin)                                         |
+| `of=FILE`         | **Out**put file (default: stdout)                                       |
+| `bs=N`            | **Block size** — read AND write in N-byte chunks (default 512 B)        |
+| `ibs=N` / `obs=N` | Separate input / output block sizes                                     |
+| `count=N`         | Stop after N input blocks                                               |
+| `skip=N`          | Skip N **input** blocks before reading                                  |
+| `seek=N`          | Skip N **output** blocks before writing (preserves existing data ahead) |
+| `status=progress` | Show throughput and bytes copied while running (modern GNU coreutils)   |
+| `conv=fsync`      | `fsync()` the output **once** at the end — guarantees data hit the disk |
+| `conv=sync`       | **Pad** the last block with zeros if it's short                         |
+| `conv=notrunc`    | Don't truncate the output file (important when seeking into a file)     |
+| `conv=noerror`    | Continue past read errors (used in recovery — but prefer `ddrescue`)    |
+| `oflag=direct`    | Bypass the kernel page cache (raw, unbuffered I/O)                      |
+
+**Examples:**
+
+```bash
+# Write a Linux ISO to a USB stick (THE textbook dd use case):
+sudo dd if=ubuntu-24.04.iso of=/dev/sdb bs=4M status=progress conv=fsync
+# ⚠️  CONFIRM /dev/sdb is the USB and NOT your root disk:
+lsblk
+sudo umount /dev/sdb*                # unmount any auto-mounted partitions first
+
+# Make a 1 GB file of zeros:
+dd if=/dev/zero of=zerofile bs=1M count=1024 status=progress
+
+# Make a 1 GB SPARSE file (instant — no actual data written):
+dd if=/dev/zero of=sparsefile bs=1 count=0 seek=1G
+ls -lh sparsefile        # logical size: 1.0G
+du -h sparsefile         # disk usage:  0
+
+# Clone a whole disk to another disk (same-size or larger target):
+sudo dd if=/dev/sda of=/dev/sdb bs=4M status=progress conv=fsync
+
+# Dump the first 512 bytes of a disk (MBR + partition table):
+sudo dd if=/dev/sda of=mbr.bin bs=512 count=1
+# Inspect:
+hexdump -C mbr.bin | tail -10        # signature 55 AA at offset 0x1FE
+
+# Wipe a disk's first MB (kill MBR/GPT headers — disk looks empty to OS):
+sudo dd if=/dev/zero of=/dev/sdb bs=1M count=1
+
+# Benchmark raw sequential read speed:
+dd if=/dev/sda of=/dev/null bs=1M count=1024 status=progress iflag=direct
+# 1073741824 bytes (1.1 GB, 1.0 GiB) copied, 2.1 s, 511 MB/s
+
+# Resume a partial image copy from offset 200 MB:
+sudo dd if=disk.img of=/dev/sdb bs=1M skip=200 seek=200 status=progress conv=notrunc
+```
+
+**Speed tips:**
+
+- **`bs=4M` is the sweet spot** for disk-to-disk copies on modern hardware. The default `bs=512` does one syscall per sector and is glacial — use it only when you actually need byte-level precision.
+- **`status=progress`** prints throughput once a second. Without it, `dd` is silent. (You can also send `SIGUSR1` to a running `dd` to print its current progress — `kill -USR1 $(pgrep ^dd$)`.)
+- **`conv=fsync`** at the end of an image-to-USB write is *the* difference between "ejected cleanly" and "image is half in the page cache" — always include it.
+
+**Notes:**
+
+- **`dd` is dangerously unforgiving.** Mistyping `of=/dev/sda` instead of `/dev/sdb` overwrites your system disk with no confirmation prompt. Always **run `lsblk` immediately before** to confirm the target, and ideally `unmount` the target's partitions first.
+- **The output device must be unmounted** for a clean write — if any partition on `/dev/sdb` is mounted, the in-flight write races against the kernel and you get a corrupt image. `sudo umount /dev/sdb*` first.
+- **For damaged disks, use `ddrescue` instead of `dd conv=noerror`.** `ddrescue` (GNU) tracks bad sectors, retries them in a smart order, and produces a map file you can resume from — `dd` just blindly skips and tells you nothing.
+- **Counting in MB/GB vs MiB/GiB.** `bs=1M` in GNU `dd` is `1,048,576` bytes (MiB); `bs=1MB` is `1,000,000` (MB). The lowercase suffix is the binary one.
+- **Modern alternatives are often nicer.** Use `cp --sparse=always` for sparse copies, `fallocate -l 1G file` to allocate without writing, and `pv` to copy with a real progress bar (`pv input.iso > /dev/sdb`).
+- **`dd` does not validate.** After writing an ISO, verify the SHA-256 of the source against `dd if=/dev/sdb bs=4M count=<iso_size_in_blocks>` — or just check the ISO's own embedded checksum.
+
+---
+
+## The Filesystem
+
+Notes on **the filesystem** — how Linux turns a raw block device into a tree of files. Three layers stack on top of each other: the **disk** is split into **partitions**, each partition gets formatted with a **filesystem type** (ext4, xfs, btrfs, …), and the resulting trees are mounted into a single **unified hierarchy** rooted at `/`. This section covers all three layers, plus the standard directory layout (FHS) that makes a Linux box look the same no matter the distro.
+
+### One Shot Revision
+
+| Command                                             | Short Description                                                            |
+| --------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [Filesystem Hierarchy](#filesystem-hierarchy)       | The **FHS** — what `/etc`, `/var`, `/usr`, `/home`, `/tmp` are each for      |
+| [Filesystem Types](#filesystem-types)               | **ext4**, **xfs**, **btrfs**, **zfs**, **tmpfs**, **vfat**, **ntfs** — pick one |
+| [Anatomy of a Disk](#anatomy-of-a-disk)             | Sectors, blocks, MBR vs GPT, superblock, inodes, journal                     |
+| [Disk Partitioning](#disk-partitioning)             | `fdisk`, `parted`, `gdisk`, `mkfs`, `mount`, `/etc/fstab`                    |
+
+### Filesystem Hierarchy
+
+**Description:** Linux organizes every file into **one tree rooted at `/`** — no drive letters, no per-disk namespaces. The layout follows the **Filesystem Hierarchy Standard (FHS)**, which says what each top-level directory is for so a box you've never logged into still looks familiar. Different physical disks, partitions, or even network shares can be **mounted** anywhere in the tree (`/home` on one disk, `/var` on another, `/mnt/backup` on NFS), but from a user's point of view it's all one hierarchy.
+
+**The top-level map:**
+
+| Path        | What lives here                                                                |
+| ----------- | ------------------------------------------------------------------------------ |
+| `/`         | The **root** of the tree — every other path branches from here                 |
+| `/bin`      | Essential user binaries (`ls`, `cp`, `cat`) — on modern distros, a symlink to `/usr/bin` |
+| `/sbin`     | Essential **system** binaries (`mount`, `fsck`, `ifconfig`) — symlink to `/usr/sbin` |
+| `/lib`, `/lib64` | Essential shared libraries — symlinks to `/usr/lib`, `/usr/lib64` on modern distros |
+| `/usr`      | **User**-land programs and data — `/usr/bin`, `/usr/lib`, `/usr/share`, `/usr/local` |
+| `/usr/local`| Software installed **outside** the package manager — your `make install` lands here |
+| `/etc`      | **System-wide configuration** — text files only, no binaries                   |
+| `/var`      | **Variable** data — logs (`/var/log`), spools, package state, caches (`/var/cache`) |
+| `/home`     | User home directories (`/home/tarek`, `/home/alice`)                           |
+| `/root`     | The **root user's** home directory (not `/home/root`!)                         |
+| `/tmp`      | World-writable temporary files — cleared on reboot on most distros             |
+| `/opt`      | Self-contained third-party software (`/opt/google/chrome`, `/opt/foo/`)        |
+| `/boot`     | Bootloader and **kernel images** (`vmlinuz`, `initramfs`)                      |
+| `/dev`      | **Device files** — see [/dev directory](#dev-directory)                        |
+| `/proc`     | Live kernel + process state — see [/proc Filesystem](#proc-filesystem)         |
+| `/sys`      | Kernel device model — see [sysfs](#sysfs)                                      |
+| `/run`      | Runtime data (PIDs, sockets) created at boot — tmpfs, cleared on reboot        |
+| `/mnt`      | Mount point for **temporarily** mounted filesystems                            |
+| `/media`    | Mount point for **removable** media — USB sticks, CDs (auto-mounted here)      |
+| `/srv`      | Data served by the system — `srv/www`, `srv/ftp` (convention; not always used) |
+
+**The `/usr` merge (modern distros):**
+
+Since around 2012, most distros have done the **`/usr` merge** — `/bin`, `/sbin`, `/lib`, `/lib64` are now symlinks into `/usr/bin`, `/usr/sbin`, `/usr/lib`, `/usr/lib64`. There's only one place where binaries live; the old split (essential-for-recovery vs everything else) made sense when `/usr` was on a separate disk that might fail to mount, but no longer.
+
+**Examples:**
+
+```bash
+ls -l /                          # see the layout on your own box
+# bin -> usr/bin
+# boot/
+# dev/
+# etc/
+# home/
+# lib -> usr/lib
+# ...
+
+# Where does a specific binary live?
+which ls
+# /usr/bin/ls
+type ls
+# ls is /usr/bin/ls          # `which` is older; `type` is built into bash
+
+# Which package owns this path? (back-references — see Packages section)
+dpkg -S /etc/ssh/sshd_config       # Debian
+rpm -qf /etc/ssh/sshd_config       # RHEL
+
+# Quick FHS sanity check — every "should be a directory" path:
+for p in /etc /var /usr /home /opt /tmp /proc /sys /dev; do
+  printf "%-7s %s\n" "$p" "$(test -d "$p" && echo OK || echo MISSING)"
+done
+```
+
+**Notes:**
+
+- **`/etc` is text-only on principle.** If a tool stores binary state under `/etc/`, it's a bug or a misuse — runtime state belongs in `/var/lib/<pkg>/`, not `/etc/`.
+- **`/var/log` is where you go first when something breaks.** `journalctl` reads systemd's binary journal under `/var/log/journal/`; traditional syslogs live as plain text under `/var/log/syslog`, `/var/log/messages`, `/var/log/auth.log`, `/var/log/secure`.
+- **`/tmp` is usually `tmpfs`** (RAM-backed) on modern systemd distros — fast but limited. Big temp data belongs in `/var/tmp`, which is on-disk and survives reboots.
+- **`/opt` vs `/usr/local`**: both are for non-distro software. `/opt/<vendor>/` is for self-contained vendored drops (think Slack, Chrome). `/usr/local/` follows the FHS layout (`bin/`, `lib/`, `share/`) and is what `./configure --prefix=/usr/local` lands in.
+- **Never put data on `/`** that you can't afford to be on a small partition. Many setups give `/` only 20–40 GB; user data goes on `/home`, application data on `/var/lib/<app>`, build artifacts under `/opt` or `/srv`.
+- The FHS is **specified by the Linux Foundation** — see [refspecs.linuxfoundation.org/fhs.shtml](https://refspecs.linuxfoundation.org/fhs.shtml) for the full document.
+
+### Filesystem Types
+
+**Description:** A **filesystem** is the on-disk format that turns a raw block device into a tree of files — how blocks are allocated, how metadata is stored, how crashes are recovered. Linux can mount dozens of formats; the question is which one to **format with** when you create a new partition. The right answer is "ext4 unless you have a reason otherwise" — but xfs, btrfs, zfs, tmpfs, and vfat all earn their keep in specific situations.
+
+**The everyday options:**
+
+| Filesystem | Best for                                                  | Key features / trade-offs                                                  |
+| ---------- | --------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **ext4**   | General purpose — root filesystem on most distros         | Journaled, mature, fast small-file I/O, in-place upgrades from ext2/ext3   |
+| **xfs**    | Large filesystems, big files, high-throughput workloads   | Journaled, scales to exabytes, **no shrink**, fast parallel I/O. RHEL's default. |
+| **btrfs**  | Snapshots, subvolumes, RAID, send/receive replication     | CoW, built-in snapshots and RAID0/1/10, transparent compression. RAID5/6 still flaky. Used by openSUSE / Fedora root by default. |
+| **zfs**    | Storage servers — checksums, snapshots, native RAID-Z     | Best-in-class data integrity, but not in the upstream kernel (license) — needs `zfs-dkms` or out-of-tree. |
+| **tmpfs**  | RAM-backed scratch space (`/tmp`, `/run`, `/dev/shm`)     | Lives in memory; cleared on reboot; size is dynamic up to a limit          |
+| **vfat / exFAT** | USB sticks, SD cards, cross-OS sharing               | No permissions, no symlinks, but **Windows / macOS read it natively**      |
+| **ntfs**   | Reading / writing Windows partitions                      | In-kernel `ntfs3` driver (5.15+) — full read/write; older systems used FUSE `ntfs-3g` |
+| **iso9660 / udf** | CDs, DVDs, ISO images                              | Read-only; what you see when you mount a `.iso`                            |
+| **squashfs** | Read-only compressed images (live CDs, Snap, AppImage)  | Single compressed read-only image — fast to mount, can't be modified       |
+| **nfs / cifs** | Network mounts                                        | Filesystem semantics over the network; not a disk format                   |
+| **overlay**  | Containers, live CDs, Docker layers                     | Stacks a read-write layer on top of a read-only one                        |
+
+**Examples:**
+
+```bash
+# What filesystem is each mount running?
+df -hT
+# Filesystem     Type      Size  Used Avail Use% Mounted on
+# /dev/sda2      ext4      450G  120G  310G  28% /
+# /dev/sda1      vfat      512M  6.0M  506M   2% /boot/efi
+# tmpfs          tmpfs     7.7G  120K  7.7G   1% /tmp
+# /dev/nvme0n1p1 xfs       1.8T  300G  1.5T  17% /data
+
+# A more compact view:
+lsblk -f
+# NAME    FSTYPE FSVER LABEL UUID                                 MOUNTPOINTS
+# sda
+# ├─sda1  vfat   FAT32 EFI   A1B2-C3D4                            /boot/efi
+# └─sda2  ext4   1.0   root  1234abcd-...                         /
+
+# Identify the filesystem of an unmounted partition:
+sudo blkid /dev/sdb1
+# /dev/sdb1: UUID="..." TYPE="xfs" PARTUUID="..."
+
+# Format with each type:
+sudo mkfs.ext4   -L data    /dev/sdb1
+sudo mkfs.xfs    -L data    /dev/sdb1
+sudo mkfs.btrfs  -L data    /dev/sdb1
+sudo mkfs.vfat   -F 32 -n   data    /dev/sdb1
+# -L / -n sets the filesystem label (later visible in /dev/disk/by-label/)
+
+# Mount tmpfs explicitly with a size cap:
+sudo mount -t tmpfs -o size=2G tmpfs /mnt/scratch
+
+# Check or repair a filesystem (only on UNMOUNTED targets!):
+sudo fsck.ext4  -f /dev/sdb1
+sudo xfs_repair    /dev/sdb1
+sudo btrfs check   /dev/sdb1
+```
+
+**Which to pick?**
+
+- **Root filesystem, general server:** **ext4**. Boring, fast, and never surprises you.
+- **Big data partition (≥ 2 TB), DB or log volume:** **xfs**. Better at parallel I/O and huge files.
+- **You want snapshots and rollback:** **btrfs** (already in-tree) or **zfs** (better integrity, license-encumbered).
+- **External drive shared with Windows / macOS:** **exFAT** for ≥ 32 GB, **vfat** for tiny drives.
+- **Live filesystem for `/tmp`, `/run`, `/dev/shm`:** **tmpfs** — that's already what your distro does.
+
+**Notes:**
+
+- **You can't shrink an `xfs` filesystem.** Grow with `xfs_growfs`, but to make one smaller you must back up, recreate, and restore. Plan partition sizes accordingly.
+- **`btrfs` and `zfs` are CoW** — overwriting a file is actually "write a new block, repoint metadata." That gives free snapshots but also means **`df` and `du` can disagree** with each other and with `btrfs filesystem df`.
+- **`vfat` / `exFAT` have no Unix permissions.** Every file appears as 0777 owned by the mount-time user. They're fine for sneakernet, terrible for a Linux root.
+- **`fsck` an unmounted filesystem only.** Running `fsck` on a mounted, in-use partition will corrupt it. The boot-time `fsck` works because it runs before `/` is remounted read-write.
+- **Journaling does not equal "can't lose data."** It guarantees the **filesystem metadata** stays consistent across a crash — your *file contents* can still be lost if they weren't `fsync`-ed.
+- The **canonical authority for "what filesystems can I mount?"** is `/proc/filesystems`. Anything listed there (or any module the kernel can load on demand) is fair game.
+
+### Anatomy of a Disk
+
+**Description:** Underneath every filesystem is a **block device** divided into fixed-size **sectors** (historically 512 B, now usually 4 KiB on modern drives — "Advanced Format"). The very first sectors hold the **partition table** (MBR or GPT) that says where each partition starts and how long it is. Inside each partition, the filesystem lays down its own structures — a **superblock** describing the layout, **inodes** holding per-file metadata, **data blocks** holding the actual bytes, and (on journaled filesystems) a **journal** that lets it recover from a crash.
+
+**The layers, from physical to logical:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  /home/tarek/file.txt   ← path you see in the shell          │
+├─────────────────────────────────────────────────────────────┤
+│  inode #12345 + data blocks   ← filesystem (ext4 / xfs / ...) │
+├─────────────────────────────────────────────────────────────┤
+│  partition 2 (sda2: starts at sector 1050624, length …)      │
+├─────────────────────────────────────────────────────────────┤
+│  MBR / GPT partition table (first sectors of the disk)        │
+├─────────────────────────────────────────────────────────────┤
+│  sectors (512 B / 4 KiB each)                                  │
+├─────────────────────────────────────────────────────────────┤
+│  physical platters / NAND cells                                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Partition tables — MBR vs GPT:**
+
+| Aspect           | **MBR** (Master Boot Record)              | **GPT** (GUID Partition Table)                  |
+| ---------------- | ----------------------------------------- | ----------------------------------------------- |
+| First sector     | 446 B boot code + 64 B partition table + 2 B `55 AA` signature | LBA 0 = "protective MBR" for legacy tools; real table at LBA 1+ |
+| Max disk size    | **2 TiB** (32-bit LBA × 512 B sectors)    | **9.4 ZiB** (64-bit LBA)                        |
+| Max primary partitions | **4** (or 3 primary + 1 extended)   | **128** by default, expandable                  |
+| Redundancy       | **None** — one table, corruption is fatal | **Two copies** (start and end of disk) + CRC32 checksums |
+| Boot method      | Legacy BIOS                               | UEFI (BIOS can boot GPT via a "BIOS boot" partition) |
+| Today's default  | Legacy; only on old machines / USB sticks | Standard on every disk made since ~2010         |
+
+**Filesystem internals (using ext4 as the canonical example):**
+
+| Structure       | What it holds                                                              |
+| --------------- | -------------------------------------------------------------------------- |
+| **Superblock**  | "Identity card" of the filesystem — block size, total blocks, free blocks, UUID, label, magic number. Backed up multiple times across the disk. |
+| **Inode**       | All metadata for **one file**: type, permissions, owner, size, timestamps, and pointers to data blocks. **No filename** — the name lives in the parent directory. |
+| **Directory**   | A file whose data is a list of `(filename, inode_number)` pairs            |
+| **Data blocks** | The actual file contents — allocated in extents on ext4/xfs                |
+| **Bitmap**      | Tracks which blocks / inodes are free vs in use                            |
+| **Journal**     | Recent metadata changes — replayed after a crash to keep the FS consistent |
+
+A **hard link** is just another directory entry pointing to the same inode — that's why `rm`ing a hard-linked file only decrements the link count and the bytes survive until the last link is gone.
+
+**Examples:**
+
+```bash
+# Sector size and disk geometry:
+sudo fdisk -l /dev/sda | head
+# Disk /dev/sda: 465.76 GiB, 500107862016 bytes, 976773168 sectors
+# Disk model: Samsung SSD 870 EVO 500GB
+# Units: sectors of 1 * 512 = 512 bytes
+# Sector size (logical/physical): 512 bytes / 512 bytes
+
+# Detect MBR vs GPT:
+sudo parted /dev/sda print | grep "Partition Table"
+# Partition Table: gpt
+
+# Or with fdisk:
+sudo fdisk -l /dev/sda | grep -i 'disklabel\|partition table'
+# Disklabel type: gpt
+
+# Inspect a filesystem's superblock (ext4):
+sudo dumpe2fs -h /dev/sda2 | head -20
+# Filesystem volume name:   root
+# Last mounted on:          /
+# Filesystem UUID:          1234abcd-...-ef56
+# Filesystem magic number:  0xEF53
+# Block count:              122000000
+# Block size:               4096
+# Inode count:              7864320
+# Free blocks:              81203456
+
+# Look up the inode of a file:
+ls -i /etc/passwd
+# 12345 /etc/passwd
+stat /etc/passwd
+#   File: /etc/passwd
+#   Size: 2700    Blocks: 8      IO Block: 4096   regular file
+# Device: 803h/2051d  Inode: 12345  Links: 1
+# Access: (0644/-rw-r--r--)  Uid: (0/root)  Gid: (0/root)
+
+# How many inodes are free? (running out is its own kind of "disk full")
+df -ih
+# Filesystem     Inodes IUsed IFree IUse% Mounted on
+# /dev/sda2        7.5M  600K  6.9M    8% /
+
+# Peek at the first 512 bytes of a disk (MBR boot code + partition table):
+sudo dd if=/dev/sda of=/tmp/mbr.bin bs=512 count=1 status=none
+hexdump -C /tmp/mbr.bin | tail -5
+# 000001c0  ...                                            ← partition entries
+# 000001f0  ...     55 aa                                  ← MBR signature
+```
+
+**Notes:**
+
+- **Sector size matters.** On **4Kn** ("4K native") drives the sector is 4096 B, not 512 B. Tools usually report both **logical** (what the OS sees) and **physical** (what the drive uses) sector sizes; misaligned partitions on 4K drives cost performance.
+- **Filenames are not in inodes.** They live in the **parent directory entry**. That's why one inode can have many names (hard links) and why renaming is cheap (it's just a directory edit).
+- **"Disk full" can mean inodes, not bytes.** Running out of inodes (millions of tiny files) leaves bytes free but `touch` fails with `No space left on device`. `df -i` is the check.
+- **`dumpe2fs` (ext*) and `xfs_info` (xfs)** are the "what's actually on this FS" tools — block size, inode count, journal location, feature flags.
+- **Hard links can't cross filesystems** (they're just inode numbers, which are FS-local) and **can't point to directories** (would create cycles). Symlinks have neither restriction but they're a separate file with their own inode.
+- **The superblock has multiple backups.** If the primary is corrupted, `e2fsck -b <backup_block>` can recover from one of them (`mke2fs -n` lists their locations without formatting).
+
+### Disk Partitioning
+
+**Description:** **Partitioning** carves a disk into independent regions, each of which can hold its own filesystem (or a swap area, or be left raw for LVM / dm-crypt). The partition table at the start of the disk (MBR or GPT — see [Anatomy of a Disk](#anatomy-of-a-disk)) records where each partition begins and ends. Linux ships three classic tools: **`fdisk`** (MBR & GPT, interactive, scriptable), **`gdisk`** (GPT-focused), and **`parted`** (both, fully scriptable). After partitioning you **format** each partition with `mkfs.<type>`, then **mount** it manually or via `/etc/fstab`.
+
+**The end-to-end flow:**
+
+```
+1. Pick a disk           lsblk
+2. Create partitions     sudo parted /dev/sdb / fdisk /dev/sdb
+3. Reload partition table partprobe / kernel auto-detects on close
+4. Format each partition sudo mkfs.ext4 /dev/sdb1
+5. Mount (temporary)     sudo mount /dev/sdb1 /mnt/data
+6. Mount (persistent)    add UUID entry to /etc/fstab, then `mount -a`
+```
+
+**The toolkit:**
+
+| Tool      | Strengths                                                            |
+| --------- | -------------------------------------------------------------------- |
+| `lsblk`   | Tree view of every block device + partitions + mountpoints           |
+| `fdisk`   | Interactive editor (`m` for menu). Works on both MBR and GPT.        |
+| `gdisk`   | Like `fdisk` but GPT-only — clearer menu, better recovery options    |
+| `cfdisk`  | Curses-style fdisk — friendlier UI                                   |
+| `parted`  | Scriptable from the CLI in one line — great for automation           |
+| `partprobe` | Tell the kernel to re-read the partition table without rebooting   |
+| `mkfs.*`  | Format a partition (`mkfs.ext4`, `mkfs.xfs`, `mkfs.vfat`, ...)       |
+| `wipefs`  | Erase filesystem **signatures** from a device (forces it to "look blank") |
+| `blkid`   | Print UUID, label, and type of an existing filesystem                |
+
+**Examples — create one partition spanning a whole new disk:**
+
+```bash
+# 0. Identify the target disk (CONFIRM IT'S BLANK):
+lsblk -f
+# /dev/sdb  ← 32G stick, no children → safe to overwrite
+
+# 1. With `parted` (scriptable, one-liner per step):
+sudo parted /dev/sdb --script mklabel gpt
+sudo parted /dev/sdb --script mkpart primary ext4 1MiB 100%
+sudo parted /dev/sdb --script print
+# Partition Table: gpt
+# Number  Start   End     Size    File system  Name     Flags
+#  1      1049kB  32.0GB  32.0GB               primary
+
+# 2. Format:
+sudo mkfs.ext4 -L data /dev/sdb1
+
+# 3. Get its UUID:
+sudo blkid /dev/sdb1
+# /dev/sdb1: LABEL="data" UUID="9f2e..." TYPE="ext4" PARTUUID="..."
+
+# 4. Mount once:
+sudo mkdir -p /mnt/data
+sudo mount /dev/sdb1 /mnt/data
+df -h /mnt/data
+
+# 5. Persist via /etc/fstab — by UUID, never /dev/sdb1:
+echo "UUID=9f2e...  /mnt/data  ext4  defaults,nofail  0  2" \
+  | sudo tee -a /etc/fstab
+sudo mount -a                    # apply now without rebooting
+findmnt /mnt/data                # confirm
+```
+
+**Same job with interactive `fdisk`:**
+
+```bash
+sudo fdisk /dev/sdb
+# Command (m for help): g     ← create GPT label
+# Command (m for help): n     ← new partition
+# Partition number: 1
+# First sector: <Enter>       ← default
+# Last sector / +SIZE: <Enter>← use the whole disk
+# Command (m for help): p     ← preview
+# Command (m for help): w     ← WRITE and exit
+sudo partprobe /dev/sdb        # tell the kernel about the change
+sudo mkfs.ext4 -L data /dev/sdb1
+```
+
+**Resizing safely:**
+
+```bash
+# Grow ext4 on /dev/sdb1 after enlarging the partition itself:
+sudo resize2fs /dev/sdb1
+
+# Grow xfs (xfs cannot shrink):
+sudo xfs_growfs /mnt/data
+
+# Grow a partition with parted (then resize the FS):
+sudo parted /dev/sdb resizepart 1 100%
+sudo resize2fs /dev/sdb1
+```
+
+**An `/etc/fstab` line, decoded:**
+
+```
+UUID=9f2e...  /mnt/data  ext4  defaults,nofail  0  2
+└─────┬────┘  └───┬───┘  └─┬┘  └───────┬──────┘  ┴  ┴
+   what to     where to    │           │         │  └── fsck pass (0 = skip, 1 = root, 2 = others)
+   mount       mount it   type   mount options   └── dump backup (almost always 0)
+```
+
+Use **`UUID=`** for stable mounts (`sdX` letters can shift); the older `/dev/sdb1` style still works but is fragile.
+
+**Notes:**
+
+- **Partition before you format.** `mkfs` on the raw `/dev/sdb` (no partition) "works" but is unconventional — most tools and recovery scripts expect a partition table.
+- **`partprobe` (or `kpartx -a`)** tells the kernel about partition-table changes without a reboot. Some kernels also auto-reread the table on `close()` of the disk, but never rely on it.
+- **Use `UUID=` or `LABEL=` in `/etc/fstab`**, never `/dev/sdXN`. The persistent IDs survive hotplug reordering and disk additions.
+- **`nofail` is your friend on removable/optional disks** — without it, an unmounted `/etc/fstab` entry can drop the box into emergency mode at boot. `nofail` lets boot continue.
+- **`mount -a` does a dry run of `/etc/fstab`.** After editing it, **always** `sudo mount -a` once before rebooting — better to find a typo at the shell than at the next boot.
+- **You can shrink ext4 but not xfs.** Plan ahead: if you might ever want to shrink, choose ext4. xfs is a one-way grow.
+- **Don't repartition a disk that's in use** — even moving partition boundaries on the live root disk requires either a live USB or LVM. For root-disk resizes, boot from a live USB and use `gparted` (graphical) or `parted` + `resize2fs`.
+- **`wipefs -a /dev/sdb`** clears every filesystem and partition signature — handy when a disk has stale data that confuses installers ("Is this really a blank disk?"). The data remains on the platters until overwritten.
 
 ---
 
