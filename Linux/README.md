@@ -138,6 +138,56 @@
   - [Filesystem Types](#filesystem-types)
   - [Anatomy of a Disk](#anatomy-of-a-disk)
   - [Disk Partitioning](#disk-partitioning)
+  - [Creating Filesystems](#creating-filesystems)
+  - [mount and umount](#mount-and-umount)
+  - [/etc/fstab](#etcfstab)
+  - [swap](#swap)
+  - [Disk Usage](#disk-usage)
+  - [Filesystem Repair](#filesystem-repair)
+  - [Inodes](#inodes)
+  - [symlinks](#symlinks)
+- [Boot the System](#boot-the-system)
+  - [One Shot Revision](#one-shot-revision-9)
+  - [Boot Process Overview](#boot-process-overview)
+  - [Boot Process: BIOS](#boot-process-bios)
+  - [Boot Process: Bootloader](#boot-process-bootloader)
+  - [Boot Process: Kernel](#boot-process-kernel)
+  - [Boot Process: Init](#boot-process-init)
+- [Kernel](#kernel)
+  - [One Shot Revision](#one-shot-revision-10)
+  - [Overview of the Kernel](#overview-of-the-kernel)
+  - [Privilege Levels](#privilege-levels)
+  - [System Calls](#system-calls)
+  - [Kernel Installation](#kernel-installation)
+  - [Kernel Location](#kernel-location)
+  - [Kernel Modules](#kernel-modules)
+- [Init](#init)
+  - [One Shot Revision](#one-shot-revision-11)
+  - [System V Overview](#system-v-overview)
+  - [System V Service](#system-v-service)
+  - [Upstart Overview](#upstart-overview)
+  - [Upstart Jobs](#upstart-jobs)
+  - [Systemd Overview](#systemd-overview)
+  - [Systemd Goals](#systemd-goals)
+  - [Power States](#power-states)
+- [Process Utilization](#process-utilization)
+  - [One Shot Revision](#one-shot-revision-12)
+  - [Tracking processes: top](#tracking-processes-top)
+  - [lsof and fuser](#lsof-and-fuser)
+  - [Process Threads](#process-threads)
+  - [CPU Monitoring](#cpu-monitoring)
+  - [I/O Monitoring](#io-monitoring)
+  - [Memory Monitoring](#memory-monitoring)
+  - [Continuous Monitoring](#continuous-monitoring)
+  - [Cron Jobs](#cron-jobs)
+- [Logging](#logging)
+  - [One Shot Revision](#one-shot-revision-13)
+  - [System Logging](#system-logging)
+  - [syslog](#syslog)
+  - [General Logging](#general-logging)
+  - [Kernel Logging](#kernel-logging)
+  - [Authentication Logging](#authentication-logging)
+  - [Managing Log Files](#managing-log-files)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -4427,6 +4477,14 @@ Notes on **the filesystem** — how Linux turns a raw block device into a tree o
 | [Filesystem Types](#filesystem-types)               | **ext4**, **xfs**, **btrfs**, **zfs**, **tmpfs**, **vfat**, **ntfs** — pick one |
 | [Anatomy of a Disk](#anatomy-of-a-disk)             | Sectors, blocks, MBR vs GPT, superblock, inodes, journal                     |
 | [Disk Partitioning](#disk-partitioning)             | `fdisk`, `parted`, `gdisk`, `mkfs`, `mount`, `/etc/fstab`                    |
+| [Creating Filesystems](#creating-filesystems)       | `mkfs.<type>`, labels, UUIDs, tuning options                                 |
+| [mount and umount](#mount-and-umount)               | Attach / detach filesystems, bind mounts, lazy unmount, mount options        |
+| [/etc/fstab](#etcfstab)                             | The boot-time mount table — fields, options, `nofail`, `noauto`              |
+| [swap](#swap)                                       | Swap partitions vs swap files, `mkswap`, `swapon`, `swappiness`              |
+| [Disk Usage](#disk-usage)                           | `df`, `du`, `ncdu` — where the space went                                    |
+| [Filesystem Repair](#filesystem-repair)             | `fsck`, `e2fsck`, `xfs_repair` — recovering after a crash                    |
+| [Inodes](#inodes)                                   | The on-disk metadata record — `stat`, `ls -i`, running out of inodes         |
+| [symlinks](#symlinks)                               | `ln -s` — soft links vs hard links, dangling links                           |
 
 ### Filesystem Hierarchy
 
@@ -4791,6 +4849,2946 @@ Use **`UUID=`** for stable mounts (`sdX` letters can shift); the older `/dev/sdb
 - **You can shrink ext4 but not xfs.** Plan ahead: if you might ever want to shrink, choose ext4. xfs is a one-way grow.
 - **Don't repartition a disk that's in use** — even moving partition boundaries on the live root disk requires either a live USB or LVM. For root-disk resizes, boot from a live USB and use `gparted` (graphical) or `parted` + `resize2fs`.
 - **`wipefs -a /dev/sdb`** clears every filesystem and partition signature — handy when a disk has stale data that confuses installers ("Is this really a blank disk?"). The data remains on the platters until overwritten.
+
+### Creating Filesystems
+
+**Description:** Partitioning carves the disk; **creating a filesystem** is what actually writes the on-disk structures (superblock, inode table, journal, free-space bitmap) that turn a raw region into something the kernel can mount. The tool family is **`mkfs.<type>`** — one binary per filesystem (`mkfs.ext4`, `mkfs.xfs`, `mkfs.vfat`, `mkfs.btrfs`, ...). All of them destroy whatever was there before, so **double-check the target device** before pressing Enter.
+
+**The everyday options that matter:**
+
+| Option           | Effect                                                                          |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `-L <label>`     | Human-readable label (ext4/xfs). Later visible at `/dev/disk/by-label/<label>`. |
+| `-U <uuid>`      | Pin a specific UUID (ext4/xfs) — useful when restoring `/etc/fstab` after a reformat. |
+| `-n` / `-N`      | **Dry run** — print what would happen without writing (ext family).             |
+| `-T <usage>`     | Optimize for a workload: `mkfs.ext4 -T largefile4 /dev/sdb1` for big files.     |
+| `-b <bytes>`     | Block size (default 4096). Rarely changed — 4 KiB matches the page size.        |
+| `-m <pct>`       | Reserved blocks for root (ext4 default is 5%; lower it on huge data disks).     |
+| `-E lazy_itable_init=0` | Force full inode-table init at format time instead of background lazy init. Slower format, no first-mount surprise. |
+
+**Examples:**
+
+```bash
+# Format a partition as ext4 with a label:
+sudo mkfs.ext4 -L data /dev/sdb1
+# Creating filesystem with 8388608 4k blocks and 2097152 inodes
+# Filesystem UUID: 9f2e...
+
+# Format as xfs (no shrink later — be sure!):
+sudo mkfs.xfs -L bigdata -f /dev/sdc1     # -f forces overwrite of existing FS
+
+# Format a USB stick for cross-OS use:
+sudo mkfs.vfat -F 32 -n USBKEY /dev/sdd1
+
+# Big-file optimization on ext4 (e.g. media library, VM images):
+sudo mkfs.ext4 -T largefile4 -L media /dev/sdb1
+
+# Pin a specific UUID (handy when rebuilding to keep /etc/fstab unchanged):
+sudo mkfs.ext4 -U 9f2e0000-1111-2222-3333-444455556666 /dev/sdb1
+
+# After formatting — confirm:
+sudo blkid /dev/sdb1
+# /dev/sdb1: LABEL="data" UUID="9f2e..." TYPE="ext4"
+lsblk -f /dev/sdb
+```
+
+**Notes:**
+
+- **`mkfs` is destructive — there's no undo.** Always run `lsblk -f` first and confirm the target has no children you care about.
+- **`mkfs.xfs` refuses to overwrite an existing FS without `-f`.** That's a feature, not a bug — it's saved more than one disk.
+- **Reserved blocks (`-m`) default to 5% on ext4.** On a 4 TB data disk that's 200 GB locked away for root. Drop to 1% (`-m 1`) on non-root partitions.
+- **Pick the right filesystem before formatting** — switching later means recreating the FS and copying data back. See [Filesystem Types](#filesystem-types).
+- **Format the partition, not the disk.** `mkfs.ext4 /dev/sdb` (no number) wipes the partition table — works but breaks most tooling expectations.
+
+### mount and umount
+
+**Description:** A formatted filesystem isn't usable until you **mount** it — attach it at some point in the unified tree rooted at `/`. The kernel keeps a list of active mounts; userspace sees them as the directory contents at each mountpoint. `mount` attaches, `umount` detaches. Mounts can be **temporary** (one-off shell commands) or **persistent** (written into [/etc/fstab](#etcfstab) and applied at boot).
+
+**The commands:**
+
+| Command                               | Purpose                                                            |
+| ------------------------------------- | ------------------------------------------------------------------ |
+| `mount`                               | Show all current mounts                                            |
+| `mount <src> <mountpoint>`            | Attach a filesystem at a directory                                 |
+| `mount -t <type> <src> <mp>`          | Explicit filesystem type (usually auto-detected)                   |
+| `mount -o <opts> <src> <mp>`          | Mount with options (`ro`, `noexec`, `nosuid`, `nodev`, `noatime`)  |
+| `mount -o remount,<opts> <mp>`        | Change options on an already-mounted FS without unmounting         |
+| `mount --bind <src> <dst>`            | Re-expose an existing tree at a second location                    |
+| `mount -a`                            | Mount everything in `/etc/fstab` that isn't already mounted        |
+| `umount <mp>` / `umount <src>`        | Detach the filesystem                                              |
+| `umount -l <mp>`                      | **Lazy unmount** — detach now, finalize when last user closes      |
+| `findmnt <mp>`                        | Pretty tree of mounts (replaces parsing `/proc/mounts`)            |
+| `lsof <mp>` / `fuser -vm <mp>`        | Who's holding the mount busy? (essential when `umount` says "busy")|
+
+**Examples:**
+
+```bash
+# One-off mount:
+sudo mkdir -p /mnt/data
+sudo mount /dev/sdb1 /mnt/data
+df -h /mnt/data
+
+# Mount read-only, no setuid, no device nodes, no exec — typical for /home or /tmp on hardened boxes:
+sudo mount -o ro,nosuid,nodev,noexec /dev/sdb1 /mnt/data
+
+# Mount with relaxed atime updates (big perf win on busy disks):
+sudo mount -o noatime /dev/sdb1 /mnt/data
+
+# Remount root read-write (single-user rescue):
+sudo mount -o remount,rw /
+
+# Bind mount — make a tree visible at a second place (useful for chroots, containers):
+sudo mount --bind /var/log /srv/chroot/var/log
+
+# Mount an ISO image as a loop device:
+sudo mount -o loop ubuntu.iso /mnt/iso
+
+# Show every active mount in a clean tree:
+findmnt
+# Or for one mountpoint:
+findmnt /mnt/data
+
+# Unmount — fails if anything is using it:
+sudo umount /mnt/data
+# umount: /mnt/data: target is busy.
+
+# Find who's using it:
+sudo lsof +D /mnt/data
+sudo fuser -vm /mnt/data
+
+# Lazy unmount when you can't kill the holder (use sparingly):
+sudo umount -l /mnt/data
+```
+
+**Common mount options:**
+
+| Option       | Meaning                                                              |
+| ------------ | -------------------------------------------------------------------- |
+| `ro` / `rw`  | Read-only / read-write                                               |
+| `nosuid`     | Ignore setuid/setgid bits — defense-in-depth on untrusted FSes       |
+| `nodev`      | Ignore device nodes on the mount — never trust foreign `/dev/sda`    |
+| `noexec`     | No binaries can be executed from this mount                          |
+| `noatime`    | Don't update access times on reads (big perf win)                    |
+| `relatime`   | Only update atime if older than mtime/ctime (the modern default)     |
+| `sync`       | All writes go straight to disk (slow but durable)                    |
+| `discard`    | Issue TRIM/UNMAP on file deletion (SSDs only — usually use `fstrim` instead) |
+| `defaults`   | `rw,suid,dev,exec,auto,nouser,async` — the typical baseline          |
+
+**Notes:**
+
+- **`umount: target is busy`** means a process has a file open or a shell `cd`'d into the mount. Use `lsof +D` or `fuser -vm` to find the holder.
+- **Lazy unmount (`umount -l`)** detaches the namespace immediately but waits for last reference to disappear before actually releasing. Useful as a last resort; not a substitute for finding the real holder.
+- **`mount` without arguments** prints the current mount table — quick sanity check that something landed where you expected.
+- **`noatime` is essentially free perf**. Modern kernels default to `relatime`; `noatime` is even cheaper. Only the rare app (some mail spools) cares about atime.
+- **Bind mounts are not symlinks.** They make the same inode visible at two paths — the kernel knows it's one filesystem, while a symlink is just a text pointer.
+
+### /etc/fstab
+
+**Description:** `/etc/fstab` ("**f**ile **s**ystem **tab**le") is the boot-time mount manifest. Each non-comment line tells the system: "at boot, mount **this device** at **this directory** with **these options**". `mount -a` applies the whole file; `systemd` parses it at boot and generates `*.mount` units automatically. **A typo here can keep your box from booting** — always validate before you reboot.
+
+**The six fields:**
+
+```
+UUID=9f2e...    /mnt/data    ext4    defaults,nofail,noatime    0    2
+└─────┬─────┘   └────┬───┘   └──┬┘   └────────────┬──────────┘   ┴    ┴
+   1 what       2 where      3 type     4 options              5 dump 6 fsck pass
+```
+
+| # | Field      | Meaning                                                                  |
+| - | ---------- | ------------------------------------------------------------------------ |
+| 1 | **fs_spec**   | What to mount: `UUID=…`, `LABEL=…`, `/dev/sdb1`, or `//server/share`   |
+| 2 | **fs_file**   | Where to mount it (the mountpoint must already exist as a directory)   |
+| 3 | **fs_vfstype**| `ext4`, `xfs`, `vfat`, `nfs`, `tmpfs`, `swap`, …                        |
+| 4 | **fs_mntops** | Comma-separated mount options (see below)                              |
+| 5 | **fs_freq**   | Used by the ancient `dump` backup tool — **always `0`** in practice    |
+| 6 | **fs_passno** | `fsck` order at boot: `0` = skip, `1` = root, `2` = others             |
+
+**Useful options to know:**
+
+| Option        | Purpose                                                                  |
+| ------------- | ------------------------------------------------------------------------ |
+| `defaults`    | `rw,suid,dev,exec,auto,nouser,async` — the baseline                      |
+| `noauto`      | Don't mount at boot. Still mountable with `mount /mountpoint`.           |
+| `nofail`      | Boot continues even if the device is missing — **essential for removable / optional disks** |
+| `x-systemd.automount` | Lazy automount — mounts on first access (great for slow / network FSes) |
+| `x-systemd.device-timeout=10` | Don't hang boot forever waiting on a missing disk      |
+| `user`        | Allow non-root users to mount this entry                                 |
+| `_netdev`     | Treat as a network FS — wait for the network online target first         |
+
+**Examples:**
+
+```bash
+# A typical data disk by UUID:
+UUID=9f2e0000-1111-2222-3333-444455556666  /mnt/data  ext4  defaults,nofail,noatime  0  2
+
+# A USB stick that may or may not be plugged in:
+LABEL=USBKEY  /mnt/usb  vfat  defaults,nofail,noauto,user  0  0
+
+# A swap partition:
+UUID=aaaa-bbbb-...  none  swap  sw  0  0
+
+# A tmpfs mount with a 2 GiB cap:
+tmpfs  /var/tmp/build  tmpfs  defaults,size=2G,noatime  0  0
+
+# An NFS share:
+nas.local:/exports/media  /srv/media  nfs  defaults,_netdev,x-systemd.automount  0  0
+
+# A bind mount (chroot prep):
+/var/log  /srv/chroot/var/log  none  bind  0  0
+```
+
+**Validate before rebooting:**
+
+```bash
+# Re-mount everything from /etc/fstab — catches typos NOW, not at boot:
+sudo mount -a
+# (no output = success; any error = fix before rebooting!)
+
+# Inspect what systemd parsed:
+systemctl list-units --type=mount
+
+# What's in the current mount table:
+findmnt --fstab            # what /etc/fstab says
+findmnt                    # what's actually mounted
+```
+
+**Notes:**
+
+- **Always use `UUID=` or `LABEL=`**, never `/dev/sdX1`. SCSI/SATA device letters can reshuffle when a disk is added or hotplugged.
+- **`nofail` is your seatbelt.** Without it, a missing removable disk drops the box into emergency mode at boot. With it, boot continues normally.
+- **`mount -a` is a free dry run.** Run it after every edit. If it errors at the shell, it will error at boot — except at boot you may have no shell to fix it from.
+- **Field 5 (`dump`) is essentially obsolete** — set to `0`. Field 6 (`fsck pass`): `1` only for `/`, `2` for other ext-family FSes that should be checked, `0` for everything else (xfs auto-checks at mount time, so `0`).
+- **`x-systemd.automount` is the friendly default for slow / optional / network mounts** — the mountpoint exists immediately, but the actual mount happens on first access.
+
+### swap
+
+**Description:** **Swap** is disk space the kernel uses as a spillover when RAM gets tight. Pages of memory that haven't been touched recently are written out to swap; when needed again they're paged back in. Swap can live on a **dedicated partition** or in a **swap file** — modern systems usually use a file because it's easy to grow or remove. Swap doesn't make a slow workload fast, but it lets a box survive a memory spike without OOM-killing your processes.
+
+**The tools:**
+
+| Command                          | What it does                                                       |
+| -------------------------------- | ------------------------------------------------------------------ |
+| `mkswap <dev-or-file>`           | Initialize a partition or file as swap (writes the swap signature) |
+| `swapon <dev-or-file>`           | Activate swap                                                      |
+| `swapoff <dev-or-file>`          | Deactivate swap (pages currently in swap get faulted back to RAM)  |
+| `swapon --show`                  | List active swap areas, sizes, usage, priority                     |
+| `free -h`                        | Show total/used/free RAM and swap                                  |
+| `cat /proc/swaps`                | Same info as `swapon --show`, plain text                           |
+
+**Create a swap file (the common case):**
+
+```bash
+# 1. Allocate a 4 GiB file. Use fallocate (fast); if FS doesn't support it, use dd:
+sudo fallocate -l 4G /swapfile
+# Fallback for filesystems without fallocate (btrfs may need a different recipe):
+# sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=progress
+
+# 2. Lock it down — swap MUST be 0600 or mkswap will refuse:
+sudo chmod 600 /swapfile
+
+# 3. Format it as swap:
+sudo mkswap /swapfile
+# Setting up swapspace version 1, size = 4 GiB
+# UUID=aaaa-bbbb-...
+
+# 4. Activate now:
+sudo swapon /swapfile
+swapon --show
+# NAME      TYPE  SIZE  USED PRIO
+# /swapfile file  4G    0B   -2
+
+# 5. Persist via /etc/fstab so it's there after reboot:
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+**Create a swap partition (old-school but still valid):**
+
+```bash
+sudo mkswap /dev/sdb2
+sudo swapon /dev/sdb2
+# Persist:
+echo "UUID=$(sudo blkid -s UUID -o value /dev/sdb2)  none  swap  sw  0  0" \
+  | sudo tee -a /etc/fstab
+```
+
+**Tuning swappiness:**
+
+```bash
+# How aggressively the kernel swaps (0 = avoid, 100 = aggressive). Default = 60.
+cat /proc/sys/vm/swappiness
+# 60
+
+# Lower it on a desktop / latency-sensitive box (10-20 is common):
+sudo sysctl -w vm.swappiness=10
+# Persist:
+echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-swap.conf
+```
+
+**Remove swap entirely:**
+
+```bash
+sudo swapoff /swapfile          # deactivate (may take a while if heavily used)
+sudo sed -i '/swapfile/d' /etc/fstab
+sudo rm /swapfile
+```
+
+**Notes:**
+
+- **How much swap?** Old rule was 2× RAM; modern rule is "as much as you need to hibernate, or 2–4 GiB otherwise". Servers often run with **no swap** and rely on the OOM killer; desktops benefit from some.
+- **Swap file vs partition: functionally identical** since Linux 2.6. Files are easier to resize and remove; partitions can have a tiny edge for hibernation on some setups.
+- **Swappiness 60 is fine for servers**; lower (10–20) helps desktop responsiveness; higher (100) is for memory-constrained containers where any swap is better than OOM.
+- **`zram` / `zswap` are RAM-compression alternatives** to disk swap — pages are compressed in memory instead of (or in addition to) written to disk. Many distros (Fedora, Ubuntu desktop) enable zram by default.
+- **Swap on SSD is fine** — modern drives have enough write endurance that swap traffic is a rounding error. The "swap kills SSDs" advice is from ~2010.
+
+### Disk Usage
+
+**Description:** When `df` says the disk is full, **`du`** tells you where the space went. The two tools answer different questions: `df` reports **filesystem-level** free/used space (from the superblock); `du` reports **per-directory** sizes by walking the tree and summing file sizes. They can disagree — and when they do, that's usually a clue (deleted-but-open files, hidden mounts, sparse files).
+
+**The toolkit:**
+
+| Tool           | What it tells you                                                       |
+| -------------- | ----------------------------------------------------------------------- |
+| `df -h`        | Free / used / total space per **mounted filesystem**                    |
+| `df -i`        | Same, but counting **inodes** instead of bytes                          |
+| `df -T`        | Add a filesystem-type column                                            |
+| `du -sh <dir>` | **Summary** size of one directory                                       |
+| `du -h --max-depth=1 <dir>` | Direct children of `<dir>`, sorted by size              |
+| `du -ah <dir>` | Every file and directory (huge output — pipe through `sort` / `head`)   |
+| `ncdu <dir>`   | Interactive TUI — browse usage, delete with `d` (install separately)    |
+| `lsof +L1`     | Files with **link count 0** — deleted but still held open (the classic "space gone, can't find it" cause) |
+
+**Examples:**
+
+```bash
+# What's the space situation overall?
+df -h
+# Filesystem      Size  Used Avail Use% Mounted on
+# /dev/sda2       450G  430G   20G  96% /
+# tmpfs           7.7G  120K  7.7G   1% /tmp
+# /dev/sdb1       1.8T  300G  1.5T  17% /data
+
+# Inodes (a partition can be "full" by inode exhaustion even with bytes free):
+df -i
+# Filesystem      Inodes IUsed IFree IUse% Mounted on
+# /dev/sda2         7.5M  7.4M  100K   99% /
+#                                       ↑ uh oh
+
+# Top space hogs under /var:
+sudo du -h --max-depth=1 /var | sort -h | tail -10
+# 800M   /var/cache
+# 1.2G   /var/lib
+# 4.5G   /var/log
+
+# Drill into one subtree:
+sudo du -h --max-depth=1 /var/log | sort -h
+sudo du -ah /var/log | sort -h | tail -20    # specific big files
+
+# Interactive (best UX for hunting):
+sudo ncdu /
+
+# Find big files anywhere:
+sudo find / -xdev -type f -size +500M -exec ls -lh {} \; 2>/dev/null
+
+# "df says full but du says small" → look for deleted-but-open files:
+sudo lsof +L1
+# COMMAND  PID  USER  FD  TYPE  ...  SIZE/OFF  NLINK  NAME
+# nginx    1234 root  3w  REG   ...  4294967296  0     /var/log/nginx/access.log (deleted)
+#                                                ↑ space stays held until process restarts
+```
+
+**Notes:**
+
+- **`df -h` reports filesystem free space**; `du` reports the bytes a tree's files account for. They differ because (a) deleted-but-open files hold blocks until the FD closes, (b) sparse files have fewer real bytes than apparent bytes, (c) reserved-for-root blocks (`tune2fs -m`) appear used to non-root.
+- **The `-h` flag is universal** — `df -h`, `du -h`, `ls -lh`, `sort -h` (sorts `1K`, `1M`, `1G` correctly). Memorize it.
+- **`-x` / `--one-file-system`** stops `du`/`find` from crossing mountpoints — essential when scanning `/` so you don't dive into `/proc`, `/sys`, network mounts, etc.
+- **Inode exhaustion looks like a full disk** but `df -h` shows free bytes. Always check `df -i` when a "disk full" doesn't match `df -h`. Common cause: a tree of millions of tiny files (mail spools, build caches).
+- **`ncdu` is worth installing.** `du | sort | head` is fine; `ncdu` is what you reach for in an actual outage.
+- **Truncate, don't delete, log files of live processes.** `> /var/log/big.log` frees the space immediately; `rm /var/log/big.log` doesn't (the FD is still open). Or `truncate -s 0 /var/log/big.log`.
+
+### Filesystem Repair
+
+**Description:** Filesystems can get inconsistent after a crash, power loss, or bad shutdown. **`fsck`** ("**f**ile**s**ystem **c**hec**k**") is the front-end that dispatches to the right per-FS tool: `e2fsck` for ext2/3/4, `xfs_repair` for xfs, `btrfs check` for btrfs, etc. Journaled filesystems usually replay the journal at mount time and never need a manual `fsck`, but bigger corruption (bad blocks, controller crash, accidental write to a partition) needs an offline repair.
+
+**The cardinal rule: never `fsck` a mounted, writable filesystem.** Either unmount it, or remount it read-only first.
+
+**The toolkit:**
+
+| Tool           | Filesystem    | Notes                                                    |
+| -------------- | ------------- | -------------------------------------------------------- |
+| `fsck`         | dispatcher    | Picks the right tool based on FS type                    |
+| `e2fsck`       | ext2/3/4      | `-n` = read-only check, `-y` = answer yes to all prompts |
+| `xfs_repair`   | xfs           | Must be unmounted. xfs has no equivalent to `e2fsck -n`. |
+| `btrfs check`  | btrfs         | Read-only by default; `--repair` is **last resort, dangerous** |
+| `tune2fs`      | ext family    | Adjust ext FS parameters (mount counts, reserved blocks, label, UUID) |
+| `dumpe2fs`     | ext family    | Dump superblock and block-group info                     |
+| `xfs_info`     | xfs           | Inspect xfs geometry (block size, journal, AGs)          |
+
+**Examples:**
+
+```bash
+# Boot to single-user / rescue and the root FS is dirty:
+# (first remount read-only — or boot from a USB live env)
+sudo mount -o remount,ro /
+sudo fsck -y /
+
+# Check (don't modify) an ext4 partition:
+sudo e2fsck -n /dev/sdb1
+# Pass 1: Checking inodes, blocks, and sizes
+# Pass 2: Checking directory structure
+# ...
+# /dev/sdb1: 12345/7864320 files (0.0% non-contiguous), 600000/31250000 blocks
+
+# Force a check even if the FS looks clean:
+sudo e2fsck -f /dev/sdb1
+
+# Repair (interactive, asks before each change):
+sudo e2fsck /dev/sdb1
+# Or assume-yes to all (only after a read-only -n pass!):
+sudo e2fsck -y /dev/sdb1
+
+# Repair xfs — MUST be unmounted:
+sudo umount /mnt/data
+sudo xfs_repair /dev/sdb1
+# Phase 1 - find and verify superblock...
+# Phase 2 - using internal log
+# ...
+
+# Re-tune an ext4 FS without recreating:
+sudo tune2fs -L newlabel /dev/sdb1        # change label
+sudo tune2fs -m 1 /dev/sdb1               # set reserved blocks to 1%
+sudo tune2fs -c 50 /dev/sdb1              # force fsck every 50 mounts
+sudo tune2fs -l /dev/sdb1 | head          # print superblock summary
+```
+
+**Recovering from a corrupt superblock (ext4):**
+
+```bash
+# Find backup superblocks:
+sudo mke2fs -n /dev/sdb1
+# Superblock backups stored on blocks: 32768, 98304, 163840, ...
+
+# Try a backup superblock for fsck:
+sudo e2fsck -b 32768 /dev/sdb1
+```
+
+**Notes:**
+
+- **`fsck` on a mounted RW filesystem will corrupt it.** This is one of the easiest ways to destroy data on Linux. Always unmount first, or `mount -o remount,ro`, or boot from a rescue USB.
+- **For the root FS, repair from a live USB** or from the initramfs rescue shell (some distros also let you append `fsck.mode=force` to the kernel cmdline).
+- **xfs journals replay automatically at mount.** If `mount` fails with "Structure needs cleaning", you need `xfs_repair`. xfs has no read-only check — `xfs_repair -n` is the closest equivalent.
+- **`e2fsck -n` first, `e2fsck -y` only after.** The dry run tells you what's wrong; only then decide if blind auto-repair is acceptable. Real corruption often deserves a hand on the wheel.
+- **`tune2fs -c 0 -i 0`** disables time/mount-count-based forced fsck — useful on busy servers where you don't want a 30-minute fsck triggered at the next reboot. On modern journaled FSes the boot-time check is largely cosmetic.
+- **Image the disk before deep recovery.** `ddrescue` (not plain `dd`) copies a failing disk into an image you can `fsck` repeatedly without grinding the original further.
+
+### Inodes
+
+**Description:** Every file on a Unix filesystem is represented by an **inode** — a fixed-size on-disk record holding the file's **metadata** (size, owner, permissions, timestamps, link count, and pointers to the data blocks). What's *not* in the inode? The **filename**. Names live in **directories**, which are tables mapping names to inode numbers. That separation is why a file can have many names (hard links), why renames are free, and why `ls -l` reports a link count.
+
+**What an inode holds:**
+
+| Field        | What it stores                                                          |
+| ------------ | ----------------------------------------------------------------------- |
+| Inode number | Unique ID within the filesystem (printed by `ls -i`)                    |
+| Mode         | File type + permission bits (`-rw-r--r--`, `drwxr-xr-x`)                |
+| Owner/Group  | UID and GID                                                             |
+| Size         | Bytes                                                                   |
+| Timestamps   | `atime` (access), `mtime` (modify), `ctime` (metadata change)           |
+| Link count   | How many directory entries point at this inode (`nlink`)                |
+| Block pointers | Where the actual data lives (direct, indirect, double-indirect, ...)  |
+
+**What an inode does NOT hold:** the **filename** (lives in the parent directory) and the **file's contents** (live in the data blocks the inode points at).
+
+**Examples:**
+
+```bash
+# Show inode number alongside filename:
+ls -li /etc/passwd
+# 12345 -rw-r--r-- 1 root root 2700 May 22 14:30 /etc/passwd
+#  ↑ inode number
+
+# Detailed metadata:
+stat /etc/passwd
+#   File: /etc/passwd
+#   Size: 2700        Blocks: 8       IO Block: 4096   regular file
+# Device: 803h/2051d  Inode: 12345    Links: 1
+# Access: (0644/-rw-r--r--)  Uid: (0/root)  Gid: (0/root)
+# Access: 2026-06-19 09:01:23
+# Modify: 2026-06-18 17:44:01
+# Change: 2026-06-18 17:44:01
+
+# How many inodes total / free on each FS?
+df -i
+# Filesystem      Inodes IUsed IFree IUse% Mounted on
+# /dev/sda2         7.5M  600K  6.9M    8% /
+
+# Two filenames sharing one inode (a hard link):
+echo hello > original.txt
+ln original.txt alias.txt
+ls -li *.txt
+# 12346 -rw-r--r-- 2 user user 6 ... alias.txt
+# 12346 -rw-r--r-- 2 user user 6 ... original.txt
+#  ↑ same inode    ↑ nlink=2
+
+# Delete one name — file lives on (nlink decreases):
+rm alias.txt
+ls -li original.txt
+# 12346 -rw-r--r-- 1 user user 6 ... original.txt
+
+# Find files by inode (e.g., who else points at this one?):
+find / -xdev -inum 12346 2>/dev/null
+```
+
+**Notes:**
+
+- **Inodes are a fixed pool, allocated at `mkfs` time.** A filesystem can be "full" two ways: out of blocks (bytes) **or** out of inodes (files). `df -h` shows one, `df -i` shows the other. Tree of millions of tiny files? Likely inode exhaustion.
+- **`rm` removes a directory entry, not a file.** The kernel only reclaims the inode and data blocks when **link count hits 0 AND no process has the file open**. That's why removing an open log file doesn't free space until the process closes (or restarts).
+- **Hard links share an inode.** Soft links ([symlinks](#symlinks)) don't — they're a separate inode whose data block is the path of the target.
+- **`ctime` ≠ creation time.** It's *change* time — when the inode itself was last modified (perms changed, owner changed, link count changed). Linux only added a real **birth time** with ext4 / xfs and a separate `statx()` syscall.
+- **Inodes are per-filesystem.** Inode 12345 on `/dev/sda2` is unrelated to inode 12345 on `/dev/sdb1`. Hard links across filesystems are impossible because there's no shared inode space — that's why `ln` fails across mounts.
+- **xfs / btrfs allocate inodes dynamically**; ext2/3/4 do not. So "out of inodes" is mostly an ext family problem. If you regularly fill with tiny files, format with `mkfs.ext4 -i <bytes-per-inode>` to bump the inode count.
+
+### symlinks
+
+**Description:** A **symbolic link** (a.k.a. **soft link** or **symlink**) is a tiny special file whose contents are a **path** pointing to another file. Unlike a hard link (which is a second name for the *same* inode), a symlink has its own inode and just stores the text of the target's path. Symlinks can cross filesystems, point at directories, and even point at things that don't exist (**dangling links**) — the resolution happens every time the path is followed.
+
+**Symlink vs hard link:**
+
+|                              | Symlink (`ln -s`)              | Hard link (`ln`)             |
+| ---------------------------- | ------------------------------ | ---------------------------- |
+| Own inode?                   | Yes, separate                   | No — same inode as target    |
+| Can cross filesystems?       | **Yes**                         | No                           |
+| Can point to a directory?    | **Yes**                         | No (only root can, rarely)   |
+| Can point to non-existent target? | Yes — becomes "dangling"   | No (target must exist at creation) |
+| Survives deletion of target? | Becomes dangling                | Yes (data lives until last link gone) |
+| Shown by `ls -l`             | `lrwxrwxrwx ... link -> target` | Indistinguishable from a regular file |
+
+**Examples:**
+
+```bash
+# Create a symlink: `ln -s <target> <linkname>`
+ln -s /usr/local/bin/myapp ~/bin/myapp
+ls -l ~/bin/myapp
+# lrwxrwxrwx 1 user user 21 Jun 20 10:30 /home/user/bin/myapp -> /usr/local/bin/myapp
+
+# Symlink to a directory — works the same way:
+ln -s /var/log/myapp ~/logs
+
+# Read what a symlink points to:
+readlink ~/bin/myapp
+# /usr/local/bin/myapp
+
+# Resolve all symlinks to a real path:
+readlink -f ~/bin/myapp
+# /usr/local/bin/myapp
+
+# Dangling symlink — target doesn't exist:
+ln -s /tmp/does-not-exist /tmp/broken
+ls -l /tmp/broken
+# lrwxrwxrwx 1 user user 21 Jun 20 10:31 /tmp/broken -> /tmp/does-not-exist
+file /tmp/broken
+# /tmp/broken: broken symbolic link to /tmp/does-not-exist
+
+# Replace a symlink atomically (the only safe way to update one in place):
+ln -sfn /usr/local/app-v2 /opt/app    # -f = force, -n = don't follow if dst is a symlink
+
+# Find all symlinks under a tree:
+find /etc -type l
+
+# Find dangling symlinks:
+find / -xtype l 2>/dev/null
+
+# Hard link for contrast — same inode, no arrow:
+ln original.txt hardlink.txt
+ls -li *.txt
+# 12346 -rw-r--r-- 2 user user 6 ... hardlink.txt
+# 12346 -rw-r--r-- 2 user user 6 ... original.txt
+```
+
+**Relative vs absolute targets:**
+
+```bash
+# Absolute — works from anywhere, but breaks if you move the whole tree:
+ln -s /home/user/projects/data ~/data-abs
+
+# Relative — survives moving the parent dir intact, but only resolves correctly
+# from the symlink's own directory:
+cd ~
+ln -s projects/data data-rel
+readlink data-rel        # projects/data
+```
+
+**Notes:**
+
+- **`ln -s <target> <linkname>`** — the order is "what it points to, where the link goes". Easy to get backwards; if you do, you'll create a link in the wrong place. The arrow in `ls -l` (`link -> target`) is your mnemonic.
+- **`-n` matters when replacing a symlink to a directory.** Without `-n`, `ln -sf newtarget existingdir-symlink` follows the existing symlink and creates a link **inside** the target dir instead of replacing the symlink. Always `ln -sfn` for "replace this symlink".
+- **Symlinks store the literal target string.** Move the target, the symlink dangles. Move the symlink (with a relative target) to somewhere where the relative path no longer resolves, the symlink dangles.
+- **`readlink -f` resolves the full chain**, including symlinks-to-symlinks. Use it when you need a canonical absolute path — for example, before logging a "real" file location.
+- **Permissions on a symlink itself are usually `lrwxrwxrwx` and ignored** — what matters is the permissions of the **target**. (`chmod` on the link follows to the target by default; `chmod -h` would modify the link's own bits on the rare FS that honors them.)
+- **Avoid hard-linking config files between packages** — package managers replace files by `unlink + rename`, which breaks the hard link silently. Symlinks survive that pattern.
+
+---
+
+## Boot the System
+
+Notes on **what happens between power-on and login prompt**. The boot path is a relay race — firmware hands control to the bootloader, the bootloader loads the kernel, the kernel mounts a root filesystem and starts the init system, and init brings up the rest of userspace. Understanding the handoffs is what lets you fix a box that won't boot — most "broken machines" are stuck at exactly one of these stages.
+
+### One Shot Revision
+
+| Topic                                                         | Short Description                                                                |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| [Boot Process Overview](#boot-process-overview)               | The five stages — firmware → bootloader → kernel → init → login                  |
+| [Boot Process: BIOS](#boot-process-bios)                      | **BIOS / UEFI** — POST, firmware, MBR vs ESP, boot order                         |
+| [Boot Process: Bootloader](#boot-process-bootloader)          | **GRUB2** / systemd-boot — kernel selection, `grub.cfg`, kernel cmdline          |
+| [Boot Process: Kernel](#boot-process-kernel)                  | `vmlinuz`, `initramfs`, kernel cmdline, `dmesg`                                  |
+| [Boot Process: Init](#boot-process-init)                      | **systemd** (and SysV before it) — units, targets, `systemctl`, `journalctl`     |
+
+### Boot Process Overview
+
+**Description:** Linux boot is a **five-stage relay**. Each stage loads, initializes, and hands off to the next. When a machine "won't boot", the most useful first question is *which stage is it stuck at* — the diagnostic tools and fixes are completely different at each layer.
+
+**The five stages, in order:**
+
+```
+1. Firmware (BIOS / UEFI)
+   Power on → POST (memory, CPU, devices) → pick a boot device → load first-stage code
+                                                       ↓
+2. Bootloader (GRUB2, systemd-boot, ...)
+   Read its config → show menu (optional) → load kernel + initramfs into RAM
+                                                       ↓
+3. Kernel (vmlinuz)
+   Decompress → init drivers from initramfs → mount real root FS → exec /sbin/init
+                                                       ↓
+4. Init (systemd / SysVinit)
+   PID 1 → bring up units in dependency order → reach default.target (multi-user / graphical)
+                                                       ↓
+5. Login
+   getty on TTYs / display manager (gdm, sddm) → user logs in → shell or desktop
+```
+
+**Quick map: which logs go with which stage?**
+
+| Stage      | Where to look when it breaks                                                  |
+| ---------- | ----------------------------------------------------------------------------- |
+| Firmware   | Screen messages, BIOS/UEFI setup, `dmidecode`, beep codes                     |
+| Bootloader | GRUB rescue prompt, `/boot/grub/grub.cfg`, `/boot/loader/entries/*.conf`      |
+| Kernel     | `dmesg`, `journalctl -k`, kernel panic on screen, `/var/log/kern.log`         |
+| Init       | `journalctl -b` (current boot), `systemctl --failed`, `systemctl status <unit>` |
+| Login      | `journalctl -u getty@tty1`, `journalctl -u gdm`, `~/.xsession-errors`         |
+
+**Examples — inspecting the most recent boot end to end:**
+
+```bash
+# What firmware did we boot from? (UEFI if /sys/firmware/efi exists, else legacy BIOS)
+[ -d /sys/firmware/efi ] && echo UEFI || echo "legacy BIOS"
+
+# How long did each stage take?
+systemd-analyze
+# Startup finished in 2.3s (firmware) + 1.1s (loader) + 3.5s (kernel) + 4.2s (userspace)
+#                    = 11.1s
+# multi-user.target reached after 4.2s in userspace
+
+# What's the slowest unit?
+systemd-analyze blame | head
+# 3.412s NetworkManager-wait-online.service
+# 1.220s plymouth-quit-wait.service
+# ...
+
+# Plot a boot timeline (SVG):
+systemd-analyze plot > boot.svg
+
+# All kernel messages from this boot:
+journalctl -k -b
+
+# All log messages from this boot, oldest first:
+journalctl -b
+
+# The previous boot (use -1 for one back, -2 for two back, ...):
+journalctl -b -1
+```
+
+**Notes:**
+
+- **The single most useful diagnostic command is `journalctl -b`** — every message from PID 1 onwards in the current boot. Add `-k` for kernel-only, `-p err` for errors-only, `-u <unit>` for one service.
+- **`systemd-analyze` is a one-liner that splits the boot into firmware / loader / kernel / userspace.** If userspace is 30 seconds, `blame` will tell you which units to look at.
+- **"Won't boot" almost always means stuck in one of stages 2–4.** Stage 1 failures usually mean dead hardware or a missing disk; stage 5 failures mean you booted fine but no login appeared.
+- **Rescue boot** is a graphical-less / single-user variant: append `systemd.unit=rescue.target` (or `single`) to the kernel cmdline from the GRUB menu. `emergency.target` is even more minimal (just root, no most-mounts).
+
+### Boot Process: BIOS
+
+**Description:** **Firmware** is the first code that runs after power-on. On older PCs it's the **BIOS** ("**B**asic **I**nput/**O**utput **S**ystem"); on modern machines (anything since ~2012) it's **UEFI** ("**U**nified **E**xtensible **F**irmware **I**nterface"). Either way, the job is the same: run **POST** (Power-On Self Test) to verify hardware, look at a configured **boot order**, and hand control to the first bootable thing it finds. BIOS and UEFI differ in *how* they find that thing.
+
+**BIOS vs UEFI:**
+
+|                          | Legacy BIOS                          | UEFI                                                |
+| ------------------------ | ------------------------------------ | --------------------------------------------------- |
+| Year introduced          | 1981                                  | ~2005 (mainstream ~2012)                            |
+| Partition table          | MBR (max 2 TiB / 4 primary parts)    | GPT (>2 TiB, ~128 parts)                            |
+| How it finds the loader  | Reads first 512 B (MBR) of boot disk | Reads **EFI System Partition** (ESP), parses FAT, loads `.efi` binaries |
+| Boot entries             | One per disk (MBR boot code)         | Many, stored in **NVRAM** (managed by `efibootmgr`) |
+| Secure Boot              | No                                   | Yes (signed bootloaders only)                       |
+| Where the bootloader lives | `/boot/grub/` + the disk's MBR     | `/boot/efi/EFI/<distro>/grubx64.efi` (or similar)   |
+
+**The handoff:**
+
+```
+BIOS:    POST → look at MBR (first 512 B of boot disk) → jump to boot code
+                                                          ↓
+                                                       Stage 1.5 / 2 of GRUB
+UEFI:    POST → read NVRAM boot entries → load chosen .efi from ESP → execute
+                                                          ↓
+                                                       GRUB / systemd-boot / ...
+```
+
+**Examples — inspecting firmware state:**
+
+```bash
+# Am I on UEFI or legacy BIOS?
+[ -d /sys/firmware/efi ] && echo "UEFI" || echo "legacy BIOS"
+
+# UEFI boot entries (the ones the firmware would offer at next boot):
+sudo efibootmgr -v
+# BootCurrent: 0001
+# Timeout: 1 seconds
+# BootOrder: 0001,0000,0002
+# Boot0000* Windows Boot Manager  HD(1,GPT,...)/File(\EFI\Microsoft\Boot\bootmgfw.efi)
+# Boot0001* ubuntu                HD(1,GPT,...)/File(\EFI\ubuntu\shimx64.efi)
+# Boot0002* UEFI: USB Stick       ...
+
+# Change the default boot entry order:
+sudo efibootmgr -o 0001,0000,0002
+
+# The ESP (EFI System Partition) is normally mounted at /boot/efi:
+mount | grep efi
+# /dev/sda1 on /boot/efi type vfat (...)
+
+# What's in it?
+ls -R /boot/efi/EFI/
+# /boot/efi/EFI/:
+# BOOT  ubuntu  Microsoft
+# /boot/efi/EFI/ubuntu:
+# grubx64.efi  shimx64.efi  grub.cfg
+
+# Firmware info (vendor, version, settings the OS can see):
+sudo dmidecode -t bios
+# BIOS Information
+#   Vendor: American Megatrends Inc.
+#   Version: 1.30
+#   Release Date: 03/15/2024
+#   ...
+
+# Is Secure Boot on?
+sudo mokutil --sb-state
+# SecureBoot enabled
+```
+
+**Notes:**
+
+- **`/sys/firmware/efi` is the litmus test for UEFI.** If it exists, you're on UEFI; if not, you booted in legacy mode (even on a UEFI machine — many can do either).
+- **The ESP is just a FAT32 partition** flagged as the EFI System Partition. You can read and write it from any OS, which is how recovery USBs put a bootloader on disk.
+- **`efibootmgr` is your friend on UEFI** — adding, reordering, and removing boot entries doesn't require touching disks, only the firmware's NVRAM. It also doesn't survive a CMOS reset, which is why distro installers write the entry on every kernel install.
+- **Secure Boot blocks unsigned `.efi` binaries.** That's why custom kernels need to be signed, or you need to enroll a **MOK** (Machine Owner Key) with `mokutil` — or disable Secure Boot in firmware setup.
+- **No EFI on a board's NVRAM = no boot.** Some cheap firmwares "forget" entries when the battery dies. The `/boot/efi/EFI/BOOT/BOOTX64.EFI` fallback path is the universal backup — copy your bootloader there as `BOOTX64.EFI` for a firmware-independent fallback.
+
+### Boot Process: Bootloader
+
+**Description:** The **bootloader** is the small program firmware hands control to. Its job: pick a kernel, load it (and its **initramfs**) into RAM, set up a **kernel command line**, and jump to the kernel's entry point. On Linux this is overwhelmingly **GRUB2** ("**GR**and **U**nified **B**ootloader"). Lightweight alternatives include **systemd-boot** (UEFI only, minimal), **rEFInd**, and **syslinux/isolinux** (live media).
+
+**GRUB2 at a glance:**
+
+| Piece                            | What it is                                                              |
+| -------------------------------- | ----------------------------------------------------------------------- |
+| `/boot/grub/grub.cfg`            | The actual config GRUB reads at boot. **Generated** — do not hand-edit. |
+| `/etc/default/grub`              | High-level settings (timeout, default entry, kernel cmdline defaults)   |
+| `/etc/grub.d/`                   | Scripts that compose `grub.cfg` (each one contributes menu entries)     |
+| `update-grub` / `grub2-mkconfig` | Regenerate `grub.cfg` from `/etc/default/grub` + `/etc/grub.d/`         |
+| `grub-install`                   | Write the bootloader code to the disk (MBR) or ESP (UEFI)               |
+
+**The boot menu lives here:**
+
+```
+GRUB                  ← interactive menu (Esc / Shift to see it)
+  Ubuntu              ← default entry → loads /boot/vmlinuz + /boot/initrd.img
+  Ubuntu (recovery)
+  Memory test
+  Windows Boot Manager
+```
+
+**Examples — common operations:**
+
+```bash
+# What's the current default kernel cmdline (as recorded in /etc/default/grub)?
+grep GRUB_CMDLINE_LINUX /etc/default/grub
+# GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+# GRUB_CMDLINE_LINUX=""
+
+# What did the kernel ACTUALLY get on the cmdline at this boot?
+cat /proc/cmdline
+# BOOT_IMAGE=/boot/vmlinuz-6.8.0-31-generic root=UUID=... ro quiet splash
+
+# Change the menu timeout / default / cmdline:
+sudo vi /etc/default/grub
+# GRUB_TIMEOUT=5
+# GRUB_DEFAULT=0
+# GRUB_CMDLINE_LINUX_DEFAULT="quiet splash nomodeset"   # add nomodeset for graphics issues
+sudo update-grub                     # Debian/Ubuntu
+# sudo grub2-mkconfig -o /boot/grub2/grub.cfg   # RHEL/Fedora
+
+# (Re-)install GRUB to a disk's MBR (legacy BIOS):
+sudo grub-install /dev/sda
+
+# Reinstall on UEFI (writes /boot/efi/EFI/<distro>/grubx64.efi):
+sudo grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu
+
+# Show available menu entries (handy for setting GRUB_DEFAULT by name):
+sudo awk -F\' '/menuentry / {print $2}' /boot/grub/grub.cfg
+# Ubuntu
+# Advanced options for Ubuntu
+# Ubuntu, with Linux 6.8.0-31-generic
+# Ubuntu, with Linux 6.8.0-31-generic (recovery mode)
+```
+
+**Editing a kernel cmdline at boot (one-shot, no config change):**
+
+```
+At the GRUB menu:
+  - Highlight an entry, press `e` to edit
+  - Find the `linux` line ending with `quiet splash`
+  - Append flags: e.g. `single`, `systemd.unit=rescue.target`, `init=/bin/bash`
+  - Press Ctrl-X (or F10) to boot this entry once
+```
+
+**Useful kernel cmdline flags:**
+
+| Flag                            | Effect                                                            |
+| ------------------------------- | ----------------------------------------------------------------- |
+| `quiet`                         | Suppress most kernel boot messages                                |
+| `splash`                        | Show graphical boot splash (Plymouth)                             |
+| `nomodeset`                     | Disable kernel-mode-setting — workaround for broken graphics drivers |
+| `single` / `systemd.unit=rescue.target` | Boot into single-user / rescue mode                       |
+| `systemd.unit=emergency.target` | Even more minimal — just root FS, nothing else                    |
+| `init=/bin/bash`                | Skip init entirely — drop into a root shell. Last-resort recovery. |
+| `ro` / `rw`                     | Mount root read-only / read-write at boot                         |
+| `root=UUID=…`                   | Which device is the root filesystem                                |
+
+**Notes:**
+
+- **Never hand-edit `/boot/grub/grub.cfg`** — it's regenerated. Edit `/etc/default/grub` and run `update-grub` (Debian) or `grub2-mkconfig -o /boot/grub2/grub.cfg` (RHEL).
+- **`/proc/cmdline` is ground truth.** Whatever's there is what the running kernel actually received — useful when you're not sure if your `update-grub` actually took.
+- **Editing at the GRUB menu (`e`) is one-shot** — it only affects this boot. Reboot and you're back to the saved entries. Perfect for rescue / "did that flag fix it" experiments.
+- **`init=/bin/bash` is the ultimate "I can't even boot" rescue.** Drops you into a root shell with no init, no journal, nothing — but you can edit `/etc/fstab`, `passwd`, etc. Remount `/` with `mount -o remount,rw /` first.
+- **systemd-boot is simpler than GRUB** — one `.conf` per entry under `/boot/loader/entries/`, no scripting, no theme system. UEFI-only. Many minimalist distros (Arch with `bootctl`) use it.
+
+### Boot Process: Kernel
+
+**Description:** Once the bootloader jumps to the kernel, the kernel **decompresses itself into memory**, initializes core subsystems (memory management, scheduler, drivers compiled in), and then unpacks the **initramfs** ("**init**ial **RAM** **f**ile **s**ystem") — a tiny temporary root containing just enough drivers and tools to find and mount the **real** root filesystem. Once the real root is mounted, the kernel pivots into it and executes the init system (PID 1). All kernel messages are visible via `dmesg` / `journalctl -k`.
+
+**Key files in `/boot`:**
+
+| File                                  | What it is                                                             |
+| ------------------------------------- | ---------------------------------------------------------------------- |
+| `vmlinuz-<version>`                    | Compressed kernel image                                                |
+| `initrd.img-<version>` / `initramfs-<version>.img` | Initramfs — drivers, modprobe rules, `/init` script         |
+| `config-<version>`                     | The `.config` the kernel was built with                                |
+| `System.map-<version>`                 | Symbol map (kernel-space addresses) — used to decode oopses            |
+| `/lib/modules/<version>/`              | Loadable kernel modules for that kernel                                |
+
+**The pivot:**
+
+```
+Bootloader loads vmlinuz + initramfs into RAM
+        ↓
+Kernel decompresses, brings up CPUs / memory / built-in drivers
+        ↓
+Kernel mounts initramfs as a temporary root (/)
+        ↓
+initramfs's /init runs:
+   - load modules needed to see the real root disk (NVMe, RAID, LUKS, LVM, ...)
+   - mount the real root FS at /sysroot
+   - switch_root /sysroot → real root becomes /, initramfs is freed
+        ↓
+Kernel execs /sbin/init (PID 1, normally systemd)
+```
+
+**Examples — inspecting what's running and how it booted:**
+
+```bash
+# Which kernel am I running?
+uname -r
+# 6.8.0-31-generic
+uname -a    # full info: kernel name, host, version, arch
+
+# Available kernels installed:
+ls -lh /boot/vmlinuz-*
+
+# All kernel boot messages from this boot:
+dmesg | less              # may require sudo on some distros
+journalctl -k -b          # same data via systemd journal
+
+# Kernel messages from the previous boot:
+journalctl -k -b -1
+
+# Errors-only (good for "what went wrong during boot"):
+journalctl -k -p err -b
+
+# Find / debug a hardware driver that didn't load:
+dmesg | grep -i nvme
+dmesg | grep -iE "error|fail|warn"
+
+# What modules are loaded right now?
+lsmod | head
+# Module                  Size  Used by
+# nvme                  ...
+# ext4                  ...
+# ...
+
+# Load / unload a module manually:
+sudo modprobe i915        # load
+sudo modprobe -r i915     # unload
+
+# Inspect initramfs contents (Debian/Ubuntu):
+lsinitramfs /boot/initrd.img-$(uname -r) | head -20
+# Or extract for forensic poking:
+mkdir /tmp/initrd && cd /tmp/initrd && \
+  zstdcat /boot/initrd.img-$(uname -r) | cpio -idmv
+
+# Rebuild initramfs (after a driver / fstab change):
+sudo update-initramfs -u            # Debian/Ubuntu
+# sudo dracut -f                    # RHEL/Fedora/Arch
+
+# Live kernel parameters (sysctl):
+sysctl vm.swappiness
+# vm.swappiness = 60
+sudo sysctl -w net.ipv4.ip_forward=1
+# Persist via /etc/sysctl.d/*.conf
+```
+
+**Notes:**
+
+- **The kernel can only see disks it has drivers for.** If your root FS is on NVMe, the NVMe driver must either be built into the kernel **or** present in the initramfs. Mismatch = "can't find root" panic. After changing storage hardware, rebuild the initramfs.
+- **`dmesg` vs `journalctl -k`:** same data (the kernel ring buffer), different front ends. `dmesg` is older; `journalctl -k -b` lets you filter by boot.
+- **Kernel panics print on the console, not the journal.** If the kernel dies before the journal exists (initramfs phase), grab the message from the screen or take a photo — it's the only copy.
+- **`/proc/cmdline` is what got passed in**; `dmesg` shows what the kernel did with it. Add `debug` to the cmdline temporarily to firehose extra info on the next boot.
+- **Always keep one known-good kernel installed.** Distros usually keep the previous one — never `apt autoremove` away your last fallback. The "Advanced options" GRUB submenu lets you boot it on demand.
+- **`initramfs` is regenerated automatically** on kernel install/upgrade and on `update-initramfs -u`. Manual builds are rare — usually only when adding a driver / encryption module that the kernel needs at very-early boot.
+
+### Boot Process: Init
+
+**Description:** **Init** is **PID 1** — the first userspace process the kernel starts, and the ancestor of every other process. Its job: bring up everything else (filesystems, networking, services, login prompts) in the right order, supervise long-running services, and shut everything down cleanly. On modern Linux, init is **systemd**; older / minimalist systems use **SysVinit**, **OpenRC**, or **runit**. systemd organizes the world as **units** (services, mounts, sockets, timers, targets) and brings up a configured **default target** (usually `multi-user.target` or `graphical.target`).
+
+**The systemd unit zoo:**
+
+| Unit type    | What it represents                                                  |
+| ------------ | ------------------------------------------------------------------- |
+| `.service`   | A long-running process (`nginx.service`, `sshd.service`)            |
+| `.socket`    | A socket activated on demand (starts the service when connected to) |
+| `.mount`     | A mountpoint (auto-generated from `/etc/fstab`)                     |
+| `.timer`     | A scheduled trigger (modern cron replacement)                       |
+| `.target`    | A "named state" — group of units to reach together                  |
+| `.path`      | A filesystem-watch trigger                                          |
+
+**The boot targets that matter:**
+
+| Target                  | Old SysV runlevel | Meaning                                |
+| ----------------------- | ----------------- | -------------------------------------- |
+| `poweroff.target`       | 0                  | Halt the machine                       |
+| `rescue.target`         | 1 / `single`       | Single-user, root shell, no network    |
+| `multi-user.target`     | 3                  | Full text-mode boot, networking on     |
+| `graphical.target`      | 5                  | Multi-user + display manager           |
+| `reboot.target`         | 6                  | Reboot                                 |
+| `emergency.target`      | —                  | Even more minimal than rescue (root FS only, read-only) |
+| `default.target`        | —                  | Symlink → whichever of the above is the default for this box |
+
+**Examples — daily systemd:**
+
+```bash
+# What target am I in?
+systemctl get-default
+# graphical.target
+
+# Change the default target (persist across reboots):
+sudo systemctl set-default multi-user.target
+
+# Switch right now (no reboot):
+sudo systemctl isolate rescue.target
+
+# Service control:
+sudo systemctl start nginx
+sudo systemctl stop nginx
+sudo systemctl restart nginx
+sudo systemctl reload nginx          # reread config without restart, if supported
+sudo systemctl enable nginx          # start on boot
+sudo systemctl enable --now nginx    # enable AND start
+sudo systemctl disable nginx
+sudo systemctl status nginx          # state, recent log lines, main PID
+
+# Anything in a failed state?
+systemctl --failed
+
+# All units of a given type:
+systemctl list-units --type=service
+systemctl list-unit-files --type=service     # everything installed, enabled or not
+
+# What does this unit depend on / what depends on it?
+systemctl list-dependencies nginx
+systemctl list-dependencies --reverse nginx
+
+# Read or edit a unit (creates an override, doesn't touch the original):
+systemctl cat nginx
+sudo systemctl edit nginx             # opens an override snippet in $EDITOR
+sudo systemctl daemon-reload          # reload after editing
+
+# Inspect logs for a unit (current boot only):
+journalctl -u nginx -b
+journalctl -u nginx -f                # follow (like tail -f)
+journalctl -u nginx --since "10 min ago"
+```
+
+**Boot timing & diagnosis:**
+
+```bash
+# How long did boot take, broken down?
+systemd-analyze
+systemd-analyze blame                 # slowest units
+systemd-analyze critical-chain        # critical path through dependencies
+systemd-analyze plot > boot.svg       # full graphical timeline
+
+# Why is a unit failing?
+systemctl status sshd                 # short
+journalctl -u sshd -b                 # full logs this boot
+```
+
+**SysVinit, briefly (for legacy systems):**
+
+```bash
+# Runlevel-based — /etc/init.d/<service> scripts, /etc/rc<N>.d/ symlinks
+sudo service nginx start              # SysV-style (works on systemd too as a shim)
+sudo /etc/init.d/nginx restart
+runlevel                              # show previous and current runlevels
+sudo telinit 3                        # switch to runlevel 3 (multi-user, no GUI)
+```
+
+**Notes:**
+
+- **`systemctl status <unit>` is the single most useful command** when something is wrong. It shows state, the last few log lines, and the main PID. 80% of "service won't start" debugging starts and ends here.
+- **`journalctl -u <unit> -b` is the second most useful.** Same idea but full logs for the current boot. Add `-f` to tail it live.
+- **`systemctl edit <unit>` is the right way to customize a packaged unit.** It creates an override snippet under `/etc/systemd/system/<unit>.d/override.conf`, leaving the distro-provided unit file untouched so package upgrades don't fight you.
+- **Targets are the systemd answer to runlevels** — but multiple targets can be active at once (a target is just "this set of units is up"). `systemctl isolate <target>` deactivates everything that isn't required by the new target.
+- **Always `daemon-reload` after editing a unit file** (`/etc/systemd/system/...` or after `systemctl edit`). Otherwise systemd is still running the old definition.
+- **PID 1 must never die.** If init crashes, the kernel panics. That's why systemd is paranoid about its own internals — and why running systemd-the-init under heavy custom config requires care.
+- **For containers, init looks different.** Most containers run a single process as PID 1 (no init). If that process spawns children, you may need a tiny init (`tini`, `dumb-init`) to reap zombies — outside of full-OS containers like systemd-in-a-container.
+
+---
+
+## Kernel
+
+Notes on **the Linux kernel** — the resident program that owns the CPU, RAM, and every piece of hardware. Userspace can't touch hardware directly; everything goes through the kernel via **system calls**. This section covers what the kernel is, how the **user/kernel privilege split** works on x86, how syscalls cross the boundary, and how to install, locate, and extend the kernel with **loadable modules**.
+
+### One Shot Revision
+
+| Topic                                                | Short Description                                                            |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [Overview of the Kernel](#overview-of-the-kernel)    | What a kernel is, monolithic vs microkernel, what Linux's kernel does        |
+| [Privilege Levels](#privilege-levels)                | **Kernel mode** vs **user mode** — rings, context switches, why it matters   |
+| [System Calls](#system-calls)                        | The user → kernel API: `syscall`, `strace`, libc wrappers                    |
+| [Kernel Installation](#kernel-installation)          | `apt install linux-image`, `dnf install kernel`, building from source        |
+| [Kernel Location](#kernel-location)                  | `/boot/vmlinuz`, `/lib/modules/`, `/proc`, `/sys`                            |
+| [Kernel Modules](#kernel-modules)                    | `lsmod`, `modprobe`, `insmod`, `rmmod`, `modinfo`                            |
+
+### Overview of the Kernel
+
+**Description:** The **kernel** is the part of the operating system that runs with full hardware access. It owns the CPU scheduler, memory manager, filesystem layer, network stack, and device drivers. Everything else (shells, daemons, browsers) runs as a userspace process and asks the kernel — via **system calls** — whenever it needs to read a file, send a packet, or fork a process. Linux is specifically a **monolithic kernel with loadable modules**: the core is one big binary, but drivers and optional subsystems can be loaded and unloaded at runtime.
+
+**What the kernel does:**
+
+| Subsystem               | Responsibility                                                          |
+| ----------------------- | ----------------------------------------------------------------------- |
+| **Scheduler**           | Decides which process runs on which CPU and for how long                |
+| **Memory management**   | Virtual memory, paging, address spaces, swap                            |
+| **VFS / filesystems**   | Uniform `open/read/write` over ext4, xfs, NFS, procfs, ...              |
+| **Block I/O layer**     | Talks to disks, SSDs, RAID                                              |
+| **Network stack**       | TCP/IP, UDP, sockets, netfilter / iptables                              |
+| **Device drivers**      | Concrete code for each piece of hardware (NIC, GPU, NVMe, USB, ...)     |
+| **Syscall interface**   | The boundary userspace crosses to ask for any of the above              |
+| **IPC**                 | Pipes, signals, shared memory, semaphores                               |
+
+**Monolithic vs microkernel (one-line):**
+
+```
+Monolithic (Linux):   one big kernel binary, drivers run in kernel space → fast, less isolation
+Microkernel (Mach):   tiny core + drivers as separate userspace servers   → slower IPC, stronger isolation
+Hybrid (XNU/macOS, NT/Windows): mostly monolithic in practice
+```
+
+**Examples:**
+
+```bash
+# What kernel am I running?
+uname -r
+# 6.8.0-31-generic
+uname -a    # full name, version, build date, arch
+
+# Where the kernel exposes itself to userspace:
+ls /proc/sys      # tunables (sysctl reads these)
+ls /sys           # device tree, drivers
+cat /proc/version
+# Linux version 6.8.0-31-generic ... (gcc 12.3.0) #31-Ubuntu SMP ...
+
+# Kernel build config (often shipped at /boot):
+zcat /proc/config.gz 2>/dev/null | head   # if CONFIG_IKCONFIG_PROC is on
+ls /boot/config-$(uname -r)
+```
+
+**Notes:**
+
+- **Linux is the kernel, not the OS.** "A Linux distribution" = the Linux kernel + GNU coreutils + systemd + libc + your distro's package set. Without userspace, the kernel boots and panics looking for `/sbin/init`.
+- **Drivers live in the kernel address space.** A buggy driver can crash the whole machine — there is no userspace isolation between, say, the NVMe driver and the scheduler. This is what people mean when they criticize monolithic kernels.
+- **The "Linux Way" of extension is loadable modules**, not recompilation. You almost never rebuild the kernel today — you `modprobe` what you need.
+- **`/proc` and `/sys` are not real files** — they're virtual filesystems exposing kernel data structures. Reading `/proc/cpuinfo` calls into the kernel, which formats the answer on the fly.
+- **Kernel APIs are stable for userspace, unstable internally.** The syscall ABI (e.g. `read(2)`) hasn't broken since the 90s. Internal driver APIs change every few releases — that's why out-of-tree drivers (NVIDIA, ZFS) need DKMS to rebuild on each kernel update.
+
+### Privilege Levels
+
+**Description:** Modern CPUs run code at different **privilege levels** so a misbehaving program can't take down the whole machine. On x86 these are called **rings**: ring 0 is the most privileged (kernel mode), ring 3 is the least (user mode). The kernel runs in ring 0 and can execute any instruction, touch any memory, talk to any device. Userspace programs run in ring 3 and can only do what the kernel allows — reaching the kernel requires a controlled handoff called a **context switch**.
+
+**The rings (x86):**
+
+| Ring | Who runs here       | Can do                                                       |
+| ---- | ------------------- | ------------------------------------------------------------ |
+| 0    | The kernel          | Anything — privileged instructions, all memory, all I/O      |
+| 1    | (unused on Linux)   | —                                                            |
+| 2    | (unused on Linux)   | —                                                            |
+| 3    | Userspace (`ls`, browsers, daemons) | Only user-accessible memory, no `in`/`out`/`hlt`/etc. |
+
+Hypervisors added **ring -1** (VMX root, "hardware virtualization") in 2005; SMM is informally "**ring -2**". Linux uses just 0 and 3 — keep it simple.
+
+**Crossing the boundary (user → kernel → user):**
+
+```
+userspace process            kernel
+    │
+    │  read(fd, buf, n)      ← libc wrapper invokes `syscall` instruction
+    │  ─────────────────►
+    │                        ┌── CPU switches to ring 0
+    │                        ├── Saves user registers, enters syscall handler
+    │                        ├── Looks up syscall 0 (read) in the table
+    │                        ├── Validates fd, copies bytes from kernel buffer
+    │                        ├── Returns count (or -errno) in RAX
+    │                        └── Switches back to ring 3, restores user regs
+    │  ◄─────────────────
+    │  control resumes after the `syscall` instruction
+```
+
+**Examples — see the boundary in action:**
+
+```bash
+# Watch a process talk to the kernel — every syscall printed:
+strace -c ls /tmp
+# % time     seconds  usecs/call     calls    errors syscall
+# ------ ----------- ----------- --------- --------- ----------------
+#   24.78    0.000022           1        20           openat
+#   18.02    0.000016           1        15           read
+#   ...
+
+# Time spent in user mode vs kernel mode for a command:
+/usr/bin/time -v find /usr -name "*.so" > /dev/null
+# User time (seconds): 0.30
+# System time (seconds): 1.21        ← time spent in ring 0 on this process's behalf
+# Percent of CPU this job got: 98%
+
+# What % of total CPU is the system spending in kernel vs user mode right now?
+mpstat 1 3
+# %usr   %nice    %sys  %iowait    %irq   %soft  %steal   %idle
+#  6.20    0.00    2.10     0.50    0.00    0.10    0.00   91.10
+#                  ↑ %sys = ring 0
+```
+
+**Notes:**
+
+- **Context switches are expensive.** A syscall is ~tens of nanoseconds plus cache pollution. High-perf code (databases, packet pipelines) often batches syscalls or uses `io_uring` / `epoll` to amortize them.
+- **`%sys` is "time in the kernel on your behalf"** — not the kernel doing its own thing. If `%sys` is 30% for your workload, your code is calling the kernel a lot (lots of small reads, lots of `gettimeofday`, etc.).
+- **You can never directly call kernel code.** The `syscall` instruction (or `int 0x80` on old 32-bit) is the only door. Everything that "feels like" calling the kernel (`read`, `open`, `socket`) is a libc wrapper around `syscall`.
+- **Hardware virtualization (ring -1) is what lets KVM run guest OSes** at "full ring 0" speed inside another OS — the hypervisor traps the privileged things the guest does and emulates them.
+- **Ring 3 cannot do `cli`, `hlt`, port I/O, MSR access**, or change page tables. Try any of these and you get **SIGSEGV**.
+
+### System Calls
+
+**Description:** A **system call** is the controlled, narrow API the kernel exposes to userspace. Everything a userspace program does that touches the outside world — open a file, send a packet, allocate memory, fork a process, exit — is ultimately one or more system calls. There are roughly **400** of them on modern Linux/x86-64. They're identified by a small integer (the **syscall number**), invoked via the `syscall` instruction, and almost always wrapped by **libc** so you write `open("file", ...)` in C rather than assembly.
+
+**The categories:**
+
+| Group              | Examples                                                          |
+| ------------------ | ----------------------------------------------------------------- |
+| File I/O           | `open`, `read`, `write`, `close`, `lseek`, `stat`, `unlink`       |
+| Process            | `fork`, `execve`, `exit`, `wait4`, `getpid`, `getppid`            |
+| Memory             | `mmap`, `munmap`, `brk`, `mprotect`, `madvise`                    |
+| IPC / signals      | `pipe`, `kill`, `rt_sigaction`, `futex`, `shmget`                 |
+| Networking         | `socket`, `bind`, `listen`, `accept`, `connect`, `sendto`, `recvfrom` |
+| Time               | `clock_gettime`, `nanosleep`, `time`                              |
+| Privileges / sec   | `setuid`, `setgid`, `capset`, `prctl`, `seccomp`                  |
+
+**Examples:**
+
+```bash
+# Trace every syscall a command makes:
+strace ls /etc 2>&1 | head
+# execve("/usr/bin/ls", ["ls", "/etc"], ...) = 0
+# brk(NULL)                               = 0x55c...
+# openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+# fstat(3, {st_mode=S_IFREG|0644, st_size=104867, ...}) = 0
+# mmap(NULL, 104867, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7f...
+# ...
+
+# Count syscalls + errors for a process:
+strace -c -p $(pidof nginx) -e openat,read,write &
+sleep 5; kill %1
+# Summary table: syscall, count, errors, total time
+
+# Trace only specific syscalls:
+strace -e openat,connect curl -s example.com >/dev/null
+
+# Trace I/O on the network:
+strace -e network -p $(pidof sshd) 2>&1 | head
+
+# Look up a syscall's manual page (section 2 = syscalls):
+man 2 read
+man 2 mmap
+
+# List all syscall numbers on x86-64:
+ausyscall --dump | head
+# 0    read
+# 1    write
+# 2    open
+# 3    close
+# ...
+```
+
+**Inside a syscall (simplified):**
+
+```c
+// Userspace:
+#include <unistd.h>
+ssize_t n = read(fd, buf, count);   // libc wrapper
+
+// What libc does on x86-64 (roughly):
+mov rax, 0          // syscall number 0 = read
+mov rdi, fd         // arg 1
+mov rsi, buf        // arg 2
+mov rdx, count      // arg 3
+syscall             // ← trap into the kernel
+// On return, rax = bytes read (or -errno as a negative number)
+```
+
+**Notes:**
+
+- **`strace` is the workhorse debugging tool.** Use it to find why a program is hanging (stuck in `read`?), failing (`ENOENT` on a config file?), or being slow (`-c` for a per-syscall histogram).
+- **System call numbers are stable, libc wrappers aren't.** `read(2)` syscall #0 will be #0 in 30 years. But Go, Rust, and other non-glibc runtimes sometimes call `syscall` directly to skip libc — same syscall, different path in.
+- **`man 2 <name>` is the syscall manual**; `man 3 <name>` is the libc/library function. They often have the same name (`read`) — section number disambiguates.
+- **vDSO** is a tiny shared library the kernel maps into every process so a few hot syscalls (`gettimeofday`, `clock_gettime`) can be answered without crossing into ring 0. Free perf.
+- **seccomp** is a syscall whitelist mechanism: a process can promise the kernel "I'll only ever call read/write/exit", and any other syscall becomes an instant kill or error. Used by Docker, browsers, and systemd to lock services down.
+
+### Kernel Installation
+
+**Description:** On any mainstream distro the kernel is a regular package — you install it like anything else and the package manager handles writing `/boot/vmlinuz`, generating an **initramfs**, and updating GRUB. You almost never need to compile a kernel from source. The exceptions: bleeding-edge hardware, a specific bug-fix you can't wait for, custom security patches, or an embedded/tiny build.
+
+**Distro packages:**
+
+| Distro family    | Install command                                          | Where it lands                          |
+| ---------------- | -------------------------------------------------------- | --------------------------------------- |
+| Debian / Ubuntu  | `sudo apt install linux-image-generic`                   | `/boot/vmlinuz-<ver>`, `/lib/modules/<ver>/` |
+| RHEL / Fedora    | `sudo dnf install kernel`                                | `/boot/vmlinuz-<ver>`, `/lib/modules/<ver>/` |
+| Arch             | `sudo pacman -S linux`                                   | same                                    |
+| openSUSE         | `sudo zypper install kernel-default`                     | same                                    |
+
+**Examples — keeping kernels current:**
+
+```bash
+# Show currently-running kernel:
+uname -r
+# 6.8.0-31-generic
+
+# All installed kernels (Debian/Ubuntu):
+dpkg -l | grep linux-image
+# RHEL/Fedora:
+rpm -qa kernel
+
+# Install latest available:
+sudo apt update && sudo apt install linux-image-generic linux-headers-generic
+# sudo dnf install kernel kernel-devel    # RHEL/Fedora
+
+# Reboot into it (GRUB picks the newest by default):
+sudo reboot
+
+# After reboot, confirm:
+uname -r
+
+# Remove an old kernel (NEVER remove the running one!):
+sudo apt remove linux-image-6.5.0-21-generic linux-headers-6.5.0-21-generic
+# Or let the distro clean up:
+sudo apt autoremove --purge
+# RHEL/Fedora — keep the last N kernels:
+sudo dnf install yum-utils
+sudo package-cleanup --oldkernels --count=2
+```
+
+**Building from source (the rare case):**
+
+```bash
+# 1. Get the source:
+cd /usr/src
+sudo wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.8.0.tar.xz
+sudo tar -xJf linux-6.8.0.tar.xz
+cd linux-6.8.0
+
+# 2. Start from your running config (sane default):
+sudo cp /boot/config-$(uname -r) .config
+sudo make olddefconfig            # apply defaults to any new options
+
+# 3. (Optional) Customize:
+sudo make menuconfig              # ncurses UI
+
+# 4. Build — go get coffee:
+sudo make -j$(nproc) bzImage modules
+
+# 5. Install:
+sudo make modules_install         # → /lib/modules/<ver>/
+sudo make install                 # → /boot/vmlinuz-<ver>, updates initramfs + GRUB
+
+# 6. Reboot, select the new kernel from GRUB
+```
+
+**Notes:**
+
+- **Always keep a known-good kernel installed.** GRUB's "Advanced options" submenu lets you boot the previous kernel if the new one is broken — but only if you didn't `autoremove` it.
+- **Headers are required for out-of-tree modules** (NVIDIA, VirtualBox, DKMS). `linux-headers-$(uname -r)` (Debian) / `kernel-devel` (RHEL).
+- **DKMS** (Dynamic Kernel Module Support) recompiles out-of-tree modules every time the kernel updates — so NVIDIA, ZFS, and VirtualBox keep working through upgrades.
+- **Source builds take ~20–60 minutes** on modern hardware with `-j$(nproc)`. The output is huge (~5 GB), so prune the tree after.
+- **`make oldconfig` / `olddefconfig`** is the right way to start from your distro's `.config` — preserves your distro's choices and just asks (or accepts defaults for) new options.
+- **Test in a VM first** when rolling your own kernel. The cost of "boots, but no network" on a remote box is much higher than 10 minutes in `qemu-system-x86_64`.
+
+### Kernel Location
+
+**Description:** A running Linux system spreads the kernel across **several directories**, each with a specific role: the **boot image** lives in `/boot`, **modules** in `/lib/modules`, **headers** in `/usr/src`, and the kernel's live state is exposed at `/proc` and `/sys`. Knowing the map makes it obvious where to look when something doesn't add up.
+
+**The map:**
+
+| Path                                          | What lives here                                                       |
+| --------------------------------------------- | --------------------------------------------------------------------- |
+| `/boot/vmlinuz-<version>`                     | The compressed kernel image — what the bootloader loads               |
+| `/boot/initrd.img-<version>` / `initramfs-<version>.img` | Initramfs (drivers + tools to mount the real root FS)      |
+| `/boot/System.map-<version>`                  | Symbol table (kernel-space addresses) — used to decode oopses         |
+| `/boot/config-<version>`                      | The `.config` the kernel was built with                               |
+| `/lib/modules/<version>/`                     | Loadable kernel modules (`.ko` files), grouped by subsystem           |
+| `/lib/modules/<version>/build`                | Symlink to headers, needed to compile out-of-tree modules             |
+| `/usr/src/linux-headers-<version>/`           | Kernel headers (only with `linux-headers-...` / `kernel-devel`)       |
+| `/proc/`                                      | **Virtual** FS exposing per-process and kernel state                  |
+| `/sys/`                                       | **Virtual** FS exposing the kernel's device model                     |
+| `/proc/sys/`                                  | Runtime tunables (`sysctl` reads/writes here)                         |
+| `/etc/sysctl.conf` + `/etc/sysctl.d/*.conf`   | Persistent tunables applied at boot                                   |
+
+**Examples:**
+
+```bash
+# Inventory the current install:
+ls -lh /boot
+# vmlinuz-6.8.0-31-generic        13M
+# initrd.img-6.8.0-31-generic     93M
+# config-6.8.0-31-generic        260K
+# System.map-6.8.0-31-generic    7.5M
+
+# How big is the module tree for the running kernel?
+du -sh /lib/modules/$(uname -r)
+# 360M    /lib/modules/6.8.0-31-generic/
+
+# Where would a built-in subsystem expose itself?
+ls /sys/class
+# bdi  block  drm  graphics  hwmon  input  net  power_supply  scsi_host  sound  tty  ...
+
+# Live kernel tunables:
+sysctl -a 2>/dev/null | head
+# Read one:
+cat /proc/sys/vm/swappiness
+# Write one (live):
+sudo sysctl -w net.ipv4.ip_forward=1
+# Persist:
+echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-forward.conf
+sudo sysctl --system
+
+# Process-specific state lives under /proc/<pid>:
+ls /proc/$$            # the current shell
+# cmdline  cwd  environ  exe  fd  maps  status  ...
+```
+
+**Notes:**
+
+- **`/boot` and `/lib/modules/<version>/` must agree.** If you delete `/lib/modules/6.8.0-31-generic/` but leave `/boot/vmlinuz-6.8.0-31-generic`, the kernel boots but `modprobe` finds nothing — half the drivers don't load.
+- **`/proc` and `/sys` take zero disk space** — they're rendered on the fly by the kernel when you `cat` them.
+- **`/proc/<pid>/` is the per-process gold mine.** `cmdline` (what was invoked), `cwd` (current dir as a symlink), `fd/` (every open file), `maps` (memory layout), `status` (UID/GID/memory).
+- **`sysctl` writes are immediate but not persistent.** Anything you want at next boot goes in `/etc/sysctl.d/99-mything.conf` so it's reapplied automatically.
+- **`/sys` reflects the device tree, not the user view.** Want to know which network interfaces exist? `ls /sys/class/net/`. Want to know what driver claims a device? `readlink /sys/class/net/eth0/device/driver`.
+
+### Kernel Modules
+
+**Description:** **Kernel modules** (`.ko` files) are pieces of kernel code that can be loaded and unloaded at runtime without rebooting. Most drivers ship as modules — only a small core is built into `vmlinuz`. When you plug in a USB device or load a filesystem, the kernel either auto-loads the relevant module (via `udev`) or you can do it explicitly with `modprobe`. This is what gives Linux its enormous hardware compatibility without a 500 MB kernel binary.
+
+**The toolkit:**
+
+| Command              | Purpose                                                                  |
+| -------------------- | ------------------------------------------------------------------------ |
+| `lsmod`              | List currently loaded modules                                            |
+| `modinfo <module>`   | Show metadata: description, author, license, parameters, dependencies    |
+| `modprobe <module>`  | Load a module **plus its dependencies** (preferred)                      |
+| `modprobe -r <module>` | Unload a module (and unused deps)                                      |
+| `insmod <file.ko>`   | Load a single `.ko` file — no dep resolution (rarely the right tool)     |
+| `rmmod <module>`     | Unload a single module — no dep check (use `modprobe -r` instead)         |
+| `depmod`             | Rebuild the module dependency database (after dropping a new `.ko` in)   |
+| `/etc/modprobe.d/`   | Drop-in configs: module options, aliases, blacklists                     |
+| `/etc/modules-load.d/` | Modules to auto-load at boot                                           |
+
+**Examples:**
+
+```bash
+# What's loaded right now?
+lsmod | head
+# Module                  Size  Used by
+# nvme                  ...
+# ext4                  ...
+# bluetooth             ...
+
+# Tell me about a module:
+modinfo nvme
+# filename: /lib/modules/.../nvme.ko
+# license: GPL
+# description: NVM Express device driver
+# parm: nvme_core_io_timeout:int     ← tunable parameters
+# depends: nvme-core
+
+# Load a module:
+sudo modprobe i915                     # Intel graphics
+# Same with custom parameter:
+sudo modprobe i915 enable_dpcd_backlight=1
+
+# Unload (only if no one is using it):
+sudo modprobe -r i915
+
+# Persist module options across reboots:
+echo 'options i915 enable_dpcd_backlight=1' | sudo tee /etc/modprobe.d/i915.conf
+
+# Auto-load a module at boot:
+echo 'br_netfilter' | sudo tee /etc/modules-load.d/br_netfilter.conf
+
+# Blacklist a module (prevent auto-load — useful for replacing buggy drivers):
+echo 'blacklist nouveau' | sudo tee /etc/modprobe.d/blacklist-nouveau.conf
+sudo update-initramfs -u               # Debian/Ubuntu, rebuild initramfs
+
+# Drop a custom .ko into the modules tree:
+sudo cp my_driver.ko /lib/modules/$(uname -r)/extra/
+sudo depmod -a                         # rebuild the dep DB
+sudo modprobe my_driver
+```
+
+**Notes:**
+
+- **Use `modprobe`, not `insmod`/`rmmod`.** `modprobe` resolves dependencies, looks up aliases, and reads `/etc/modprobe.d/`. The low-level tools are for situations where you really know what you're doing.
+- **`lsmod`'s "Used by" column matters.** A module with non-zero use count can't be unloaded until whoever's using it releases it (often: unmount the filesystem, unplug the device, kill the process).
+- **`depmod` is what `make modules_install` runs** at the end. If you copy a `.ko` in by hand and modprobe says "module not found", you forgot `depmod -a`.
+- **Blacklisting is "don't auto-load"**, not "you can't load it". `modprobe` still works manually — blacklisting only blocks udev / kernel hot-plug from pulling the module in.
+- **Module parameters can be read at runtime** under `/sys/module/<name>/parameters/`. Some can be written there too (no reload needed).
+- **Out-of-tree modules (NVIDIA, ZFS, VirtualBox) need DKMS** — see [Kernel Installation](#kernel-installation). Without DKMS they break on every kernel upgrade.
+
+---
+
+## Init
+
+Notes on **init systems** — the userspace PID 1 that the kernel hands control to once the root filesystem is mounted. Linux has lived through three eras: **System V** (1983–2010s, scripts + runlevels), **Upstart** (2006–2014, event-driven, Ubuntu's interim choice), and **systemd** (2010 onward, dependency-driven units). All modern distros use systemd; the older two come up because legacy systems and embedded distros still ship them — and because the concepts (runlevels, services, dependencies) survived into systemd's vocabulary.
+
+### One Shot Revision
+
+| Topic                                       | Short Description                                                            |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| [System V Overview](#system-v-overview)     | The classic init — `/etc/inittab`, runlevels 0–6, `/etc/rc<N>.d/` symlinks   |
+| [System V Service](#system-v-service)       | `/etc/init.d/<name>` scripts, `service`, `chkconfig` / `update-rc.d`         |
+| [Upstart Overview](#upstart-overview)       | Event-driven init from Canonical (Ubuntu 6.10 → 14.10)                       |
+| [Upstart Jobs](#upstart-jobs)               | `/etc/init/*.conf`, `start`, `stop`, `initctl`                               |
+| [Systemd Overview](#systemd-overview)       | Modern init — units, targets, dependency-driven parallel boot                |
+| [Systemd Goals](#systemd-goals)             | What systemd was built to fix — speed, dependencies, integration             |
+| [Power States](#power-states)               | ACPI states S0–S5, suspend, hibernate, hybrid sleep                          |
+
+### System V Overview
+
+**Description:** **System V init** (often just **SysV init**) was the dominant init on Linux from the early 90s until ~2014. It's a small PID-1 binary plus a convention: `/etc/inittab` defines **runlevels** (numeric system states), and each runlevel has a directory of **symlinks to shell scripts** that get run on entry and exit. It's slow (everything is sequential), brittle (each script is independent shell, often hundreds of lines), and hard to express dependencies in — but it's also small, transparent, and easy to debug.
+
+**The runlevels:**
+
+| Runlevel | Meaning                                                                   |
+| -------- | ------------------------------------------------------------------------- |
+| 0        | Halt — shut the system down                                               |
+| 1 / `S`  | Single-user / maintenance mode — root shell only, no networking            |
+| 2        | Multi-user, no network (rarely used)                                      |
+| 3        | Multi-user with networking, **no GUI** — the server default                |
+| 4        | Unused / distro-specific                                                  |
+| 5        | Multi-user with networking + **display manager** (GUI login)              |
+| 6        | Reboot                                                                    |
+
+**The on-disk layout:**
+
+```
+/etc/inittab          ← which runlevel is default, what to spawn on each TTY
+/etc/init.d/          ← the actual service scripts (init scripts)
+/etc/rc0.d/           ← symlinks → scripts to run when ENTERING runlevel 0
+/etc/rc1.d/                                                          ... 1
+/etc/rc2.d/                                                          ... 2
+/etc/rc3.d/                                                          ... 3
+/etc/rc4.d/                                                          ... 4
+/etc/rc5.d/                                                          ... 5
+/etc/rc6.d/                                                          ... 6
+
+Naming convention in /etc/rcN.d/:
+  S20networking    ← S = Start, runs in numeric order (lowest first)
+  K30networking    ← K = Kill, runs on EXIT from the level
+```
+
+**Examples (on a SysV system):**
+
+```bash
+# What runlevel am I in? (works on systemd too, as a shim)
+runlevel
+# N 5            ← previous N (none, fresh boot), current 5
+
+# What's the default runlevel?
+grep ^id: /etc/inittab
+# id:3:initdefault:        ← multi-user, no GUI
+
+# Switch runlevel right now:
+sudo telinit 3              # drop to multi-user, no GUI
+sudo telinit 6              # reboot
+sudo telinit 0              # halt
+
+# What runs when entering runlevel 3?
+ls /etc/rc3.d/
+# S01sysstat  S20networking  S25rsyslog  S99ondemand  K10postgresql ...
+```
+
+**Notes:**
+
+- **PID 1 is `/sbin/init`** on a SysV system; it reads `/etc/inittab` once at boot and then spawns `getty` on the configured TTYs forever.
+- **Runlevels are linear, not a dependency graph.** That's why boot is sequential and slow — each script blocks the next.
+- **The numeric prefix is everything.** `S20` runs before `S30` runs before `S99`. Want a service to start later? Rename the symlink.
+- **Modern distros ship a SysV shim** — `service nginx start` still works on a systemd box because systemd recognizes `/etc/init.d/<name>` and wraps each as a unit. The shim is for compatibility; new services should ship a `.service` file.
+- **Embedded Linux still uses SysV (or `BusyBox init`)** — fast enough on a single-CPU device, tiny binary, no D-Bus dependency.
+
+### System V Service
+
+**Description:** A **System V service** is just a **shell script** in `/etc/init.d/` that accepts `start`, `stop`, `restart`, `status`, and optionally `reload` as the first argument. PID 1 invokes these scripts when entering / leaving a runlevel; admins invoke them via the `service` command. Adding a service means dropping a script in `/etc/init.d/`, making it executable, and using `chkconfig` (RHEL) or `update-rc.d` (Debian) to symlink it into the right `/etc/rcN.d/` directories.
+
+**Anatomy of an init script:**
+
+```bash
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          myapp
+# Required-Start:    $network $remote_fs
+# Required-Stop:     $network $remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: My example service
+### END INIT INFO
+
+DAEMON=/usr/local/bin/myapp
+PIDFILE=/var/run/myapp.pid
+
+case "$1" in
+  start)   start-stop-daemon --start --background --pidfile $PIDFILE --exec $DAEMON ;;
+  stop)    start-stop-daemon --stop  --pidfile $PIDFILE ;;
+  restart) $0 stop; sleep 1; $0 start ;;
+  status)  [ -e $PIDFILE ] && echo "running (PID $(cat $PIDFILE))" || echo "stopped" ;;
+  *)       echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac
+```
+
+**Daily commands:**
+
+| Action                          | Debian/Ubuntu                          | RHEL/CentOS                              |
+| ------------------------------- | -------------------------------------- | ---------------------------------------- |
+| Start a service now             | `sudo service nginx start`             | same (or `/etc/init.d/nginx start`)     |
+| Stop a service                  | `sudo service nginx stop`              | same                                     |
+| Status                          | `sudo service nginx status`            | same                                     |
+| Enable at boot                  | `sudo update-rc.d nginx defaults`      | `sudo chkconfig nginx on`                |
+| Disable at boot                 | `sudo update-rc.d -f nginx remove`     | `sudo chkconfig nginx off`               |
+| Show on/off per runlevel        | `ls /etc/rc?.d/ \| grep nginx`         | `chkconfig --list nginx`                 |
+
+**Examples:**
+
+```bash
+# Status of every service the box knows about:
+sudo service --status-all              # Debian/Ubuntu
+sudo chkconfig --list                  # RHEL/CentOS
+
+# Manually run an init script:
+sudo /etc/init.d/nginx start
+
+# Verify symlinks line up with what you expect:
+ls -l /etc/rc{3,5}.d/ | grep nginx
+# lrwxrwxrwx ... S91nginx -> ../init.d/nginx
+# lrwxrwxrwx ... K09nginx -> ../init.d/nginx
+```
+
+**Notes:**
+
+- **The `### BEGIN INIT INFO` block is mandatory on Debian**. `update-rc.d` and `insserv` use it to compute dependency-aware start order. Without it, your service may run too early or too late.
+- **Init scripts run as root.** Drop privileges inside the script (`start-stop-daemon --chuid`) — don't run the daemon as root just because the script does.
+- **`service <name>` works on systemd too** — it transparently calls `systemctl`. Useful for muscle memory and for scripts that need to work on both eras.
+- **PID file management is the #1 source of init-script bugs**: stale PID files after a crash, daemons that don't write a PID file, race conditions when starting. Modern alternatives (systemd) read the PID from the cgroup, sidestepping the issue.
+- **No parallelism.** Scripts in `/etc/rcN.d/` run **in order**, one at a time. A 30-second `S25database` script delays everything after it. This was systemd's #1 performance pitch.
+
+### Upstart Overview
+
+**Description:** **Upstart** is the init system **Canonical** built when they decided SysV was too slow and unflexible. It was Ubuntu's PID 1 from **6.10 (Edgy, 2006)** until **14.10 (Utopic, 2014)**, and shipped on RHEL 6 (alongside the older SysV scripts). Its key idea: instead of runlevels, **events**. When the kernel comes up, an event fires; when networking goes online, an event fires; when a service crashes, an event fires. Jobs declare which events they care about, and Upstart starts/stops them when the events happen.
+
+**SysV vs Upstart vs systemd, in one row:**
+
+| Era         | Model               | Granularity                | Notable Quirk                          |
+| ----------- | ------------------- | -------------------------- | -------------------------------------- |
+| SysV        | Runlevels + scripts | "Run all of these in order" | Sequential, hard to express deps      |
+| **Upstart** | **Events**          | "Start when X happens"      | Event firehose, no formal dep graph    |
+| systemd     | Dependencies + units | "Start once A, B, C are up" | Big binary, many subsystems, opinionated |
+
+**Where you might still meet Upstart:**
+
+- **Ubuntu 14.04 LTS** (server image, support ended April 2024 unless paid ESM)
+- **RHEL 6** (support ended November 2020 unless paid ELS)
+- Some appliances and routers stuck on older firmware
+- Container base images frozen at older releases
+
+**Examples — on a box running Upstart:**
+
+```bash
+# What's PID 1?
+ps -p 1 -o comm
+# init                     ← could be SysV or Upstart; check further:
+
+# Is it Upstart? (presence of /etc/init/*.conf is a giveaway)
+ls /etc/init/*.conf | head
+# /etc/init/networking.conf
+# /etc/init/rc.conf
+# /etc/init/ssh.conf
+
+initctl version
+# init (upstart 1.12.1)
+
+# Check status of a job:
+sudo initctl status ssh
+# ssh start/running, process 1234
+```
+
+**Notes:**
+
+- **Upstart was the "Linux fast-boot" project before systemd ate its lunch.** Its event model worked, but each job stored its triggers independently — there was no single dependency graph you could ask "why didn't X start?".
+- **Backward compatibility was a strength**: Upstart honored `/etc/init.d/` scripts via a SysV compatibility layer, so the migration was smooth.
+- **Canonical retired Upstart with 15.04** because every other major distro had standardized on systemd; maintaining a separate init was costly with no upside.
+- **You probably won't encounter Upstart on a greenfield install in 2026.** Knowing it exists matters only for legacy boxes and for understanding why some older docs use unfamiliar commands.
+
+### Upstart Jobs
+
+**Description:** An **Upstart job** is a small declarative file at `/etc/init/<name>.conf` describing **when** to start the job, **how** to start it, and **when** to stop it. Each `.conf` declares the events it reacts to (`start on`, `stop on`) and the command to run (`exec`). There's no compilation step — drop the file, run `initctl reload-configuration`, and Upstart knows about the new job.
+
+**Anatomy of a job:**
+
+```bash
+# /etc/init/myapp.conf
+
+description "My example application"
+
+start on (filesystem and net-device-up IFACE!=lo)
+stop  on runlevel [016]
+
+respawn                    # restart if it crashes
+respawn limit 10 5         # but give up if it crashes >10 times in 5s
+
+env LOG_LEVEL=info
+chdir /var/lib/myapp
+
+exec /usr/local/bin/myapp --daemon=false   # run in foreground; Upstart manages backgrounding
+```
+
+**Commands:**
+
+| Action                                  | Command                                  |
+| --------------------------------------- | ---------------------------------------- |
+| Start a job now                         | `sudo start myapp` / `sudo initctl start myapp` |
+| Stop a job                              | `sudo stop myapp` / `sudo initctl stop myapp`   |
+| Restart                                 | `sudo restart myapp`                     |
+| Status                                  | `sudo status myapp`                      |
+| All jobs                                | `initctl list`                           |
+| Re-read all `.conf` files               | `sudo initctl reload-configuration`      |
+| Emit a custom event                     | `sudo initctl emit my-event`             |
+
+**Examples:**
+
+```bash
+# List every job, with state:
+initctl list
+# alsa-utils stop/waiting
+# avahi-daemon start/running, process 612
+# console-setup stop/waiting
+# cron start/running, process 1107
+# ...
+
+# Show one job's status:
+status ssh
+# ssh start/running, process 1234
+
+# Start a stopped job:
+sudo start cron
+
+# Stop a job:
+sudo stop cron
+
+# After editing /etc/init/<job>.conf:
+sudo initctl reload-configuration       # re-read all jobs
+sudo restart <job>                      # apply changes to the running instance
+
+# Tail Upstart's own log:
+sudo tail -f /var/log/upstart/*.log
+```
+
+**Notes:**
+
+- **`exec` runs the command in the foreground**, and Upstart treats that process as "the service". If the binary daemonizes (forks into background), Upstart loses track — use `--foreground` flags or `expect fork` / `expect daemon` to tell Upstart what to expect.
+- **`respawn` is the equivalent of systemd's `Restart=always`** — it makes Upstart restart the job if it exits. `respawn limit` prevents infinite-loop respawn storms.
+- **Events are strings.** You can emit and react to anything: `start on my-custom-event`, then `initctl emit my-custom-event` to trigger.
+- **No native enable/disable** — to disable a job, rename or remove its `.conf` file (or add `manual` as a stanza, which prevents auto-start while keeping the config).
+- **`/var/log/upstart/<job>.log`** captures stdout/stderr per job, which is more granular than SysV's `/var/log/syslog`-only model.
+
+### Systemd Overview
+
+**Description:** **systemd** is the dominant Linux init system since the mid-2010s. PID 1 is `/lib/systemd/systemd`, and instead of scripts or events it manages **units** — declarative files describing services, sockets, mounts, timers, devices, and groupings called **targets**. Units have explicit **dependencies** (`Wants=`, `Requires=`, `After=`, `Before=`), which lets systemd compute a dependency graph at boot and **parallelize** anything that doesn't depend on something not-yet-running. The result: faster boot, predictable shutdown, integrated journaling, cgroup-based process tracking.
+
+**The unit zoo:**
+
+| Unit type     | Represents                                                          |
+| ------------- | ------------------------------------------------------------------- |
+| `.service`    | A long-running process or one-shot command                          |
+| `.socket`     | A listening socket; systemd starts the matching `.service` on connect |
+| `.mount`      | A mountpoint — auto-generated from `/etc/fstab`, can be hand-written |
+| `.automount`  | Lazy automount — mounts the FS on first access                      |
+| `.timer`      | A scheduled trigger (modern cron replacement)                       |
+| `.target`     | A grouping — a "named state" of the system                          |
+| `.path`       | A filesystem watch — fires when a path appears/changes              |
+| `.slice`      | A cgroup hierarchy node for resource control                        |
+| `.swap`       | A swap partition / file                                             |
+| `.device`     | An auto-generated unit per device (from udev)                       |
+
+**A minimal `.service` file:**
+
+```ini
+# /etc/systemd/system/myapp.service
+[Unit]
+Description=My example application
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/myapp --foreground
+Restart=on-failure
+User=myapp
+WorkingDirectory=/var/lib/myapp
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Daily commands (already covered in [Boot Process: Init](#boot-process-init); here in summary):**
+
+```bash
+# Lifecycle:
+sudo systemctl start | stop | restart | reload <unit>
+sudo systemctl enable | disable <unit>
+sudo systemctl enable --now <unit>     # enable AND start
+
+# State:
+systemctl status <unit>
+systemctl is-active <unit>             # one-word: active / inactive / failed
+systemctl is-enabled <unit>            # enabled / disabled / static
+systemctl --failed                     # everything in a failed state
+
+# Discovery:
+systemctl list-units --type=service
+systemctl list-unit-files              # all units, including disabled
+systemctl list-dependencies <unit>
+systemctl cat <unit>                   # show the full effective unit file (incl overrides)
+
+# Editing:
+sudo systemctl edit <unit>             # creates an override snippet
+sudo systemctl daemon-reload           # re-read unit files after editing
+
+# Logs (systemd's own logger):
+journalctl -u <unit>                   # all logs for one unit
+journalctl -u <unit> -f                # follow (tail -f)
+journalctl -u <unit> --since "1 hour ago"
+```
+
+**Notes:**
+
+- **systemd is more than init.** It bundles a logging daemon (journald), a login manager (logind), a network manager (networkd, on some distros), a time sync (timesyncd), a DNS resolver (resolved), and more. Whether that's "elegant integration" or "scope creep" depends who you ask.
+- **Units are declarative.** No more "did the init script fork correctly?" — systemd tracks the service via its **cgroup**, so it always knows every descendant process, even ones the daemon forked off after start.
+- **Drop-ins are the right way to customize**. `systemctl edit foo` creates `/etc/systemd/system/foo.service.d/override.conf` — your changes survive package upgrades because the original unit file is untouched.
+- **Service hardening is one-line directives**: `PrivateTmp=yes`, `ProtectSystem=strict`, `NoNewPrivileges=yes`, `CapabilityBoundingSet=`, `ReadOnlyPaths=`, `MemoryMax=`. Use them — most distro services already do.
+- **Logs are binary by default** (`/var/log/journal/`). Use `journalctl` to read them. If you want plain text, install / configure `rsyslog` alongside, or set `Storage=persistent` and pipe through `journalctl -o cat`.
+
+### Systemd Goals
+
+**Description:** systemd wasn't designed in a vacuum — it was a deliberate response to what SysV and Upstart did badly. Understanding the **design goals** explains why systemd looks the way it does (units, cgroups, the journal, the integrated subsystems) and why some choices are controversial.
+
+**The goals, point by point:**
+
+| Goal                        | What it means in practice                                                       |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| **Fast boot via parallelism** | Compute a dep graph at startup, run independent units in parallel               |
+| **Socket activation**       | Open sockets in PID 1, hand them to the service on first connect — services don't need to be "up" until used |
+| **D-Bus activation**        | Start services lazily when something calls their D-Bus interface                |
+| **Aggressive process tracking** | Every service lives in its own **cgroup** — systemd always knows every descendant, no "lost PID" ever |
+| **Declarative units**       | No more shell-script idiosyncrasies; everything is an INI-style key/value file  |
+| **Strong dependency model** | `After=`, `Before=`, `Wants=`, `Requires=`, `Conflicts=`, `BindsTo=`           |
+| **Integrated logging**      | `journald` captures every unit's stdout/stderr, plus syslog, plus the kernel ring buffer |
+| **On-demand mounts**        | `.automount` units mount on first access — boot doesn't wait for slow / network FSes |
+| **Resource control**        | Per-unit `MemoryMax=`, `CPUQuota=`, `TasksMax=`, all via cgroups v2             |
+| **Service hardening**       | One-line directives for sandboxing: namespaces, syscall filters, read-only paths |
+| **Consistent shutdown**     | Same code path for orderly shutdown as for orderly startup, in reverse           |
+
+**The cost (real, even if often worth it):**
+
+- **Big binary, many subsystems.** Tight integration means harder to audit and replace piecewise.
+- **D-Bus dependency.** systemd needs D-Bus for many features; embedded systems prefer something tinier (busybox-init, OpenRC, runit).
+- **Distro lock-in to systemd-adjacent tools.** Once your scripts use `journalctl`, `systemd-tmpfiles`, `systemd-networkd` — switching back to "just files" requires effort.
+- **Learning curve.** "What does `Wants=` vs `Requires=` actually mean?" is a real question; "how do I add a service?" used to be `cp` + `chmod`.
+
+**Examples — features you can demo on any modern box:**
+
+```bash
+# Watch the dependency graph for a service:
+systemctl list-dependencies sshd        # what sshd needs to be up first
+systemctl list-dependencies --reverse sshd   # what depends on sshd
+
+# Critical path through the boot — slowest sequential chain:
+systemd-analyze critical-chain
+# graphical.target @4.567s
+# └─multi-user.target @4.566s
+#   └─cron.service @4.430s +136ms
+#     └─...
+
+# Socket activation in action — define a service that doesn't run until used:
+# /etc/systemd/system/echo.socket
+# [Socket]
+# ListenStream=12345
+# Accept=yes
+# [Install]
+# WantedBy=sockets.target
+# Then echo@.service handles each connection on demand
+
+# Resource limits without touching cgroups by hand:
+sudo systemctl set-property nginx.service MemoryMax=512M CPUQuota=50%
+systemctl show nginx.service -p MemoryMax,CPUQuota
+```
+
+**Notes:**
+
+- **The big efficiency win is parallelism, not raw speed.** Each unit isn't faster than its SysV equivalent — but ten of them running concurrently finish in ~1× the slowest's time, not Σ.
+- **Socket activation is the most underused systemd feature** — services that take a second to start can sit "stopped" until first use, with zero perceived latency to clients.
+- **cgroup-based tracking solved a 30-year-old bug**: SysV scripts could lose forked daemons and leave zombies / orphans. systemd just walks the cgroup.
+- **Service hardening directives are essentially free security**. `ProtectSystem=strict` + `PrivateTmp=yes` + `NoNewPrivileges=yes` on every internet-facing service buys you defense-in-depth for zero perf cost.
+- **The criticism is real, and the dominance is also real.** Every major distro defaults to systemd in 2026; the alternatives (OpenRC, runit, s6, dinit) are healthy niches but not mainstream.
+
+### Power States
+
+**Description:** Modern x86 hardware exposes a set of **ACPI power states** describing how much of the system is awake. Linux maps these to commands you actually use: `systemctl suspend` (S3, RAM is alive, everything else off), `systemctl hibernate` (S4, state written to swap, machine off), and `systemctl poweroff` (S5). Knowing the levels — and what each preserves — is what lets you pick the right one and debug "won't resume" issues.
+
+**ACPI sleep states:**
+
+| State | Name             | What's powered                             | Resume time            |
+| ----- | ---------------- | ------------------------------------------ | ---------------------- |
+| **S0** | Working          | Everything on                              | n/a                    |
+| S1    | "Standby" (rare) | CPU stopped, RAM refreshed, devices on     | < 1 s                  |
+| S2    | (rarely implemented) | CPU off, RAM on                       | < 2 s                  |
+| **S3** | **Suspend to RAM** | Only RAM is powered                      | ~1–3 s                 |
+| **S4** | **Suspend to Disk** (hibernate) | Nothing powered; RAM saved to swap | ~10–30 s (boot-ish)  |
+| **S5** | Soft off (poweroff) | Nothing powered, no state saved         | full cold boot         |
+
+**The systemctl verbs:**
+
+| Command                          | ACPI state | What it does                                              |
+| -------------------------------- | ---------- | --------------------------------------------------------- |
+| `systemctl suspend`              | S3         | RAM stays powered; tiny battery draw                      |
+| `systemctl hibernate`            | S4         | Writes RAM to swap, powers off — needs swap ≥ RAM size    |
+| `systemctl hybrid-sleep`         | S3 + S4    | Suspend to RAM, **also** write RAM to swap as insurance   |
+| `systemctl suspend-then-hibernate` | S3 then S4 | Suspend now; if still suspended after a timeout, hibernate |
+| `systemctl poweroff`             | S5         | Clean shutdown, machine off                               |
+| `systemctl reboot`               | —          | Clean shutdown, then warm boot                            |
+| `systemctl halt`                 | —          | Stop the OS, leave the hardware powered (rarely useful)   |
+
+**Examples:**
+
+```bash
+# What sleep states does this hardware claim to support?
+cat /sys/power/state
+# freeze mem disk            ← freeze (S0ix), mem (S3), disk (S4)
+
+# What's the deeper menu?
+cat /sys/power/mem_sleep
+# [s2idle] deep              ← bracketed one is the default
+
+# Suspend right now:
+sudo systemctl suspend
+
+# Hibernate (needs swap ≥ RAM):
+sudo systemctl hibernate
+
+# Check that resume is configured (for hibernate):
+cat /sys/power/resume                # should point to your swap device
+
+# When did the last suspend/resume happen?
+journalctl -b | grep -iE "suspend|resume" | tail
+
+# Trigger a power button event from the CLI (acpid translates it):
+sudo acpi_listen                     # in another terminal — watch events flow
+
+# Schedule wakeup after N seconds (rtcwake):
+sudo rtcwake -m mem -s 60            # suspend to RAM, wake in 60 s
+```
+
+**Notes:**
+
+- **Hibernate needs swap at least the size of RAM** (give or take compression) — that's where the RAM image is written. No swap, no hibernate.
+- **"Modern Standby" / S0ix** is Intel's newer connected-standby state — the machine looks off but tiny tasks (mail check, OTA updates) can run. Linux support is mixed; older S3 is more battery-friendly when it works.
+- **The #1 "won't resume" cause is a buggy GPU or NIC driver.** Check `journalctl -b -1 | tail` after a failed resume — the last lines before the freeze usually finger the driver.
+- **`rtcwake` is invaluable for testing.** Set a 60-second wakeup before suspending so you don't have to physically poke the box if it dies.
+- **`logind.conf` controls what the laptop does on lid close / power button / docking**: `/etc/systemd/logind.conf`, options `HandleLidSwitch=`, `HandlePowerKey=`. Default for lid-close is `suspend`; servers often want `ignore`.
+- **`shutdown -h now` / `shutdown -r now` / `init 0` / `init 6` all still work** — they're shims that call `systemctl poweroff` / `systemctl reboot`.
+
+---
+
+## Process Utilization
+
+Notes on **measuring what a Linux box is actually doing** — which processes are running hot, which ones are stuck on disk, who's eating the memory, what's chewing CPU at 3 AM. This section covers the daily-driver tools (`top`, `lsof`, `fuser`), the deeper monitors (`mpstat`, `iostat`, `vmstat`, `pidstat`, `sar`), and the **scheduled-job** side of "process utilization" (cron, systemd timers). The pattern is always: get a top-down view first (`top` / `htop`), then drill into one process or subsystem with a specialized tool.
+
+### One Shot Revision
+
+| Topic                                                    | Short Description                                                        |
+| -------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [Tracking processes: top](#tracking-processes-top)       | `top` / `htop` — live snapshot of CPU, memory, the busiest processes     |
+| [lsof and fuser](#lsof-and-fuser)                        | Who has this file / port / mount open?                                   |
+| [Process Threads](#process-threads)                      | Processes vs threads, `ps -L`, `/proc/<pid>/task/`                       |
+| [CPU Monitoring](#cpu-monitoring)                        | `uptime`, `mpstat`, `pidstat`, load average vs CPU%                      |
+| [I/O Monitoring](#io-monitoring)                         | `iostat`, `iotop`, `pidstat -d`, `%iowait` vs queue depth                |
+| [Memory Monitoring](#memory-monitoring)                  | `free`, `vmstat`, `/proc/meminfo`, RSS vs VSZ, swap pressure             |
+| [Continuous Monitoring](#continuous-monitoring)          | `watch`, `sar`, `atop`, `glances`, Prometheus node_exporter              |
+| [Cron Jobs](#cron-jobs)                                  | `crontab -e`, `/etc/cron.*/`, systemd `.timer` units                     |
+
+### Tracking processes: top
+
+**Description:** **`top`** is the classic interactive process monitor — it updates every few seconds, showing CPU usage, memory, load average, and a sortable list of processes. Every Unix has it; many people start with the friendlier **`htop`** instead. Both answer the same question: *what is this box doing right now?* The headers tell you the **aggregate** state (load, CPU, memory); the table tells you which **processes** account for it.
+
+**Reading `top`'s header:**
+
+```
+top - 10:42:31 up  5:12,  3 users,  load average: 0.32, 0.41, 0.55
+Tasks: 247 total,   1 running, 246 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  6.1 us,  2.3 sy,  0.0 ni, 91.4 id,  0.2 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :  15824.6 total,   8104.2 free,   4210.1 used,   3510.3 buff/cache
+MiB Swap:   4096.0 total,   4096.0 free,      0.0 used.  11000.5 avail Mem
+```
+
+- **load average** `0.32 0.41 0.55` — 1 / 5 / 15-minute averages. Compare to `nproc` (CPU count): if load is consistently > `nproc`, you're CPU-saturated.
+- **%Cpu(s)**: `us` = user-mode, `sy` = system (kernel), `ni` = niced procs, `id` = idle, `wa` = waiting on I/O, `hi/si` = hardware/software IRQs, `st` = stolen by hypervisor (look at this on a VM).
+- **MiB Mem / Swap**: `used` is real demand; `buff/cache` is reclaimable. `avail` is the realistic "how much can a new process grab without swapping" number.
+
+**Interactive hotkeys (`top`):**
+
+| Key       | What it does                                            |
+| --------- | ------------------------------------------------------- |
+| `P`       | Sort by `%CPU`                                          |
+| `M`       | Sort by `%MEM`                                          |
+| `T`       | Sort by total CPU time                                  |
+| `c`       | Toggle full command line                                |
+| `1`       | Per-CPU breakdown instead of aggregate                  |
+| `u`       | Filter by user                                          |
+| `k`       | Send a signal (kill) to a PID                           |
+| `r`       | Renice a PID                                            |
+| `H`       | Show threads instead of processes                       |
+| `W`       | Save current layout to `~/.toprc`                       |
+| `q`       | Quit                                                    |
+
+**Examples:**
+
+```bash
+# Run top once and exit (batch mode — perfect for scripts):
+top -b -n 1 | head -20
+
+# Watch one process only:
+top -p $(pidof nginx)
+
+# Sort by memory immediately:
+top -o %MEM
+
+# htop — friendlier, same job:
+htop                                # arrow keys, F-keys, tree view (F5)
+
+# A one-line snapshot — load + top 5 CPU processes:
+uptime; ps -eo pid,user,%cpu,%mem,comm --sort=-%cpu | head -6
+```
+
+**Notes:**
+
+- **Load average is NOT CPU%.** Load includes processes blocked on I/O. A box with load 8 but %CPU idle 70% is **I/O-bound**, not CPU-bound. Check `wa` and `iostat`.
+- **`%CPU` per process can exceed 100%** — it's per-core. A multi-threaded process pegging 4 cores shows `400%`. Press `1` in `top` for the per-core breakdown.
+- **`st` (steal time) on a VM is the hypervisor stealing your CPU** to give to other tenants. If `st` is consistently > 5%, the host is oversubscribed.
+- **`htop` is worth installing.** Tree view (F5), incremental search (F3), kill (F9) with signal picker, tagging multiple processes — all friendlier than `top`'s key mnemonics.
+- **For long-running observation, `top -b` (batch)** is what you want — pipe into a file, grep for outliers later.
+
+### lsof and fuser
+
+**Description:** Two tools answer "**who's using this thing?**". **`lsof`** ("**l**i**s**t **o**pen **f**iles") lists every open file descriptor on the system: regular files, directories, network sockets, devices, pipes — everything. **`fuser`** is the smaller, faster tool that just answers "which PID(s) have this file/port/mount open?". Both are essential for unsticking "umount: busy", finding port collisions, and tracking down which process is holding a deleted file's space.
+
+**`lsof` cheat sheet:**
+
+| Command                    | What it shows                                                        |
+| -------------------------- | -------------------------------------------------------------------- |
+| `lsof -p <pid>`            | Every FD a process has open                                          |
+| `lsof <path>`              | Every process with `<path>` open                                     |
+| `lsof +D <dir>`            | Every process with **anything inside** `<dir>` open                  |
+| `lsof -i`                  | All network sockets (TCP + UDP)                                      |
+| `lsof -i :22`              | Who's listening on port 22? (or has a connection on it)              |
+| `lsof -i tcp:80`           | Same but TCP only                                                    |
+| `lsof -u <user>`           | All FDs owned by a user                                              |
+| `lsof -c <name>`           | All FDs for processes whose command starts with `<name>`             |
+| `lsof +L1`                 | **Deleted but still open** files (the classic "df full, du clean")   |
+
+**Examples:**
+
+```bash
+# What's using port 80?
+sudo lsof -i :80
+# COMMAND  PID  USER  FD   TYPE   ...  NAME
+# nginx    1234 root  6u   IPv4   ...  *:http (LISTEN)
+
+# Every open file under /var/log/nginx (good for "what's locked"):
+sudo lsof +D /var/log/nginx
+
+# Why can't I umount /mnt/data?
+sudo lsof +D /mnt/data            # find the holders
+# Or:
+sudo fuser -vm /mnt/data
+#                      USER        PID ACCESS COMMAND
+# /mnt/data:           tarek      4567 ..c..  bash
+#                                ↑ "c" = working directory; cd out and umount again
+
+# Deleted-but-open log file holding 4 GB:
+sudo lsof +L1 | grep '(deleted)'
+# nginx 1234 root 9w REG 8,2 4294967296 0 12345 /var/log/nginx/access.log (deleted)
+# → restart nginx (or send SIGUSR1 if it supports log reopen) to free the space
+
+# Every TCP connection a process has open:
+lsof -p $(pidof sshd) -i tcp
+```
+
+**`fuser` quick reference:**
+
+```bash
+# Who has /var open?
+sudo fuser -vm /var
+# (verbose, mount-aware)
+
+# Who's listening on port 80?
+sudo fuser 80/tcp -v
+
+# Kill everything using a port (rough — use only when sure):
+sudo fuser -k 8080/tcp           # sends SIGKILL to every PID
+
+# Wait until a file is no longer in use, then proceed:
+sudo fuser -s /var/lock/mylock || echo "lock is free"
+```
+
+**Notes:**
+
+- **`lsof` requires root for the full picture.** Without it you only see your own processes' FDs. Most admin workflows need `sudo`.
+- **Output is large** — pipe through `grep`, `wc -l`, or use `-i` / `+D` filters from the start.
+- **A "**deleted**" annotation in `lsof` output** is gold: it means a process is holding bytes the filesystem can no longer reach via path. Restart the process or close the FD to free the space.
+- **`fuser -k` is the "evict everyone" hammer.** Use it when you absolutely need to free a mount/port — but it sends SIGKILL by default. Add `-HUP` or `-TERM` to be gentler.
+- **`ss -lntp` is a faster `lsof -i`** for "what's listening" — it reads `/proc/net/tcp` directly instead of walking every process. See the Networking section.
+
+### Process Threads
+
+**Description:** A **thread** is a unit of execution that shares the address space (memory) with other threads in the same process. From the kernel's perspective, threads and processes are nearly the same thing — both are scheduled entities created by **`clone(2)`** with different flag combinations. A process is a thread with its own memory; threads inside a process share memory. Every Linux process has at least one thread (itself); multi-threaded apps (databases, browsers, JVMs) have many.
+
+**The kernel's view:**
+
+```
+Process              ← collection of threads sharing memory + open FDs
+   ├── Thread 1 (TID = PID, the "main" thread)
+   ├── Thread 2 (TID 6789)
+   ├── Thread 3 (TID 6790)
+   └── ...
+
+Each thread has its own:
+  - register state (PC, SP, ...)
+  - stack
+  - TID (thread ID, exposed by gettid())
+
+Each thread shares with siblings:
+  - address space (heap, code, mmap'd regions)
+  - open file descriptors
+  - signal handlers (mostly)
+  - the PID (the "tgid" — thread group ID)
+```
+
+**Examples:**
+
+```bash
+# How many threads does this process have?
+ps -o nlwp -p $(pidof firefox)
+# 78
+
+# List every thread of a process (one row per thread):
+ps -L -p $(pidof firefox) | head
+#  PID    LWP TTY          TIME CMD
+# 4567   4567 ?        00:00:12 firefox
+# 4567   4568 ?        00:00:00 gmain
+# 4567   4569 ?        00:00:00 gdbus
+# 4567   4570 ?        00:00:00 JS Helper
+# ...
+#                      ↑ LWP = light-weight process = TID
+
+# Thread view in top: press 'H'
+top -H -p $(pidof java)
+
+# Or htop with tree-mode (F5) shows threads as children
+
+# /proc shows each thread:
+ls /proc/$(pidof java)/task/
+# 4567  4568  4569  4570 ...        ← one dir per TID
+
+# What's each thread doing? (the per-thread status):
+cat /proc/$(pidof java)/task/4568/status | head
+# Name:   GC Thread#0
+# State:  S (sleeping)
+# Tgid:   4567                       ← thread group ID = process PID
+# Pid:    4568                       ← this thread's TID
+
+# What syscalls is one thread making?
+sudo strace -p 4568
+```
+
+**Notes:**
+
+- **In Linux, a thread is `clone()` with shared address space.** The `pthread_create` library call wraps that. There's no special "thread object" in the kernel.
+- **TID = PID for the main thread**; subsequent threads have their own TIDs but the same TGID (process ID). `getpid()` returns the TGID; `gettid()` returns the TID.
+- **`ps` shows processes by default**, not threads. Add `-L` (or `-T`) for one row per thread. `top` defaults to processes; press **`H`** to toggle thread view.
+- **Each thread has its own stack** (typically 8 MB virtual, growing on demand). 1000 threads ≈ 8 GB of virtual memory just for stacks — tune `ulimit -s` for highly threaded apps.
+- **"This process is 1200% CPU"** on a multi-core box is one process with twelve busy threads. Per-thread `top -H` shows which one is hot.
+- **CPU affinity is per-thread.** `taskset -p <mask> <pid>` sets the whole process; `taskset -p <mask> <tid>` pins one thread.
+
+### CPU Monitoring
+
+**Description:** "CPU is the bottleneck" gets thrown around for a lot of different problems. The right tool depends on whether you mean: (a) the system is **using** all its CPU, (b) processes are **waiting** for CPU, or (c) one specific process / thread is hot. Quick stack: **`uptime`** for load, **`mpstat`** for per-CPU breakdown, **`pidstat`** for per-process CPU over time, **`top` / `htop`** for live.
+
+**The toolkit:**
+
+| Tool             | Question it answers                                                  |
+| ---------------- | -------------------------------------------------------------------- |
+| `uptime`         | What's the 1/5/15-minute load average?                               |
+| `nproc`          | How many CPU cores do I have? (compare to load)                      |
+| `top` / `htop`   | What processes are using CPU right now?                              |
+| `mpstat`         | What's the per-core utilization? (from `sysstat` pkg)                |
+| `mpstat -P ALL 1` | Per-core, refreshing every second                                   |
+| `pidstat`        | Per-process CPU over time (from `sysstat`)                          |
+| `pidstat 1 5`    | Refresh every 1 s for 5 samples                                      |
+| `sar -u`         | Historical CPU stats (cron-collected; see [Continuous Monitoring](#continuous-monitoring)) |
+| `vmstat`         | One-line system summary including CPU, memory, I/O                   |
+| `perf top`       | Per-function CPU profile (kernel + userspace)                        |
+
+**Examples:**
+
+```bash
+# How loaded is the box?
+uptime
+# 10:42:31 up  5:12,  3 users,  load average: 4.32, 2.11, 1.05
+nproc
+# 8
+# load 4.32 on 8 cores = ~54% utilized; load 12 on 8 = oversubscribed
+
+# Per-core breakdown:
+mpstat -P ALL 1 3
+# CPU    %usr   %nice    %sys %iowait    %irq   %soft  %steal   %idle
+# all   12.50    0.00    3.20    1.10    0.00    0.20    0.00   82.00
+#   0   24.00    0.00    5.00    0.00    0.00    0.50    0.00   70.50    ← CPU 0 is hot
+#   1   11.00    0.00    3.10    0.00    0.00    0.10    0.00   85.80
+#   ...
+
+# Who is eating CPU, sampled every second?
+pidstat 1 5
+# Time   UID    PID    %usr  %system  %guest  %CPU  CPU  Command
+# ...    1000   4567   95.0    3.0     0.0    98.0    0  python   ← culprit
+
+# Top 10 CPU users right now:
+ps -eo pid,user,%cpu,comm --sort=-%cpu | head -11
+
+# Quick "what's the system doing" line (refresh every 2s):
+vmstat 2 5
+# r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st
+# 2  0      0  504552  78212 8910040   0    0     8    20  500  900 12  3 84  1  0
+#    ↑ r = runnable threads; if r > nproc consistently, CPU bottleneck
+
+# Where is the kernel spending CPU? (root, perf must be installed):
+sudo perf top
+```
+
+**Notes:**
+
+- **Load is *runnable + uninterruptible*, not just CPU%.** A box stuck in I/O has high load with low CPU%. Always pair `uptime` with `mpstat` / `vmstat`.
+- **load / nproc ≈ saturation.** Less than 1 = headroom; ~1 = saturated but not queueing; > 1 = work piling up.
+- **`%steal` on a VM** is your hypervisor stealing CPU. Persistent > 5% means the host is oversubscribed; talk to your provider or pick a different instance.
+- **`%iowait` is not "wasted CPU"** — it's "this CPU was idle, *but* there was at least one process waiting on I/O." High `wa` plus low `us`+`sy` means you're disk-bound, not CPU-bound.
+- **`pidstat 1` is what you reach for** when you need to know who's hot and *also* see them in context (their syscalls, child processes, etc.) — combine with `pidstat -d` for I/O and `pidstat -r` for memory.
+- **`perf top` is the deep-dive tool** — function-level CPU usage including kernel symbols. Needs `linux-tools-common` (Debian) or `perf` (RHEL).
+
+### I/O Monitoring
+
+**Description:** I/O bottlenecks look like "the box feels slow" without obvious CPU pressure. The diagnosis stack: **`vmstat`** / **`mpstat`** to confirm `%iowait` is high, **`iostat`** to see per-disk activity, **`iotop`** to see per-process I/O, **`pidstat -d`** for non-interactive per-process I/O over time. The two numbers that matter most: **utilization** (% of time the disk was busy) and **await** (average wait time per I/O).
+
+**The toolkit:**
+
+| Tool                | What it shows                                                       |
+| ------------------- | ------------------------------------------------------------------- |
+| `iostat -xz 1`      | Per-disk extended stats, refreshing every second                    |
+| `iotop`             | Like `top`, but for I/O (per-process read/write rates) — needs root |
+| `pidstat -d 1`      | Per-process I/O, in tabular form                                    |
+| `vmstat 1`          | System-wide; `bi`/`bo` = blocks in/out, `wa` = %iowait              |
+| `dstat -d --top-io` | All-in-one dashboard (deprecated upstream but still useful)         |
+| `biolatency` (bcc)  | I/O latency histogram from eBPF — modern, precise                   |
+| `iostat -p`         | Per-partition (not just per-disk) breakdown                         |
+
+**Reading `iostat -xz 1`:**
+
+```
+Device     r/s     w/s     rkB/s    wkB/s    rrqm/s wrqm/s  %rrqm  %wrqm  r_await w_await aqu-sz %util
+sda       45.0    12.0    1800.0    480.0      2.0    1.0    4.2    7.7      0.6    0.8     0.05  4.50
+nvme0n1  120.0   850.0   12000.0  102000.0    10.0    5.0    7.7    0.6      0.3    0.4     1.20 89.20
+                                                                                                    ↑
+                                                                                            nvme0n1 is BUSY
+```
+
+| Column   | Meaning                                                              |
+| -------- | -------------------------------------------------------------------- |
+| `r/s`, `w/s` | I/O operations per second (read, write)                          |
+| `rkB/s`, `wkB/s` | Throughput in KiB/s                                          |
+| `r_await`, `w_await` | Average wait per I/O in ms (including queue + service)  |
+| `aqu-sz` | Average outstanding I/O queue depth                                  |
+| `%util`  | Percent of time the device had I/O in flight                         |
+
+**Examples:**
+
+```bash
+# Live per-disk view:
+iostat -xz 1
+
+# Who is generating that I/O?
+sudo iotop -o                          # -o = only processes actively doing I/O
+
+# Same idea, scriptable:
+sudo pidstat -d 1
+# Time      UID  PID  kB_rd/s  kB_wr/s  kB_ccwr/s iodelay Command
+# ...     1000  2345     0.00 12340.00       0.00     12 mysqld
+
+# Where is the time going — kernel-level latency histogram (needs bcc-tools):
+sudo biolatency-bpfcc 5 1
+#       msecs        : count     distribution
+#         0 -> 1     : 1234     |***********************************
+#         2 -> 3     : 567      |***********
+#         4 -> 7     : 89       |**
+#         8 -> 15    : 12       |
+#        16 -> 31    : 3        |
+
+# One-shot system summary (CPU/IO/memory):
+vmstat 1 5
+```
+
+**Notes:**
+
+- **`%util = 100%` doesn't always mean "saturated"** for modern SSDs and arrays — they handle parallel queues. **`aqu-sz`** and `await` are better saturation signals.
+- **`await` is queue + service time.** If `await` is 20 ms and `svctm` (older `iostat` versions) is 2 ms, the disk is fast but queueing — too many concurrent requests, not slow hardware.
+- **For SSDs, latency matters more than throughput**. A spinning disk at 500 IOPS is busy; an NVMe at 50 000 IOPS may still be loafing. Always cross-check `iotop` with workload context.
+- **`iotop` requires CAP_NET_ADMIN / root** to read per-process I/O stats — they live in `/proc/<pid>/io` and aren't world-readable.
+- **`pidstat -d` is the headless `iotop`.** Use it in scripts and over SSH where you don't want a curses UI.
+- **eBPF-based tools (`biolatency`, `biosnoop`, `ext4slower`) are the modern stack** for deep I/O analysis. They sample at the kernel layer instead of polling `/proc`, so they catch microsecond-scale latency spikes.
+
+### Memory Monitoring
+
+**Description:** Linux memory accounting is famously confusing. The TL;DR: **`buff/cache` is reclaimable**, so "used memory" in `free` isn't what your processes have committed — it's the kernel using free RAM for disk caches (which speeds everything up and gets evicted on demand). The number to watch is **`available`**, not `free`. Per-process: **RSS** (resident set size, real RAM) is what matters, not VSZ (virtual size, can be huge and meaningless).
+
+**The toolkit:**
+
+| Tool                | What it answers                                                       |
+| ------------------- | --------------------------------------------------------------------- |
+| `free -h`           | Total / used / free / available, in human units                       |
+| `cat /proc/meminfo` | Every detail the kernel exposes                                       |
+| `vmstat 1`          | System-wide memory + swap + I/O + CPU in one line                     |
+| `ps aux --sort=-rss \| head` | Top memory hogs                                              |
+| `pidstat -r 1`      | Per-process memory over time                                          |
+| `smem`              | "Real" memory per process (PSS — proportional set size)               |
+| `slabtop`           | Kernel slab allocator stats                                           |
+| `pmap <pid>`        | Memory map of a process (every mapping, size, RSS)                    |
+
+**Reading `free -h`:**
+
+```
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       4.1Gi       8.0Gi       450Mi       3.4Gi        11Gi
+Swap:          4.0Gi          0B       4.0Gi
+                                                                              ↑
+                                                                  the number that matters
+```
+
+- `total` — installed RAM
+- `used` — kernel + processes (not counting cache)
+- `free` — completely unused (often small, that's fine)
+- `buff/cache` — disk caches; reclaimable on demand
+- **`available`** — realistic "how much can a new process use without swapping" estimate
+
+**Per-process memory:**
+
+| Field | Meaning                                                            |
+| ----- | ------------------------------------------------------------------ |
+| VSZ   | Virtual size (everything mapped, including not-yet-touched mmaps)  |
+| RSS   | Resident set size — real RAM pages                                 |
+| PSS   | Proportional set size — shared pages divided by # of users (smem)  |
+| USS   | Unique set size — only pages not shared with anyone                |
+
+**Examples:**
+
+```bash
+# Quick snapshot:
+free -h
+free -m -s 2          # refresh every 2 seconds, in MiB
+
+# Detailed:
+grep -E 'MemTotal|MemAvailable|Cached|SwapTotal|SwapFree|Dirty|Writeback' /proc/meminfo
+
+# Top 5 memory users by RSS:
+ps -eo pid,user,rss,vsz,comm --sort=-rss | head -6
+# PID  USER  RSS     VSZ      COMMAND
+# 4567 user  812340  4523412  firefox
+# 2345 mysql 460100  1244888  mysqld
+# ...
+
+# Per-process memory over time:
+pidstat -r 1 5
+# Time   UID    PID  minflt/s  majflt/s     VSZ      RSS  %MEM   Command
+# ...    1000  4567     50.0       0.2  4523412   812340   5.0   firefox
+
+# "Real" memory (PSS) — what each process actually costs:
+sudo smem -tk
+# (shows USS, PSS, RSS per process and per-user totals)
+
+# Memory map of a process (every mapping, with sizes):
+sudo pmap -X $(pidof nginx) | head
+
+# Swap pressure — is the kernel swapping under load?
+vmstat 1 5
+# si  so   bi    bo   in   cs us sy id wa st
+#  0   0   12    24  500  900 10  2 88  0  0
+# ↑ si = swap-in, so = swap-out. Anything sustained > 0 = swapping under pressure.
+```
+
+**Notes:**
+
+- **`buff/cache` shrinks automatically when processes need memory.** A box showing "used: 15 GB of 16 GB" but `available: 8 GB` is fine — most of "used" is reclaimable cache.
+- **VSZ is meaningless for "how much RAM is this using"**. A program can `mmap` a 100 GB file and have VSZ 100 GB while using 4 KB of RSS. Always look at RSS or PSS.
+- **OOM-killer** kicks in when the kernel truly runs out of memory. It picks a process to kill based on a heuristic (`oom_score`). Check `dmesg | grep -i oom` after a mysterious process death.
+- **`smem -tk` is the right tool for "where did the memory really go"** — shared libraries get double-counted by RSS-based tools, PSS fixes that.
+- **Swap *being used* isn't a problem; swap *churn* is.** `vmstat`'s `si`/`so` columns sustained > 0 indicate the kernel is paging actively — that's the real symptom.
+- **`echo 3 > /proc/sys/vm/drop_caches`** force-flushes caches (root only). Useful for benchmarks; never useful in production — the kernel manages caches better than you do.
+
+### Continuous Monitoring
+
+**Description:** Snapshot tools (`top`, `iostat`) show you "now". **Continuous monitoring** is "what was happening at 3 AM last Tuesday?" — historical data, trends, alerts. The classic Linux answer is **`sar`** (System Activity Reporter, from the `sysstat` package) which polls every 10 minutes and keeps weeks of history. Live alternatives: **`watch`** wraps any command in a refreshing loop; **`atop`** / **`glances`** are full dashboards. For production, **Prometheus + Grafana** with **node_exporter** is the industry standard.
+
+**The hierarchy:**
+
+```
+Now:           top, htop, iostat, vmstat, free
+Continuous live: watch <cmd>, atop, glances
+Historical:    sar (sysstat, 7-day default), atop (logs to /var/log/atop/)
+Production:    Prometheus + node_exporter → Grafana, or Datadog / NewRelic / Zabbix
+```
+
+**Examples:**
+
+```bash
+# Repeat any command every 2 seconds:
+watch -n 2 'df -h /var; echo; free -h'
+watch -d 'ss -lntp'            # -d highlights what changed
+
+# `sar` (install sysstat first):
+sudo apt install sysstat
+sudo systemctl enable --now sysstat
+# Now stats are collected every 10 minutes into /var/log/sysstat/
+
+# CPU history for today:
+sar -u
+# 09:00:01  CPU   %user   %nice  %system %iowait  %steal   %idle
+# 09:10:01  all     5.2     0.0      2.1     0.5     0.0    92.2
+# 09:20:01  all     6.0     0.0      2.4     0.4     0.0    91.2
+# ...
+
+# Yesterday's stats:
+sar -u -f /var/log/sysstat/sa$(date -d yesterday +%d)
+
+# I/O history:
+sar -d -p              # per-device, friendly names
+
+# Memory:
+sar -r                 # mem stats
+sar -B                 # paging stats
+
+# Network:
+sar -n DEV             # per-interface traffic
+
+# atop — live dashboard with built-in log:
+sudo atop              # current
+sudo atop -r /var/log/atop/atop_$(date +%Y%m%d)   # replay today's log
+
+# glances — friendly, all-in-one, web-server mode optional:
+glances
+glances -w             # serves a web UI on :61208
+```
+
+**For production monitoring (one-liner orientation):**
+
+```bash
+# Install Prometheus node_exporter (collects ~1000 metrics):
+sudo apt install prometheus-node-exporter        # Debian/Ubuntu
+# Pull /metrics from another machine:
+curl http://node.local:9100/metrics | head
+# Then point Prometheus at it, and Grafana at Prometheus.
+```
+
+**Notes:**
+
+- **`sar` is the "go back in time" tool.** When ops asks "what was the box doing at 3 AM?", `sar -u -f /var/log/sysstat/saNN` (NN = day of month) is the answer.
+- **`sysstat` retention defaults to 7 days** on Debian/Ubuntu — bump it via `/etc/sysstat/sysstat` (`HISTORY=28` for 4 weeks). RHEL keeps a month by default.
+- **`atop`'s killer feature is full-process history** — `top` shows now; `atop -r` lets you scroll backwards through past 10-second slices, seeing which processes were alive at any given moment, even if they've since exited.
+- **`watch -d` highlights changes between refreshes.** Great for spotting which counter jumped (`watch -d -n 1 'cat /proc/net/dev'`).
+- **Prometheus + node_exporter is the modern default for fleet monitoring.** node_exporter exposes hundreds of metrics on `:9100/metrics`; Prometheus scrapes it on an interval and Grafana renders dashboards.
+
+### Cron Jobs
+
+**Description:** **cron** is the original Unix scheduler — a daemon that reads tables of "run this command at this time" and forks the commands at the right minute. Every distro has it. The modern alternative is **systemd `.timer` units**, which integrate with the rest of systemd (journal logs, dependencies, randomized delays). For most tasks, cron is still the right tool; for boot-aware, dependency-aware, or per-user-service tasks, systemd timers are cleaner.
+
+**Where cron jobs live:**
+
+| Location                  | Who owns it       | Format                                                  |
+| ------------------------- | ----------------- | ------------------------------------------------------- |
+| `crontab -e` (per-user)   | The current user  | 5-field schedule + command                              |
+| `/etc/crontab`            | root              | 5-field + **user** + command                            |
+| `/etc/cron.d/<name>`      | root              | Same as `/etc/crontab` — drop-in files                  |
+| `/etc/cron.{hourly,daily,weekly,monthly}/` | root | Just executables — cron runs everything in the dir      |
+| `/var/spool/cron/<user>`  | root (managed via `crontab -e`) | The actual file edited by `crontab -e`       |
+
+**The crontab time fields:**
+
+```
+*       *       *       *       *       command
+│       │       │       │       │
+│       │       │       │       └─── day of week (0–7; 0 and 7 = Sunday)
+│       │       │       └─────────── month (1–12)
+│       │       └─────────────────── day of month (1–31)
+│       └─────────────────────────── hour (0–23)
+└─────────────────────────────────── minute (0–59)
+
+Shortcuts: @reboot, @hourly, @daily, @weekly, @monthly, @yearly
+Step: */5 in the minute field = every 5 minutes
+Ranges/lists: 1-5, 1,15,30
+```
+
+**Examples:**
+
+```bash
+# Edit MY crontab:
+crontab -e
+# Add a line:
+# 0 3 * * * /usr/local/bin/backup.sh
+
+# List MY crontab:
+crontab -l
+
+# List someone else's (root only):
+sudo crontab -l -u alice
+
+# A system-wide cron job (note the extra USER field!):
+echo '*/15 * * * * root /usr/local/bin/healthcheck.sh' | sudo tee /etc/cron.d/healthcheck
+
+# Drop a daily script (no schedule — runs daily by cron.daily's schedule):
+sudo cp myreport.sh /etc/cron.daily/myreport
+sudo chmod +x /etc/cron.daily/myreport
+
+# Common patterns:
+# Every minute:            * * * * *
+# Every 5 minutes:         */5 * * * *
+# At 02:30 every day:      30 2 * * *
+# At 02:30 on Sundays:     30 2 * * 0
+# 1st of each month:       0 0 1 * *
+# After reboot:            @reboot
+
+# Logs (Debian/Ubuntu — cron logs go to /var/log/syslog):
+sudo grep CRON /var/log/syslog | tail
+# On systemd-only distros:
+journalctl -u cron -n 50
+
+# Avoid silently dropping output — always redirect:
+# 0 3 * * * /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1
+```
+
+**systemd timers (the modern equivalent):**
+
+```ini
+# /etc/systemd/system/backup.timer
+[Unit]
+Description=Daily backup
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=10m         # spread load across machines
+Persistent=true                # run on next boot if missed
+
+[Install]
+WantedBy=timers.target
+```
+
+```ini
+# /etc/systemd/system/backup.service
+[Unit]
+Description=Daily backup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup.sh
+User=backup
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now backup.timer
+
+# List all timers and when they fire next:
+systemctl list-timers
+```
+
+**Notes:**
+
+- **cron's environment is tiny.** No `$PATH` beyond `/usr/bin:/bin`, no shell aliases, no `.bashrc`. Always **use absolute paths** in cron commands, or `cd` first and set `PATH=` at the top of the crontab.
+- **Redirect output** (`>> /var/log/mycron.log 2>&1`) — by default cron emails the user any output, which often goes nowhere on a server (no MTA). Silent failures are the #1 cron pitfall.
+- **`/etc/crontab` and `/etc/cron.d/` have an extra USER field**; per-user crontabs (`crontab -e`) don't. Mixing them up means your job runs as the wrong user.
+- **`@reboot` runs once per boot** — handy for "start this thing at boot" if you don't want a systemd unit. But it runs early; if your job needs networking, prefer a systemd unit with `After=network-online.target`.
+- **systemd timers are better for**: failure handling (`OnFailure=`), randomized delays (`RandomizedDelaySec`), boot-catch-up (`Persistent=yes`), and per-user services (`systemctl --user enable foo.timer`).
+- **`anacron` runs jobs that were *missed* while the box was off** (laptops). Cron only fires while the daemon is running; anacron catches up after.
+
+---
+
+## Logging
+
+Notes on **what gets logged, by whom, and where to find it**. Linux has two parallel logging stacks: the **traditional syslog** stack (rsyslog or syslog-ng writing text to `/var/log/*`) and the **systemd journal** (binary log read by `journalctl`). Most modern distros ship both — journald collects everything from PID 1 down, and forwards to rsyslog for the human-readable `/var/log/syslog`. This section maps where each piece writes, how the **facility / severity** model works, how to read kernel and auth logs, and how to keep log volumes from filling the disk.
+
+### One Shot Revision
+
+| Topic                                              | Short Description                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------------------ |
+| [System Logging](#system-logging)                  | The big picture: journald + rsyslog, what writes where                   |
+| [syslog](#syslog)                                  | The syslog **protocol** — facilities, severities, `logger`, `/dev/log`   |
+| [General Logging](#general-logging)                | `/var/log/` tour — `syslog`, `messages`, app-specific subdirs            |
+| [Kernel Logging](#kernel-logging)                  | `dmesg`, `/proc/kmsg`, `journalctl -k`, the kernel ring buffer           |
+| [Authentication Logging](#authentication-logging)  | `/var/log/auth.log` / `secure`, `last`, `lastb`, `who`, `journalctl -u sshd` |
+| [Managing Log Files](#managing-log-files)          | `logrotate`, journald retention, `vacuum-size` / `vacuum-time`           |
+
+### System Logging
+
+**Description:** A modern Linux box has **two log sinks running side by side**: **`systemd-journald`** (binary journal at `/var/log/journal/` or `/run/log/journal/`) and a classic **syslog daemon** (`rsyslog` on Debian/Ubuntu/RHEL, `syslog-ng` on a few others). systemd captures **everything from PID 1 and the kernel** into the journal; rsyslog reads from the journal (or `/dev/log` directly) and writes the text files most admins still grep — `/var/log/syslog` on Debian, `/var/log/messages` on RHEL.
+
+**Who writes where:**
+
+```
+Kernel ─────────► /dev/kmsg ─┐
+                             ├──► systemd-journald ──► /var/log/journal/*  (binary)
+Services (PID 1's children) ─┘                            │
+                                                          ▼
+                                                       rsyslog
+                                                          │
+                                                          ▼
+                                              /var/log/syslog
+                                              /var/log/auth.log
+                                              /var/log/kern.log
+                                              /var/log/<app>/...
+```
+
+**Two front-ends, same data:**
+
+| Tool         | Reads from                                | Best for                                  |
+| ------------ | ----------------------------------------- | ----------------------------------------- |
+| `journalctl` | The journal (`/var/log/journal/`)         | Per-unit logs, time-windowed queries, kernel + service combined |
+| `grep` / `less` / `tail -F` | `/var/log/*` text files    | Quick text search, shell pipelines, scripts |
+
+**Examples — the two ways to ask the same question:**
+
+```bash
+# What did sshd log in the last hour?
+journalctl -u sshd --since "1 hour ago"
+# vs.
+sudo grep sshd /var/log/auth.log | awk -v d="$(date -d '1 hour ago' '+%b %d %H:%M')" '$0 > d'
+
+# Everything from this boot, errors only:
+journalctl -b -p err
+
+# Tail every log:
+sudo tail -F /var/log/syslog /var/log/auth.log /var/log/kern.log
+# Or:
+journalctl -f
+
+# What's the journal disk usage?
+journalctl --disk-usage
+# Archived and active journals take up 320.0M in the file system.
+
+# Where's the journal stored — persistent or volatile?
+ls /var/log/journal 2>/dev/null && echo "persistent" || echo "volatile (will lose on reboot)"
+
+# Make it persistent (if it's not):
+sudo mkdir -p /var/log/journal && sudo systemctl restart systemd-journald
+```
+
+**Notes:**
+
+- **Both stacks are running on most distros.** rsyslog reads from the journal (`imjournal` plugin) by default, so you have both binary searchable logs **and** plain text files.
+- **Journald is volatile by default on some distros** (Ubuntu desktop) — only `/run/log/journal/` exists, which is RAM-backed and wiped at reboot. To keep logs across reboots, ensure `/var/log/journal/` exists.
+- **`journalctl -u <unit>` is the killer feature** — combining unit, kernel, and syslog into one searchable view. No more `grep`ing six files to find what happened around an event.
+- **Text logs are easier in pipelines.** `awk` / `sed` / `cut` are friendlier than `journalctl -o json` for ad-hoc work. Keep both stacks; they're complementary.
+- **Remote logging is a one-liner change**: rsyslog forwards to a remote `@syslog.internal:514` (UDP) or `@@syslog.internal:514` (TCP) target. journald has `systemd-journal-upload` for the same purpose.
+
+### syslog
+
+**Description:** **syslog** is the *protocol*: every message has a **facility** (who sent it: kernel, auth, cron, mail, user, local0..7) and a **severity** (how bad: emerg, alert, crit, err, warning, notice, info, debug). Daemons write to `/dev/log` (a Unix socket); the syslog daemon reads from there and routes messages to files / remote hosts based on **facility + severity** filters in `/etc/rsyslog.conf` (or `/etc/syslog-ng/syslog-ng.conf`).
+
+**Facilities and severities:**
+
+| Severity (numeric) | Name      | Meaning                                |
+| ------------------ | --------- | -------------------------------------- |
+| 0                  | `emerg`   | System unusable                        |
+| 1                  | `alert`   | Take action immediately                |
+| 2                  | `crit`    | Critical                               |
+| 3                  | `err`     | Error                                  |
+| 4                  | `warning` | Warning                                |
+| 5                  | `notice`  | Normal but significant                 |
+| 6                  | `info`    | Informational                          |
+| 7                  | `debug`   | Debug                                  |
+
+| Facility   | Source                                       |
+| ---------- | -------------------------------------------- |
+| `kern`     | Kernel                                       |
+| `user`     | Generic userspace                            |
+| `mail`     | Mail subsystem                               |
+| `daemon`   | System daemons                               |
+| `auth`     | Login / authentication (logins, sudo)        |
+| `authpriv` | Sensitive auth (passwords, keys)             |
+| `cron`     | The cron daemon                              |
+| `local0`–`local7` | Reserved for site-specific use        |
+
+**Examples:**
+
+```bash
+# Send a message to syslog from the shell — useful in scripts:
+logger "Backup started"
+logger -p user.warning "Disk usage above 80%"
+logger -t myapp -p local0.info "Custom app message with a tag"
+sudo tail /var/log/syslog
+# Jun 20 10:15:01 host myapp: Custom app message with a tag
+
+# rsyslog rules — typical /etc/rsyslog.d/50-default.conf entries:
+# auth,authpriv.*            /var/log/auth.log    ← all auth, any severity
+# *.*;auth,authpriv.none    -/var/log/syslog      ← everything except auth
+# kern.*                     /var/log/kern.log    ← all kernel
+# cron.*                     /var/log/cron.log    ← all cron
+# mail.err                   /var/log/mail.err    ← mail errors only
+
+# Forward everything to a remote syslog server:
+echo '*.*  @@logs.internal:514' | sudo tee /etc/rsyslog.d/90-forward.conf
+sudo systemctl restart rsyslog
+
+# Check that rsyslog is picking up your config:
+sudo rsyslogd -N1                    # config check (-N1 = parse only)
+
+# Live-tail rsyslog's view of incoming messages:
+sudo tail -F /var/log/syslog
+```
+
+**Notes:**
+
+- **The `-` before a filename in rsyslog rules** (e.g. `-/var/log/syslog`) means "don't fsync after every write" — much faster, fine for non-critical logs.
+- **`auth,authpriv.*` vs `auth.*;authpriv.none`** is a frequent gotcha: facilities are listed by comma; severity follows the dot; `none` excludes. Read the config carefully.
+- **`logger` is great in shell scripts** — `logger -p user.err "Backup FAILED"` puts your error in the same place sysadmins are already watching.
+- **`local0`–`local7` are yours to use.** Many ops teams pick one for their custom application logs so they get their own facility filter.
+- **`/dev/log` is a Unix socket, not a file.** Programs write to it via the `syslog()` libc function; rsyslog/syslog-ng reads it.
+
+### General Logging
+
+**Description:** The tour of `/var/log/` — what file usually contains what. Even on a systemd box where the journal is canonical, rsyslog mirrors most of this to text. Treat this as the map for "I'm hunting a problem; which file do I `tail`?"
+
+**The usual suspects:**
+
+| File / dir                          | What lives here                                                       |
+| ----------------------------------- | --------------------------------------------------------------------- |
+| `/var/log/syslog` (Debian)          | Everything except auth (the "general" log)                            |
+| `/var/log/messages` (RHEL)          | Same idea on Red Hat–family systems                                   |
+| `/var/log/auth.log` (Debian)        | Login, sudo, ssh, PAM — see [Authentication Logging](#authentication-logging) |
+| `/var/log/secure` (RHEL)            | RHEL equivalent of `auth.log`                                         |
+| `/var/log/kern.log`                 | Kernel-only messages (also `dmesg` and `journalctl -k`)               |
+| `/var/log/dmesg` / `dmesg.0`        | Captured kernel ring buffer from boot                                 |
+| `/var/log/cron.log` / `journalctl -u cron` | Cron job activity                                              |
+| `/var/log/mail.log` / `mail.err`    | Mail subsystem (Postfix, Sendmail)                                    |
+| `/var/log/boot.log`                 | Console output from boot (services starting/failing)                  |
+| `/var/log/wtmp` / `btmp`            | Binary — login history (`last`) / failed logins (`lastb`)             |
+| `/var/log/lastlog`                  | Binary — last login per user (`lastlog`)                              |
+| `/var/log/apt/`                     | Debian/Ubuntu — package operations (history, term)                    |
+| `/var/log/dnf.log` / `yum.log`      | RHEL/Fedora — package operations                                      |
+| `/var/log/nginx/` `apache2/` `mysql/` `redis/` ... | One subdir per major service                           |
+| `/var/log/journal/`                 | systemd binary journal (read via `journalctl`)                        |
+| `/var/log/`*`.gz`* / `.1` / `.N`    | Rotated, compressed logs from `logrotate`                             |
+
+**Examples — common log hunts:**
+
+```bash
+# General "what happened recently?"
+sudo tail -F /var/log/syslog               # Debian
+sudo tail -F /var/log/messages             # RHEL
+# Or unified:
+journalctl -f
+
+# Search every (recent + rotated) log for a string:
+sudo zgrep -h "out of memory" /var/log/syslog*
+sudo zgrep -h "Failed password" /var/log/auth.log* | wc -l
+
+# Last 100 errors from the journal:
+journalctl -p err -n 100
+
+# Per-service:
+sudo tail -F /var/log/nginx/access.log /var/log/nginx/error.log
+journalctl -u nginx -f
+
+# Apt / dnf history — what got installed/upgraded and when:
+sudo less /var/log/apt/history.log
+sudo dnf history
+```
+
+**Notes:**
+
+- **`/var/log/wtmp`, `btmp`, `lastlog` are binary.** Don't `cat` them — use `last`, `lastb`, `lastlog` respectively.
+- **Rotated logs (`*.1`, `*.2.gz`, `*.3.gz`...) are still searchable.** `zgrep` reads `.gz` directly; `zless` pages compressed files.
+- **`/var/log/dmesg` is captured at boot**; it's a frozen copy. Live kernel messages are in the ring buffer (`dmesg`) and the journal (`journalctl -k`).
+- **App-specific subdirs (`/var/log/nginx/`)** usually have their own rotation managed by `/etc/logrotate.d/<app>`. Check that config when a log is missing — it may have rotated.
+- **For containers, logs are different.** Docker captures stdout/stderr to `/var/lib/docker/containers/<id>/...-json.log`; Kubernetes node logs go to `/var/log/pods/`. The application-level `/var/log/` inside the container is usually irrelevant.
+
+### Kernel Logging
+
+**Description:** The kernel has its own log buffer — a **fixed-size ring** in kernel memory (`/dev/kmsg`, read out as `dmesg`). Everything the kernel prints goes here: driver init at boot, hardware errors, OOM kills, panics. The buffer is a ring (oldest entries get overwritten), but `systemd-journald` continuously copies new entries into the persistent journal, so you can review old kernel events with `journalctl -k`.
+
+**The two views:**
+
+| Tool                | Source                                          | Notes                                      |
+| ------------------- | ----------------------------------------------- | ------------------------------------------ |
+| `dmesg`             | Live kernel ring buffer (`/dev/kmsg`)           | Snapshot — gets overwritten on busy boxes  |
+| `journalctl -k`     | Persistent journal copy of kernel messages      | Per-boot, time-windowed, persistent        |
+| `/var/log/kern.log` | rsyslog-archived kernel messages (text)         | Grep-friendly, rotated by logrotate        |
+
+**Examples:**
+
+```bash
+# Recent kernel messages with human timestamps:
+sudo dmesg -T | tail -30
+
+# Watch new kernel messages live (kernel "tail -f"):
+sudo dmesg -w
+
+# All kernel messages from this boot:
+journalctl -k -b
+
+# Kernel messages from the previous boot:
+journalctl -k -b -1
+
+# Errors only from this boot:
+journalctl -k -b -p err
+
+# Find a specific hardware/driver event:
+dmesg | grep -i nvme
+dmesg | grep -iE "error|fail|warn"
+
+# Did the OOM-killer fire?
+dmesg | grep -i "killed process"
+# Or:
+journalctl -k --grep "Out of memory"
+
+# Check thermal throttling:
+dmesg | grep -i thermal
+
+# Lost a USB device? Plug it in and watch:
+sudo dmesg -w &        # in another shell
+# (now plug in the device — events appear)
+
+# Clear the ring buffer (rarely useful):
+sudo dmesg -c
+```
+
+**Notes:**
+
+- **The kernel ring is a fixed size** (`dmesg --buffer-size` or in build config, typically 1 MiB). On a chatty box, it wraps in minutes — that's why the journal copy matters.
+- **`dmesg` may require root on hardened systems.** Some distros set `kernel.dmesg_restrict=1` so users can't see kernel addresses (kASLR leakage). Use `sudo`.
+- **Kernel panics print on the console**, and to the journal if it gets that far. If the box is hung with no journal entries near the freeze, take a photo of the screen — it's often the only diagnostic you'll have.
+- **`dmesg -T` adds human-readable timestamps**. Old `dmesg` showed nanosecond-since-boot floats which are useless for correlating with wall-clock events.
+- **`dmesg --level=err,warn`** shows only error/warning severity messages — much shorter than the full firehose.
+- **eBPF tracepoints** (`bpftrace`, `bcc`) are the modern way to instrument the kernel without printing to the log — for production-grade observation that doesn't fill the ring buffer.
+
+### Authentication Logging
+
+**Description:** Every login, sudo invocation, ssh session, and PAM event lands in **`/var/log/auth.log`** (Debian/Ubuntu) or **`/var/log/secure`** (RHEL/Fedora). These files are gold for security incident review: who logged in from where, who tried and failed, who used sudo for what. Three small helper commands — **`last`**, **`lastb`**, **`who`** — read the binary login databases (`wtmp`, `btmp`, `utmp`) directly.
+
+**The files:**
+
+| Path                                       | What it holds                                                |
+| ------------------------------------------ | ------------------------------------------------------------ |
+| `/var/log/auth.log` (Debian) / `/var/log/secure` (RHEL) | sshd, login, su, sudo, PAM (text)                |
+| `/var/log/wtmp`                            | Binary — every successful login/logout (`last`)              |
+| `/var/log/btmp`                            | Binary — every **failed** login (`lastb`)                    |
+| `/var/run/utmp`                            | Binary — currently-logged-in users (`who`)                   |
+| `/var/log/lastlog`                         | Binary — most recent login per user (`lastlog`)              |
+| `journalctl -u sshd` / `-u systemd-logind` | Same info from the journal, per-unit                         |
+
+**Examples — incident reading:**
+
+```bash
+# Who logged in successfully, most recent first:
+last | head -20
+
+# Who's logged in right now?
+who
+# tarek    pts/0   2026-06-20 09:15 (192.168.1.42)
+# tarek    pts/1   2026-06-20 09:20 (192.168.1.42)
+
+# Anyone failing logins? (the most common security warning sign):
+sudo lastb | head -20
+
+# Specifically failed ssh logins (often = brute-force probes):
+sudo grep "Failed password" /var/log/auth.log | tail -20
+
+# Count failed-login attempts per source IP:
+sudo grep "Failed password" /var/log/auth.log \
+  | awk '{print $(NF-3)}' | sort | uniq -c | sort -rn | head
+
+# When did user 'alice' last log in (per machine)?
+lastlog -u alice
+
+# Every sudo invocation today:
+sudo journalctl -t sudo --since today
+# Or:
+sudo grep -E "sudo:.*COMMAND" /var/log/auth.log
+
+# Watch ssh activity live:
+journalctl -u sshd -f
+```
+
+**Notes:**
+
+- **`lastb` requires root** — `/var/log/btmp` is mode 600 because failed-login attempts may include typed-as-password real passwords (someone typoing into the username prompt).
+- **Failed ssh attempts on an internet-facing box are constant background noise.** Hundreds per day on a default-port sshd is normal — install **fail2ban** to drop the brute-forcers, or move ssh off port 22.
+- **`pam_tally2` / `pam_faillock`** can lock accounts after N failed logins. Check `/etc/pam.d/sshd` and `/etc/pam.d/login` to see if it's enabled.
+- **Sudo logs the command, not the argv expansion.** If you run `sudo bash`, the log says `bash` — what you did inside that shell is **not** logged here. For audit-grade sudo, enable **sudo I/O logging** (`Defaults log_input,log_output` in sudoers).
+- **For ongoing security monitoring**, ship `auth.log` to a central syslog server or an SIEM (Splunk, ELK, Loki). Local logs can be erased by an attacker; remote ones generally can't.
+
+### Managing Log Files
+
+**Description:** Logs grow forever if left alone — and full `/var` is one of the easiest ways to take a server down. **`logrotate`** is the classic answer: a cron-driven tool that rotates (renames + compresses + truncates) text logs on a schedule. **journald** does its own rotation internally, bounded by total disk usage or age. Knowing both, plus how to free space immediately when a log explodes, is what keeps disks healthy.
+
+**logrotate at a glance:**
+
+| File                            | Role                                                          |
+| ------------------------------- | ------------------------------------------------------------- |
+| `/etc/logrotate.conf`           | Global defaults                                               |
+| `/etc/logrotate.d/<package>`    | Per-package rotation configs (each package installs its own)  |
+| `/var/lib/logrotate/status`     | Tracks "when was each log last rotated?"                      |
+
+**A typical logrotate snippet (`/etc/logrotate.d/nginx`):**
+
+```
+/var/log/nginx/*.log {
+    daily                          # rotate every day
+    missingok                       # OK if a log is absent
+    rotate 14                       # keep 14 rotations (then delete oldest)
+    compress                        # gzip rotated files
+    delaycompress                   # don't compress the most recent rotation (so apps can still write)
+    notifempty                      # don't rotate empty logs
+    create 0640 www-data adm        # create the new log with these perms
+    sharedscripts
+    postrotate
+        /usr/sbin/nginx -s reopen >/dev/null 2>&1 || true
+    endscript
+}
+```
+
+**Examples:**
+
+```bash
+# Test a logrotate config (debug, no changes):
+sudo logrotate -d /etc/logrotate.d/nginx
+
+# Force rotation now (regardless of schedule):
+sudo logrotate -f /etc/logrotate.d/nginx
+
+# When did logrotate last touch a given log?
+sudo cat /var/lib/logrotate/status | grep nginx
+
+# Find the biggest logs:
+sudo du -h /var/log/* | sort -h | tail -10
+
+# Truncate (not delete!) a runaway log of a running process:
+sudo truncate -s 0 /var/log/some-runaway-app.log
+# Or:
+sudo : > /var/log/some-runaway-app.log
+# (Deleting with rm DOESN'T free space until the process closes the FD —
+#  see [Disk Usage](#disk-usage) and lsof +L1.)
+```
+
+**journald retention:**
+
+```bash
+# Current journal size:
+journalctl --disk-usage
+
+# Trim to N: by size, by age, by file-count:
+sudo journalctl --vacuum-size=500M
+sudo journalctl --vacuum-time=2weeks
+sudo journalctl --vacuum-files=5
+
+# Persistent retention config — /etc/systemd/journald.conf:
+# [Journal]
+# SystemMaxUse=500M           ← cap total disk
+# SystemMaxFileSize=50M       ← cap one journal file
+# MaxRetentionSec=4weeks      ← drop entries older than 4 weeks
+# Storage=persistent          ← keep across reboots
+
+# After editing journald.conf:
+sudo systemctl restart systemd-journald
+```
+
+**Notes:**
+
+- **Always restart or reopen the writing process after rotating its log** — the `postrotate` hook is for exactly that. Without it, the daemon keeps writing to the (renamed) old file forever.
+- **`copytruncate` is the alternative** when a daemon can't reopen its log on signal. logrotate copies the file then truncates the original in-place — no FD change. Some data can be lost between copy and truncate; use only when you must.
+- **Disk fills overnight?** It's usually one log: `du -h /var/log/* | sort -h | tail`. Truncate the offender, then fix the logrotate config.
+- **journald defaults to "10% of /var" or 4 GiB, whichever is smaller** — fine on most boxes, can be a lot on small VPS instances. Tune `SystemMaxUse=` if your `/var` is tight.
+- **For containers and modern stacks, you usually don't rotate inside the container** — the runtime (`docker`, `containerd`, `kubelet`) handles log rotation at the host level. Inside the container, log to stdout/stderr and let the runtime route it.
+- **Centralized logging changes the math.** If everything ships to a central log server, local retention can be aggressive (1–3 days) since the master copy lives elsewhere.
 
 ---
 
