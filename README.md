@@ -133,6 +133,7 @@ Distributed version control plus the collaboration layer on top.
 
 The Linux networking stack and the tools used to inspect, configure, and troubleshoot it.
 
+- **Network Sharing** — file sharing overview, `rsync`, simple HTTP server, NFS, Samba.
 - **Networking Fundamentals** — OSI/TCP-IP models, IP addressing, subnetting, ports, ARP.
 - **Network Configuration** — `ip`, `ifconfig`, `hostname`, `/etc/hosts`, `nmcli`.
 - **Connectivity & Diagnostics** — `ping`, `traceroute`, `mtr`, `telnet`, `nc`.
