@@ -30,8 +30,13 @@
 
 ---
 
+> 🎯 **[Common Interview Questions →](#common-interview-questions)** &nbsp;·&nbsp; 50 Git & GitHub interview questions (10 Easy · 20 Medium · 20 Hard) for DevOps junior / mid / senior roles.
+
+---
+
 ## Table of Contents
 
+- [Common Interview Questions](#common-interview-questions)
 - [Introduction](#introduction)
 - [Command Note Template](#command-note-template)
 - [Git Basics](#git-basics)
@@ -1732,6 +1737,839 @@ on:
 - Pick a license from [choosealicense.com](https://choosealicense.com/) when starting a public project.
 - Add a snappy **About** description and topics in the repo settings — it makes the repo discoverable.
 - `Closes #42` / `Fixes #42` in a PR description **auto-closes** issue #42 when the PR is merged.
+
+---
+
+## Common Interview Questions
+
+**50 commonly asked Git & GitHub interview questions** for DevOps roles — **10 Easy** (junior), **20 Medium** (mid-level), **20 Hard** (senior). Curated to cover the topics that come up most in real interviews: workflow basics, branching, merging vs rebasing, undoing changes, remotes, Git internals, GitHub collaboration, and CI/CD with Actions.
+
+### Easy (Junior Level)
+
+**1. What is Git, and how is it different from GitHub?**
+
+**Git** is a distributed version control system (DVCS) that tracks changes to files locally — every clone is a full repository with complete history. **GitHub** is a web platform built **around** Git that adds hosting, pull requests, issues, code review, Actions (CI/CD), and access control. Git works offline; GitHub is the centralized collaboration layer. Alternatives to GitHub include GitLab, Bitbucket, and Gitea.
+
+**2. What is version control, and why use it?**
+
+**Version control** records changes to files over time so you can recall any earlier state, see who changed what, and collaborate without overwriting each other. Benefits:
+
+- **History** — every change is attributable and revertible.
+- **Branching** — work on features in parallel without breaking `main`.
+- **Collaboration** — multiple developers merge work safely.
+- **Backup** — every clone is a full copy of the repo.
+
+**3. How do you initialize a new Git repository?**
+
+```bash
+git init                  # turns the current dir into a Git repo (creates .git/)
+git init my-project       # creates my-project/ and inits it
+git init --bare repo.git  # bare repo (no working tree) — used on servers
+```
+
+Then configure your identity once globally:
+
+```bash
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
+```
+
+**4. What's the difference between `git pull` and `git fetch`?**
+
+- **`git fetch`** — downloads new commits/refs from the remote into your local **remote-tracking branches** (e.g. `origin/main`). Your working branch is untouched.
+- **`git pull`** — `fetch` + immediately **merges** (or rebases, with `pull.rebase=true`) the remote branch into your current branch.
+
+`fetch` is **safe** and lets you inspect changes before integrating. `pull` is a shortcut that does the merge for you.
+
+**5. How do you check the status of your working directory?**
+
+```bash
+git status                # full output: branch, staged, unstaged, untracked
+git status -sb            # short + branch info (great for aliasing)
+```
+
+Output sections: **Changes to be committed** (staged), **Changes not staged for commit** (modified), **Untracked files** (new files Git doesn't know about yet).
+
+**6. What is `.gitignore` and how does it work?**
+
+`.gitignore` is a text file listing **path patterns Git should ignore** — they won't show up as untracked and can't be accidentally committed. Common patterns:
+
+```gitignore
+# Dependencies / build output
+node_modules/
+dist/
+*.log
+
+# OS / editor junk
+.DS_Store
+.vscode/
+*.swp
+
+# Secrets
+.env
+*.pem
+```
+
+Already-tracked files are **not** ignored retroactively — run `git rm --cached <file>` to untrack them. A global `.gitignore` for OS/editor noise: `git config --global core.excludesfile ~/.gitignore_global`.
+
+**7. How do you stage and commit changes?**
+
+```bash
+git add file.txt          # stage one file
+git add .                 # stage everything in the current dir
+git add -p                # stage by hunk (interactive — recommended)
+git commit -m "Fix typo in README"
+git commit -am "..."      # stage all tracked + commit in one step
+```
+
+Staging (the "index") lets you assemble a commit out of partial changes — small, focused commits are easier to review and revert.
+
+**8. What is a branch in Git?**
+
+A **branch** is just a **movable pointer to a commit**. Creating one is O(1) — Git writes a 40-byte SHA to `.git/refs/heads/<name>`. Branches let you isolate work (a feature, a bugfix, an experiment) without touching `main`.
+
+```bash
+git branch                       # list local branches
+git branch feature-x             # create
+git switch feature-x             # move HEAD to it (modern)
+git switch -c feature-x          # create + switch in one step
+```
+
+**9. How do you clone a repository?**
+
+```bash
+git clone https://github.com/user/repo.git           # via HTTPS
+git clone git@github.com:user/repo.git               # via SSH
+git clone --depth 1 <url>                             # shallow clone (fast, no history)
+git clone --branch develop <url>                      # clone a specific branch
+```
+
+Clone copies the entire `.git` directory, checks out `HEAD`, and sets `origin` to the remote URL.
+
+**10. How do you view commit history?**
+
+```bash
+git log                                # full log
+git log --oneline                      # one line per commit
+git log --oneline --graph --all        # ASCII branch graph
+git log -p                             # show patch (diff) for each commit
+git log --author="alice"               # filter by author
+git log --since="2 weeks ago"          # time filter
+git log -- path/to/file                # history of a specific file
+```
+
+Useful alias: `git config --global alias.lg "log --oneline --graph --all --decorate"`.
+
+---
+
+### Medium (Mid-Level)
+
+**11. What's the difference between `git merge` and `git rebase`?**
+
+Both integrate changes from one branch into another, but with very different histories:
+
+| Aspect       | `merge`                                  | `rebase`                                |
+| ------------ | ---------------------------------------- | --------------------------------------- |
+| History      | Preserves branching — creates a merge commit | Linear — replays your commits on top of target |
+| Commit SHAs  | Unchanged                                | **New SHAs** (commits are recreated)    |
+| Safety       | Always safe                              | **Never rebase shared/pushed branches** |
+| Best for     | Long-lived branches, public history      | Cleaning up local feature branches      |
+
+Rule of thumb: **rebase before you push, merge after**.
+
+**12. Explain the three areas: working directory, staging area, and repository.**
+
+```
+Working Directory  ── git add ──▶  Staging Area (index)  ── git commit ──▶  Repository (.git)
+       ▲                                    ▲                                       │
+       └──────── git restore ◀──────────────┴───────── git restore --staged ◀──────┘
+```
+
+- **Working directory** — actual files on disk you edit.
+- **Staging area** ("index") — a snapshot of what will go into the next commit.
+- **Repository** — the immutable history of commits in `.git/`.
+
+The staging area is what makes Git different from systems like SVN — you build up a commit deliberately rather than committing everything at once.
+
+**13. What is a detached HEAD state?**
+
+`HEAD` is the pointer to your current commit. Normally `HEAD` points to a **branch ref** (`refs/heads/main`), which points to a commit. A **detached HEAD** means `HEAD` points directly at a commit SHA, not through a branch. It happens when you `git checkout <sha>` or `git checkout v1.0` (a tag).
+
+You can look around and even commit in detached HEAD — but those commits aren't on any branch and will be **garbage-collected** if you switch away. To save them: `git switch -c new-branch` while still detached.
+
+**14. How do you undo the last commit (keeping vs discarding changes)?**
+
+```bash
+git reset --soft HEAD~1     # undo commit, KEEP changes staged
+git reset --mixed HEAD~1    # undo commit, KEEP changes unstaged (default)
+git reset --hard HEAD~1     # undo commit, DISCARD changes (destructive)
+git commit --amend          # fix the LAST commit (message or staged changes)
+```
+
+If the commit was already pushed and shared, prefer **`git revert HEAD`** instead — it creates a new commit that undoes the change without rewriting history.
+
+**15. Explain `git reset --soft`, `--mixed`, and `--hard`.**
+
+All three move `HEAD` (and usually the branch pointer); they differ in what they touch:
+
+| Mode      | HEAD moves | Staging area | Working dir | Use when                                |
+| --------- | ---------- | ------------ | ----------- | --------------------------------------- |
+| `--soft`  | ✅          | unchanged    | unchanged   | You want to re-do the commit message    |
+| `--mixed` | ✅          | reset        | unchanged   | You want to re-stage differently (default) |
+| `--hard`  | ✅          | reset        | **wiped**   | You want to throw the work away — **destructive** |
+
+`--hard` is the only one that can lose work. Even then, `git reflog` can usually recover it within ~90 days.
+
+**16. How do you resolve a merge conflict?**
+
+When Git can't auto-merge, it marks conflicts in the file:
+
+```
+<<<<<<< HEAD
+your version
+=======
+their version
+>>>>>>> feature-branch
+```
+
+Steps:
+
+```bash
+# 1. See which files conflict
+git status
+
+# 2. Edit each file — choose your code, theirs, or a blend; remove the markers.
+
+# 3. Stage the resolved files
+git add resolved-file.js
+
+# 4. Continue the operation
+git commit                  # for merge
+git rebase --continue       # for rebase
+git merge --abort           # bail out entirely
+```
+
+Tools: `git mergetool`, VS Code's 3-way merge view, or `git config merge.conflictstyle diff3` to also see the **common ancestor** in the conflict block.
+
+**17. What is a fast-forward merge?**
+
+A **fast-forward** happens when the target branch (e.g. `main`) has not advanced since you branched off — Git just moves `main`'s pointer forward to your branch's tip. **No merge commit is created.**
+
+```bash
+git merge --no-ff feature   # force a merge commit even if FF is possible
+git merge --ff-only feature # only merge if FF is possible (reject if diverged)
+```
+
+Teams often use `--no-ff` on `main` to preserve the "this was a feature" boundary in history.
+
+**18. What is `git stash` and when do you use it?**
+
+`git stash` saves uncommitted changes (tracked files by default) onto a **stack** and reverts your working directory to a clean state — useful when you need to switch branches but aren't ready to commit.
+
+```bash
+git stash                   # stash tracked changes
+git stash -u                # include untracked
+git stash list              # show stack
+git stash show -p stash@{0} # see contents
+git stash pop               # re-apply newest + drop from stack
+git stash apply stash@{1}   # apply a specific stash, keep it on stack
+git stash drop stash@{0}    # delete one
+git stash clear             # wipe all
+```
+
+For longer-lived parking, prefer a WIP commit on a branch — stashes are easy to forget.
+
+**19. What's the difference between annotated and lightweight tags?**
+
+```bash
+git tag v1.0                                    # lightweight — just a name → commit SHA
+git tag -a v1.0 -m "Release 1.0"                # annotated — full Git object with metadata
+git tag -s v1.0 -m "Signed release"             # annotated + GPG-signed
+```
+
+- **Lightweight** — like a branch that doesn't move. No metadata.
+- **Annotated** — stored as a full object with tagger, date, message, optional signature. **Always use annotated tags for releases.**
+
+Push tags: `git push origin v1.0` or `git push --tags` (all). Tags are not automatically pushed by `git push`.
+
+**20. What is `git cherry-pick`?**
+
+`git cherry-pick <commit>` applies the **changes** from a specific commit onto your current branch as a **new commit** (with a new SHA). Use it to pull a bug fix from `main` into a release branch without merging unrelated work.
+
+```bash
+git cherry-pick abc1234              # one commit
+git cherry-pick abc1234..def5678     # a range (exclusive of first)
+git cherry-pick -x abc1234           # adds "(cherry picked from ...)" to message
+git cherry-pick --abort              # bail on conflict
+```
+
+Cherry-picking duplicates a commit (different SHA), so the same change can show up twice if you later merge — usually fine, but be aware.
+
+**21. What's the difference between HTTPS and SSH for Git remotes?**
+
+| Aspect          | HTTPS                              | SSH                                  |
+| --------------- | ---------------------------------- | ------------------------------------ |
+| URL             | `https://github.com/user/repo.git` | `git@github.com:user/repo.git`       |
+| Auth            | Username + **Personal Access Token** | **SSH key pair**                     |
+| Firewall        | Almost always allowed (port 443)   | May be blocked (port 22)             |
+| Caching         | OS keychain / credential helper    | `ssh-agent`                          |
+| 2FA             | Forces PAT use                     | Independent of 2FA                   |
+
+SSH is the day-to-day favorite for developers; HTTPS is friendlier for restricted networks and CI. Switch with `git remote set-url origin <new-url>`.
+
+**22. How do you delete a local and remote branch?**
+
+```bash
+# Local
+git branch -d feature-x         # safe — refuses if unmerged
+git branch -D feature-x         # force delete (use with care)
+
+# Remote
+git push origin --delete feature-x
+# or the older syntax:
+git push origin :feature-x
+
+# Prune stale remote-tracking branches (after teammates delete them)
+git fetch --prune
+```
+
+`git branch -d` will refuse if the branch has commits not in any other branch — that's a feature, not a bug.
+
+**23. What's the difference between a fork and a clone?**
+
+- **Clone** — a **local** copy of any repo, made with `git clone`. Pushes go back to the same remote (if you have write access).
+- **Fork** — a **server-side** copy of a repo under **your** GitHub account. You then clone the fork locally. Forks are how you contribute to repos you can't push to directly — push to your fork, open a PR back to the original ("upstream").
+
+A typical fork workflow:
+
+```bash
+# Clone your fork as origin
+git clone git@github.com:you/repo.git
+cd repo
+# Add the original repo as upstream
+git remote add upstream git@github.com:original/repo.git
+git fetch upstream
+git switch -c my-feature upstream/main
+```
+
+**24. What is a Pull Request, and why use one?**
+
+A **Pull Request** (or **Merge Request** on GitLab) is a request to merge changes from one branch (or fork) into another. It's a GitHub feature — not a Git concept. PRs add:
+
+- **Code review** — line-by-line comments, suggested edits.
+- **Automated checks** — CI status, required reviewers, branch protections.
+- **Discussion** — context lives with the change, not in chat history.
+- **Atomic merge** — squash, rebase, or merge commit options.
+
+A good PR is small (< ~400 lines), focused (one logical change), and self-explanatory in its description.
+
+**25. What does `git revert` do, and how is it different from `git reset`?**
+
+- **`git revert <sha>`** — creates a **new commit** that applies the inverse of the target commit. History is **preserved**. Safe on shared branches.
+- **`git reset <sha>`** — moves the branch pointer backward. History is **rewritten**. **Only safe locally.**
+
+```bash
+git revert HEAD              # undo last commit by adding an inverse commit
+git revert -m 1 <merge-sha>  # revert a merge commit (pick parent to keep)
+```
+
+Rule: **revert public history, reset private history.**
+
+**26. What is `git reflog`, and when do you use it?**
+
+`git reflog` is a **local log of every position HEAD has been in** — every commit, reset, rebase, checkout, merge. It saves you when something seems "lost":
+
+```bash
+git reflog                            # list recent HEAD movements
+git reset --hard HEAD@{3}             # jump back to where HEAD was 3 moves ago
+git checkout -b rescue HEAD@{1}       # rescue a "lost" branch
+```
+
+Entries live ~90 days by default (configurable via `gc.reflogExpire`). Reflog is **per-clone** and **never pushed** — it can't save you if you lose the whole repo.
+
+**27. How do you rename a branch (local and remote)?**
+
+```bash
+# Local — rename the current branch
+git branch -m new-name
+# Or rename a non-checked-out branch
+git branch -m old-name new-name
+
+# Push the new name and set upstream
+git push -u origin new-name
+
+# Delete the old remote name
+git push origin --delete old-name
+```
+
+If you renamed `master` → `main`, also update the default branch in GitHub's repo settings.
+
+**28. What's the difference between `origin` and `upstream`?**
+
+These are just **remote names** — they have no special meaning to Git. **Convention:**
+
+- **`origin`** — your own fork (or the only remote, if you have direct access).
+- **`upstream`** — the **original** repo you forked from.
+
+```bash
+git remote -v
+# origin    git@github.com:you/repo.git (fetch/push)   ← your fork
+# upstream  git@github.com:org/repo.git (fetch/push)   ← the source
+
+# Keep your fork in sync
+git fetch upstream
+git switch main
+git merge upstream/main          # or: git rebase upstream/main
+git push origin main
+```
+
+**29. What is `git blame` used for?**
+
+`git blame <file>` shows, for **every line**, the commit and author that last changed it.
+
+```bash
+git blame README.md
+git blame -L 50,80 src/auth.py            # only lines 50–80
+git blame -w README.md                     # ignore whitespace-only changes
+git blame --ignore-revs-file .git-blame-ignore-revs  # skip formatting commits
+```
+
+Use it to find the commit that introduced a line — then `git show <sha>` for the full context (message, diff, related files). Pair with `git log -S "string"` to find when a literal string was added or removed ("pickaxe" search).
+
+**30. How do you squash multiple commits into one?**
+
+Interactive rebase:
+
+```bash
+git rebase -i HEAD~5             # edit the last 5 commits
+```
+
+In the editor, change `pick` to `squash` (or `s`) for commits to fold into the one above:
+
+```
+pick   abc1234  Add login endpoint
+squash def5678  Fix lint
+squash 9876543  Typo
+pick   1111111  Add logout endpoint
+```
+
+Git will then open another editor to combine the commit messages. Alternatives:
+
+- **`git commit --amend`** — squash into the previous commit (only the last one).
+- **GitHub's "Squash and merge"** button — squashes a whole PR into one commit on merge.
+
+---
+
+### Hard (Senior Level)
+
+**31. Explain Git internals: blobs, trees, commits, and refs.**
+
+Git is a **content-addressable filesystem** with four object types, all stored in `.git/objects/` keyed by SHA-1 (or SHA-256):
+
+- **Blob** — file content (no name, no metadata). Two identical files share one blob.
+- **Tree** — a directory listing: maps names → blob/tree SHAs + modes.
+- **Commit** — points to **one tree**, lists **parent commit(s)**, plus author, committer, message.
+- **Tag** (annotated) — points to a commit, with tagger + message + optional signature.
+
+```
+commit
+  └─ tree (root dir)
+       ├─ blob (README.md)
+       ├─ blob (LICENSE)
+       └─ tree (src/)
+            └─ blob (main.py)
+```
+
+**Refs** (`.git/refs/heads/main`, `refs/tags/v1.0`, `HEAD`) are just text files containing a SHA — they're the mutable names that point into the immutable object graph.
+
+**32. What's the difference between `git pull` and `git pull --rebase`?**
+
+- **`git pull`** (default) = `git fetch` + **`git merge`** → creates a merge commit if histories diverged.
+- **`git pull --rebase`** = `git fetch` + **`git rebase`** → replays your local commits **on top of** the remote tip → linear history, no merge commits.
+
+```bash
+git config --global pull.rebase true       # make rebase the default
+git config --global rebase.autoStash true  # auto-stash dirty files during rebase
+```
+
+Rebase keeps history clean but rewrites SHAs of your unpushed commits. For feature branches that are still local, rebase is usually preferable.
+
+**33. How does Git store data — what makes it "content-addressable"?**
+
+Every object's name **is** the SHA-1 of its content (`header + content`):
+
+```bash
+echo -n "hello" | git hash-object --stdin    # b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0
+echo "hello" > a.txt && echo "hello" > b.txt
+# a.txt and b.txt share ONE blob — same content, same SHA
+```
+
+This gives Git:
+
+- **Deduplication** — identical content stored once across the entire repo's history.
+- **Integrity** — any corruption changes the SHA; `git fsck` detects it.
+- **Cheap branching** — a branch is one SHA on a 40-byte ref.
+
+Loose objects are compressed individually; older objects are bundled into **packfiles** for efficiency.
+
+**34. What is `git bisect` and how do you use it?**
+
+`git bisect` is a **binary search through history** to find the commit that introduced a bug.
+
+```bash
+git bisect start
+git bisect bad                # current commit is broken
+git bisect good v1.2.0        # this older tag worked
+# Git checks out the midpoint. Test it, then:
+git bisect good   # or:  git bisect bad
+# Git keeps halving until one commit remains
+git bisect reset              # return to original HEAD
+```
+
+Automate with a script:
+
+```bash
+git bisect run ./test.sh       # exit 0 = good, non-zero = bad, 125 = skip
+```
+
+In `log₂(N)` steps you find the culprit in repos with thousands of commits.
+
+**35. Explain Git hooks. Client-side vs server-side.**
+
+**Hooks** are scripts in `.git/hooks/` that Git runs at lifecycle points. Make them executable to enable.
+
+**Client-side** (run on the developer's machine):
+- **`pre-commit`** — lint, format, run fast tests before allowing the commit.
+- **`commit-msg`** — enforce commit-message format (Conventional Commits, JIRA ID).
+- **`pre-push`** — last-chance check before sending to remote.
+
+**Server-side** (run on the receiving repo):
+- **`pre-receive`** — accept or reject a whole push (enforce policy).
+- **`update`** — per-branch check.
+- **`post-receive`** — trigger deploys, send notifications.
+
+Hooks aren't versioned by default. Share them with tools like **`pre-commit`** (Python framework, `pre-commit-config.yaml`) or **Husky** (Node ecosystem) — they wire up a single repo-tracked hook that delegates.
+
+**36. What is `git submodule`? What are its pitfalls?**
+
+A **submodule** is a reference to another Git repository, pinned to a specific commit, embedded inside your repo at a path.
+
+```bash
+git submodule add https://github.com/foo/bar libs/bar
+git submodule update --init --recursive            # after a clone
+git submodule update --remote                       # update to latest upstream
+```
+
+`.gitmodules` records the URL and path. The parent repo stores **the submodule's commit SHA** as a special "gitlink" tree entry.
+
+**Pitfalls:**
+- Easy to forget `--recursive` on clone and end up with empty submodule dirs.
+- Detached HEAD inside the submodule by default — commits made there are easy to lose.
+- A new contributor needs to know to run `git submodule update` after every pull.
+- Refactoring across submodule boundaries is painful.
+
+Modern alternatives: **monorepo tools** (Nx, Turborepo, Bazel), **`git subtree`**, or **package managers**.
+
+**37. Compare branching strategies: Git Flow, GitHub Flow, Trunk-Based.**
+
+| Strategy        | Branches                                      | Releases         | Best for                             |
+| --------------- | --------------------------------------------- | ---------------- | ------------------------------------ |
+| **Git Flow**    | `main`, `develop`, `feature/*`, `release/*`, `hotfix/*` | Scheduled, versioned | Shrink-wrapped software with versions |
+| **GitHub Flow** | `main` + short-lived `feature/*`              | Continuous, on merge | Web apps, SaaS, fast-moving teams    |
+| **Trunk-Based** | Everyone commits to `main`; feature flags hide WIP | Continuous, many/day | High-velocity teams, strong CI/CD    |
+
+Trunk-based is the modern default for SaaS — it requires **strong CI**, **feature flags**, and **short-lived branches** (< 1 day). Git Flow's `develop` branch is now considered overhead for most teams.
+
+**38. What's the difference between `git push --force` and `--force-with-lease`?**
+
+- **`--force`** ("force push") — **overwrites the remote branch** with your local one, **even if someone else pushed in between**. You can erase a teammate's work without warning.
+- **`--force-with-lease`** — checks that the remote tip is still what you last saw locally. If a teammate pushed since your last fetch, the push **fails safely**.
+
+```bash
+git push --force-with-lease origin feature-branch
+```
+
+**Rule:** never `--force`. Use `--force-with-lease`. And **never force-push to `main`** — protect it with a branch rule.
+
+**39. What's inside the `.git` directory?**
+
+```
+.git/
+├── HEAD                ← current branch ref (e.g. "ref: refs/heads/main")
+├── config              ← repo-local config (remotes, user, hooks path)
+├── description         ← shown in cgit/gitweb only
+├── index               ← the staging area (binary file)
+├── hooks/              ← client-side hook scripts
+├── info/exclude        ← repo-local .gitignore (not shared)
+├── objects/            ← all blobs, trees, commits, tags
+│   ├── ab/cd1234...    ← loose objects (first 2 chars = dir)
+│   └── pack/           ← packfiles (compressed bundles)
+├── refs/
+│   ├── heads/          ← local branches → SHAs
+│   ├── tags/           ← tags → SHAs
+│   └── remotes/        ← remote-tracking branches
+├── logs/               ← reflog data
+└── packed-refs         ← refs packed into one file
+```
+
+Delete `.git` and you have just files — no history. **Never** edit object files by hand; use `git update-ref` and `git update-index` for low-level surgery.
+
+**40. What are packfiles, and what does `git gc` do?**
+
+A **packfile** is a single file containing many objects, **delta-compressed** against each other. New commits create loose objects (`.git/objects/ab/cdef...`); periodically Git rolls them into packfiles for space and speed.
+
+```bash
+git gc                  # garbage collect: pack loose objects, prune unreachable
+git gc --aggressive     # slower, better compression
+git count-objects -v    # see object/pack stats
+```
+
+`git gc` also **prunes unreachable objects** older than `gc.pruneExpire` (default 2 weeks) — orphaned commits from rebases, deleted branches, etc. Until pruned, `git reflog` and `git fsck --lost-found` can recover them.
+
+**41. How do you sign commits, and why?**
+
+Signed commits prove a commit was **made by the holder of a key**, not just someone who set `user.email`. (Anyone can forge an author field — `git config user.email "linus@kernel.org"` will let you commit as Linus.)
+
+```bash
+# GPG (classic)
+gpg --full-generate-key
+git config --global user.signingkey <KEY-ID>
+git config --global commit.gpgsign true
+git commit -S -m "Signed commit"
+
+# SSH-based signing (Git ≥ 2.34, simpler)
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519.pub
+git config --global commit.gpgsign true
+```
+
+Upload your signing public key to GitHub (Settings → SSH and GPG keys → Signing keys). PRs show a green **"Verified"** badge. Enforce it via branch protection: "Require signed commits".
+
+**42. What is `git worktree`, and when is it useful?**
+
+`git worktree` lets you have **multiple working directories** backed by **one `.git` directory** — each on a different branch.
+
+```bash
+git worktree add ../hotfix main      # check out main into ../hotfix
+git worktree list
+git worktree remove ../hotfix
+```
+
+Use cases:
+
+- Fix a `main` hotfix without stashing your feature branch.
+- Run long tests on one branch while coding on another.
+- Compare two branches side-by-side in your editor.
+
+Much lighter than a second clone — no duplicate `.git`, shared object database.
+
+**43. How do you recover a deleted branch or lost commits?**
+
+If the loss is recent (≤ 90 days, no `git gc --prune=now`):
+
+```bash
+# 1. Find the dangling SHA in reflog
+git reflog                              # for HEAD
+git reflog show feature-x               # for a deleted branch (may still exist briefly)
+
+# 2. Or scan for unreachable commits
+git fsck --lost-found
+# writes orphaned commits to .git/lost-found/commit/
+
+# 3. Restore
+git switch -c rescued <sha>
+```
+
+For destroyed remote branches: if anyone else still has a local copy or it's in the GitHub Activity API, you can re-push it. Once `git gc --prune=now` has run with no references, the objects are gone.
+
+**44. Explain GitHub Actions architecture: workflows, jobs, steps, runners.**
+
+```
+Repository
+└── .github/workflows/ci.yml          ← Workflow (one YAML file)
+    ├── on: push, pull_request        ← Triggers
+    └── jobs:
+        ├── test:                     ← Job (runs on its own runner)
+        │   runs-on: ubuntu-latest    ← Runner OS
+        │   steps:                    ← Steps (run sequentially in the job)
+        │     - uses: actions/checkout@v4    ← Reusable Action
+        │     - run: npm test                ← Shell command
+        └── deploy:
+            needs: test               ← Run only after `test` succeeds
+            ...
+```
+
+Key concepts:
+
+- **Workflow** — top-level YAML, triggered by events.
+- **Job** — a unit of work; jobs run **in parallel** by default on separate runners.
+- **Step** — a command or Action inside a job; steps run **sequentially**.
+- **Runner** — the machine executing the job. **GitHub-hosted** (free minutes) or **self-hosted** (your own infra).
+- **Action** — reusable building block (`actions/checkout`, `actions/setup-node`).
+
+Secrets via `secrets.MY_TOKEN`; matrix builds via `strategy.matrix`; reusable workflows via `workflow_call`.
+
+**45. How do you handle large files in Git?**
+
+Git struggles with large binaries — they bloat history, slow clones, and can't be deduped well. Solutions:
+
+**Git LFS (Large File Storage)**:
+
+```bash
+git lfs install
+git lfs track "*.psd" "*.mp4"        # writes .gitattributes
+git add .gitattributes *.psd
+git commit -m "Track large files via LFS"
+git push                              # LFS uploads blobs to a separate store
+```
+
+The repo only stores small **pointer files**; the actual binaries live on the LFS server (GitHub provides 1 GiB free).
+
+**Other approaches:**
+- **`git annex`** — distributed large-file management, decoupled from any host.
+- **External storage** — keep binaries in S3/artifact registry, version their URLs.
+- **If they're already in history**: rewrite with **`git filter-repo`** or **BFG Repo-Cleaner** to remove them (forces a re-clone for everyone).
+
+**46. What's the difference between a Personal Access Token and an SSH key?**
+
+| Aspect             | Personal Access Token (PAT)        | SSH Key                                |
+| ------------------ | ---------------------------------- | -------------------------------------- |
+| Used over          | HTTPS                              | SSH                                    |
+| Auth model         | Bearer token (acts like a password) | Public-key cryptography (challenge-response) |
+| Scopes             | Fine-grained — repo, workflow, packages, etc. | All-or-nothing per user (broader) |
+| Expiry             | Configurable (recommended: 90 days) | None unless you rotate                 |
+| Where used         | CLI, CI, API calls, Git over HTTPS  | Git over SSH, server access            |
+| Stored             | Credential helper / OS keychain    | `~/.ssh/`, optional passphrase + agent |
+| Revoke             | One click on GitHub                | Remove the public key                  |
+
+For CI, prefer **fine-grained PATs** or, better, **GitHub Apps** / `GITHUB_TOKEN` (auto-issued, scoped to the workflow run).
+
+**47. How do CODEOWNERS files and branch protection rules work?**
+
+**`CODEOWNERS`** (in `.github/`, repo root, or `docs/`) maps **path patterns** to **reviewers**:
+
+```
+# .github/CODEOWNERS
+*                       @org/platform-team
+/frontend/              @alice @bob
+*.tf                    @org/infra-team
+/docs/**                @org/docs-team
+```
+
+When a PR touches a path, the matching owners are **auto-requested as reviewers**. Combined with **branch protection rules** on `main`:
+
+- **Require pull request reviews before merging** — N approvals, possibly from a code owner.
+- **Require status checks to pass** — CI must be green.
+- **Require signed commits**.
+- **Require linear history** — disallow merge commits.
+- **Restrict who can push** — even maintainers go through PRs.
+- **Do not allow force pushes / branch deletion**.
+
+These are how teams enforce policy in code, not just in chat.
+
+**48. What's the difference between three-way merge and recursive merge strategies?**
+
+Git's default merge is a **three-way merge**: it compares the **common ancestor** of the two branches with each of the two tips, producing a merged result based on what changed on each side.
+
+```
+        A───B───C    ← branch1 (tip)
+       /
+   ───O               ← O = merge base (common ancestor)
+       \
+        D───E         ← branch2 (tip)
+```
+
+When **multiple merge bases** exist (criss-cross merges), Git uses the **recursive** strategy: it merges the merge bases first to produce a virtual ancestor, then does the three-way merge. This is the default for two-head merges since 2008.
+
+Other strategies (`-s`):
+- **`ort`** (default since Git 2.34) — modern recursive replacement, faster and handles renames better.
+- **`octopus`** — merge >2 branches at once (no conflicts allowed).
+- **`ours`** — keep our side entirely (discard theirs).
+- **`subtree`** — for grafted subtrees with offset paths.
+
+**49. What is `git filter-repo` / BFG, and when would you use them?**
+
+Both tools rewrite Git history — to **remove secrets**, **strip large files**, or **reorganize a repo**.
+
+```bash
+# Remove a file from ALL history
+git filter-repo --path secrets.env --invert-paths
+
+# Strip files > 100 MB
+bfg --strip-blobs-bigger-than 100M repo.git
+
+# Replace text (e.g. expose+rotate a leaked token)
+echo "OLD_KEY==>***REMOVED***" > replacements.txt
+bfg --replace-text replacements.txt repo.git
+```
+
+`git filter-repo` is the modern, recommended tool (replaces the deprecated `git filter-branch`). **BFG** is simpler but more limited.
+
+**Caveats:**
+- **Rewrites all SHAs** — everyone must re-clone.
+- **Doesn't unleak secrets** — if a token was ever pushed, treat it as compromised and **rotate it**, even after rewriting.
+- Coordinate with the team and force-push during a quiet window.
+
+**50. How do you structure CI/CD with GitHub Actions for a typical app?**
+
+A practical layout:
+
+```yaml
+# .github/workflows/ci.yml
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:                       # cancel superseded runs on the same PR
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npm run lint
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { node: [18, 20] }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: ${{ matrix.node }}, cache: npm }
+      - run: npm ci && npm test
+
+  build-and-deploy:
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production         # required reviewers + secrets gate
+    permissions:
+      id-token: write               # OIDC for cloud auth — no long-lived keys
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123:role/deploy
+          aws-region: us-east-1
+      - run: ./deploy.sh
+```
+
+Best practices:
+- **OIDC over static cloud keys** — short-lived, repo-scoped tokens.
+- **Cache dependencies** (`actions/cache` or `setup-*` built-in cache).
+- **`concurrency`** to cancel stale PR runs.
+- **`environment`** for production gates (reviewers, secrets, deployment history).
+- **Pin Action versions to a SHA** in security-sensitive repos (`uses: actions/checkout@<sha>`).
+- **Use reusable workflows** (`workflow_call`) to share pipelines across repos.
 
 ---
 

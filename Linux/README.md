@@ -30,8 +30,13 @@
 
 ---
 
+> 🎯 **[Common Interview Questions →](#common-interview-questions)** &nbsp;·&nbsp; 50 Linux interview questions (10 Easy · 20 Medium · 20 Hard) for DevOps junior / mid / senior roles.
+
+---
+
 ## Table of Contents
 
+- [Common Interview Questions](#common-interview-questions)
 - [Introduction](#introduction)
 - [Command Note Template](#command-note-template)
 - [Basic Commands](#basic-commands)
@@ -7789,6 +7794,615 @@ sudo systemctl restart systemd-journald
 - **journald defaults to "10% of /var" or 4 GiB, whichever is smaller** — fine on most boxes, can be a lot on small VPS instances. Tune `SystemMaxUse=` if your `/var` is tight.
 - **For containers and modern stacks, you usually don't rotate inside the container** — the runtime (`docker`, `containerd`, `kubelet`) handles log rotation at the host level. Inside the container, log to stdout/stderr and let the runtime route it.
 - **Centralized logging changes the math.** If everything ships to a central log server, local retention can be aggressive (1–3 days) since the master copy lives elsewhere.
+
+---
+
+## Common Interview Questions
+
+**50 commonly asked Linux interview questions** for DevOps roles — **10 Easy** (junior), **20 Medium** (mid-level), **20 Hard** (senior). Curated to cover the topics that come up most in real interviews: filesystem, processes, permissions, networking, boot/init, performance, security, and containers/Linux internals.
+
+### Easy (Junior Level)
+
+**1. What is Linux, and how is it different from Unix?**
+
+Linux is an open-source, Unix-like operating system kernel created by Linus Torvalds in 1991, paired with GNU userspace tools to form a complete OS. Unix is the original 1970s AT&T-developed OS family (commercial: AIX, Solaris, HP-UX). They share POSIX APIs and shell conventions, but Linux is free, has a single kernel codebase used everywhere from phones to supercomputers, and is community-driven; Unix variants are vendor-specific and closed-source.
+
+**2. What is the kernel?**
+
+The **kernel** is the core program that runs in privileged mode (ring 0), owns the hardware, and exposes a system-call API to userspace. It manages CPU scheduling, memory, filesystems, networking, and devices. Linux is a **monolithic kernel with loadable modules** — drivers run in kernel space but can be loaded/unloaded at runtime via `modprobe`.
+
+**3. What is a shell? Name common shells.**
+
+A **shell** is a command interpreter that reads user input and runs programs. Common shells: **bash** (default on most distros), **zsh** (modern, plugin-rich, default on macOS), **sh** (POSIX-minimal, often a symlink), **dash** (fast POSIX shell, Ubuntu's `/bin/sh`), **fish** (user-friendly, not POSIX-compliant). Check yours with `echo $SHELL`.
+
+**4. How do you check the current working directory?**
+
+Use `pwd` (print working directory):
+
+```bash
+pwd
+# /home/tarek/projects
+```
+
+The environment variable `$PWD` holds the same value.
+
+**5. What command lists all files, including hidden ones?**
+
+`ls -la`:
+
+```bash
+ls -la
+# drwxr-xr-x  5 tarek tarek 4096 Jun 20 10:00 .
+# drwxr-xr-x 20 tarek tarek 4096 Jun 19 09:30 ..
+# -rw-------  1 tarek tarek  220 Jan 15  2024 .bashrc
+# -rw-r--r--  1 tarek tarek  100 Jun 20 09:55 file.txt
+```
+
+Hidden files in Linux start with a `.` — `-a` shows them; `-l` adds the long listing (perms, owner, size, mtime).
+
+**6. How do you check disk space usage?**
+
+- **`df -h`** — free/used space per **mounted filesystem** (human-readable).
+- **`du -sh <dir>`** — total size of one directory.
+- **`du -h --max-depth=1 /var | sort -h`** — top hogs under `/var`.
+- **`df -i`** — inode usage (a partition can be "full" by inodes even with bytes free).
+
+**7. How do you create, copy, move, and delete files in Linux?**
+
+```bash
+touch file.txt              # create empty file
+cp file.txt copy.txt        # copy
+cp -r dir/ newdir/          # copy directory recursively
+mv file.txt /tmp/           # move (also used to rename)
+rm file.txt                 # delete
+rm -rf dir/                 # delete dir + contents (DANGEROUS)
+mkdir -p a/b/c              # create dir + parents
+```
+
+**8. What is the difference between absolute and relative paths?**
+
+- **Absolute path** starts from the root `/`: `/home/tarek/file.txt`. Same meaning from anywhere.
+- **Relative path** starts from the **current working directory**: `./file.txt`, `../docs/readme.md`. `.` is "current dir", `..` is "parent dir", `~` is "home dir".
+
+**9. What does `ls -l` output show?**
+
+```
+-rw-r--r-- 1 tarek tarek 100 Jun 20 09:55 file.txt
+│└┬┘└┬┘└┬┘ │  │     │     │      │          │
+│ │  │  │  │  │     │     │      │          └── filename
+│ │  │  │  │  │     │     │      └── modification time
+│ │  │  │  │  │     │     └── size in bytes
+│ │  │  │  │  │     └── group
+│ │  │  │  │  └── owner (user)
+│ │  │  │  └── number of hard links
+│ │  │  └── other permissions (r--)
+│ │  └── group permissions (r--)
+│ └── owner permissions (rw-)
+└── file type (- regular, d directory, l symlink, c char device, b block device)
+```
+
+**10. How do you read large log files efficiently?**
+
+Don't `cat` them — they'll flood your terminal. Use:
+
+- **`less <file>`** — page through, search with `/`, follow with `Shift+F`.
+- **`tail -F /var/log/syslog`** — live tail (survives log rotation).
+- **`head -100 file.log`** / **`tail -100 file.log`** — first / last 100 lines.
+- **`grep "ERROR" file.log`** — only matching lines.
+- **`zless` / `zgrep`** for `.gz`-compressed rotated logs.
+
+---
+
+### Medium (Mid-Level)
+
+**11. What's the difference between a hard link and a symbolic link?**
+
+| Aspect              | Hard link                      | Symbolic link (symlink)     |
+| ------------------- | ------------------------------ | --------------------------- |
+| Inode               | Same as target (shared)        | Own inode; points by path   |
+| Cross filesystem?   | No                              | Yes                         |
+| Link to directory?  | No (root only, restricted)      | Yes                         |
+| Survives target delete? | Yes — data lives until last link gone | Becomes dangling     |
+| Created by          | `ln source link`                | `ln -s source link`         |
+
+A hard link is **another name for the same file**; a symlink is **a tiny file containing a path** to follow.
+
+**12. Explain file permissions and how to change them.**
+
+Each file has three permission classes (**owner**, **group**, **other**) with three bits each (**read**, **write**, **execute**) → 9 bits, shown as `rwxr-xr--`. In **octal**: `r=4, w=2, x=1`, so `rwxr-xr--` = `754`.
+
+```bash
+chmod 755 script.sh        # rwxr-xr-x
+chmod u+x script.sh        # add execute for owner
+chmod g-w file             # remove write for group
+chown alice:devs file      # change owner and group
+```
+
+Special bits: **setuid** (`4xxx`), **setgid** (`2xxx`), **sticky** (`1xxx`).
+
+**13. What's the purpose of `/etc/passwd` vs `/etc/shadow`?**
+
+- **`/etc/passwd`** — world-readable; holds username, UID, GID, home, shell. **No passwords** (the `x` is a placeholder).
+- **`/etc/shadow`** — root-only (mode 0640); holds hashed passwords, password-aging info, account-expiry.
+
+Splitting them lets `getent passwd` work for everyone without exposing hashes to dictionary attacks.
+
+**14. How do you find files larger than 100 MB?**
+
+```bash
+find / -xdev -type f -size +100M -exec ls -lh {} \; 2>/dev/null
+
+# Or sorted by size:
+sudo find / -xdev -type f -size +100M -printf '%s %p\n' 2>/dev/null \
+  | sort -nr | head -20 | awk '{printf "%.0f MB\t%s\n", $1/1048576, $2}'
+```
+
+`-xdev` stops `find` from crossing mountpoints (avoids diving into `/proc`, `/sys`, network mounts).
+
+**15. What's the difference between `grep`, `egrep`, and `fgrep`?**
+
+- **`grep`** — basic regular expressions (BRE).
+- **`grep -E` / `egrep`** — extended regex (ERE): `+`, `?`, `|`, `()` without backslashes.
+- **`grep -F` / `fgrep`** — fixed strings, no regex, fastest.
+
+`egrep` and `fgrep` are deprecated wrappers; modern usage is `grep -E` and `grep -F`.
+
+**16. Explain process states.**
+
+| State | Meaning                                                          |
+| ----- | ---------------------------------------------------------------- |
+| **R** | Running or runnable (on the run queue)                            |
+| **S** | Interruptible sleep (waiting on I/O, signal, or event)            |
+| **D** | Uninterruptible sleep (usually waiting on disk — **can't be killed**) |
+| **Z** | Zombie — terminated, but parent hasn't `wait()`ed yet             |
+| **T** | Stopped (SIGSTOP / Ctrl+Z) or being traced                        |
+| **I** | Idle kernel thread (kernel ≥ 4.2)                                  |
+
+See states with `ps aux` — the `STAT` column.
+
+**17. What is a zombie process? How do you remove it?**
+
+A **zombie** is a process that has exited but whose parent hasn't called `wait()` to reap its exit status. It holds only a PID + exit code, no memory or file descriptors. You **can't `kill` a zombie** (it's already dead). The fix: send **`SIGCHLD`** to the parent (asks it to reap), or kill the parent — the kernel will re-parent the zombie to `init` (PID 1), which reaps it immediately.
+
+**18. Explain the difference between SIGTERM, SIGKILL, and SIGHUP.**
+
+| Signal     | #  | Catchable? | Use                                                |
+| ---------- | -- | ---------- | -------------------------------------------------- |
+| **SIGTERM** | 15 | Yes | Polite "please exit" — process can clean up first. **Default for `kill <pid>`.** |
+| **SIGKILL** |  9 | **No**  | Immediate kernel-level kill. No cleanup. Last resort. |
+| **SIGHUP**  |  1 | Yes | Originally "terminal hang-up"; now commonly used as "reload config" (nginx, sshd). |
+
+Always try `SIGTERM` first, then `SIGKILL` if it doesn't exit in a few seconds.
+
+**19. How does cron work? Where do you configure jobs?**
+
+`cron` is a daemon that reads time-based schedules and forks commands at the right minute. Schedules live in:
+
+- **`crontab -e`** — per-user (`/var/spool/cron/<user>`)
+- **`/etc/crontab`** — system-wide, with extra **user** field
+- **`/etc/cron.d/<file>`** — drop-in system jobs
+- **`/etc/cron.{hourly,daily,weekly,monthly}/`** — just drop executables
+
+Format: `min hour day-of-month month day-of-week command`. Modern alternative: **systemd timers** (`.timer` units) for dependency-aware, journaled scheduling.
+
+**20. What's the difference between `su` and `sudo`?**
+
+- **`su`** — "switch user"; opens a new shell as another user (default: root). Requires the **target user's** password.
+- **`sudo`** — "do as another user"; runs **one command** as another user. Requires **your own** password, authorized by `/etc/sudoers`.
+
+`sudo` logs every command (`/var/log/auth.log`), supports fine-grained policies, and doesn't require sharing the root password. `sudo -i` opens a root shell similar to `su -`.
+
+**21. How do you check which ports are open on a system?**
+
+```bash
+ss -lntp                   # listening TCP, with PID/program — preferred
+ss -lnup                   # UDP version
+sudo lsof -i -P -n         # all sockets, numeric, with PID
+sudo netstat -tlnp         # older equivalent (net-tools)
+nmap -sT localhost         # external scan from another box
+```
+
+`ss` is the modern replacement for `netstat` — faster, reads `/proc/net/tcp` directly.
+
+**22. What is the `/proc` filesystem?**
+
+`/proc` is a **virtual filesystem** that exposes live kernel and per-process state as files. Reading them invokes kernel code that formats data on the fly — they take zero disk space. Examples:
+
+- `/proc/cpuinfo`, `/proc/meminfo`, `/proc/version`
+- `/proc/<pid>/cmdline`, `/proc/<pid>/status`, `/proc/<pid>/fd/`
+- `/proc/sys/...` — tunables (`sysctl` reads/writes here)
+
+Sibling `/sys` exposes the kernel's device model.
+
+**23. Explain `umask` and how it affects new files.**
+
+`umask` is a **bit mask of permissions to remove** from newly created files. Default permissions:
+
+- New files: `0666` (rw-rw-rw-) → masked → typical result `0644`
+- New dirs:  `0777` (rwxrwxrwx) → masked → typical result `0755`
+
+With `umask 022`, the mask removes write from group + other:
+- File: `0666 & ~022 = 0644` (rw-r--r--)
+- Dir:  `0777 & ~022 = 0755` (rwxr-xr-x)
+
+Stricter `umask 077` makes files private to the owner.
+
+**24. How do you find which process is using a specific port?**
+
+```bash
+sudo ss -lntp 'sport = :80'
+sudo lsof -i :80
+sudo fuser 80/tcp -v
+```
+
+All three show the PID + command holding the port.
+
+**25. What is swap space, and how do you create a swap file?**
+
+**Swap** is disk space used as overflow when RAM is full — the kernel pages out inactive memory and reads it back when needed. Modern systems prefer **swap files** (easy to resize/remove) over swap partitions.
+
+```bash
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+Tune **`vm.swappiness`** (default 60) — lower it (10–20) on latency-sensitive workloads.
+
+**26. What's the difference between `df` and `du`?**
+
+- **`df`** — reports **filesystem-level** free space from the superblock. Fast, includes all mounted FSes.
+- **`du`** — walks the directory tree and **sums file sizes**. Slow, but per-directory.
+
+They can disagree because (a) deleted-but-still-open files hold blocks (`lsof +L1` finds them), (b) sparse files have fewer real than apparent bytes, (c) reserved blocks for root appear used to non-root.
+
+**27. Explain the Linux boot process.**
+
+1. **Firmware (BIOS/UEFI)** — POST, picks a boot device, loads first-stage code (MBR or `.efi` from the ESP).
+2. **Bootloader (GRUB2)** — picks a kernel, loads `vmlinuz` + `initramfs` into RAM, jumps to kernel.
+3. **Kernel** — decompresses, brings up CPUs/memory/built-in drivers, mounts initramfs as `/`, runs `/init`.
+4. **Initramfs** — loads drivers needed to mount the real root FS, then `switch_root` into it.
+5. **Init (PID 1, systemd)** — brings up units in dependency order until reaching `default.target` (multi-user / graphical).
+6. **Login** — `getty` on TTYs or display manager (gdm/sddm).
+
+`systemd-analyze` breaks down the time spent in each stage.
+
+**28. What is systemd, and how is it different from SysV init?**
+
+**systemd** is a modern init system (PID 1) using declarative **unit files**, an explicit **dependency graph**, and **parallel** unit startup. **SysV init** used numbered shell scripts in `/etc/rc<N>.d/` run sequentially.
+
+| SysV init                       | systemd                              |
+| ------------------------------- | ------------------------------------ |
+| Shell scripts in `/etc/init.d/` | INI-style `.service` / `.target` units |
+| Sequential boot                 | Parallel boot via dep graph          |
+| Runlevels (0–6)                 | Targets (multi-user.target, etc.)    |
+| Hard to track child processes   | cgroup-based — always knows every descendant |
+| `service` / `chkconfig`         | `systemctl` / `journalctl`           |
+
+**29. How do you redirect stdout, stderr, both, and to a file?**
+
+```bash
+cmd > file              # stdout → file (truncate)
+cmd >> file             # stdout → file (append)
+cmd 2> file             # stderr → file
+cmd > out 2> err        # stdout + stderr to separate files
+cmd > file 2>&1         # both to one file
+cmd &> file             # same (bash shorthand)
+cmd < input.txt         # stdin from file
+cmd | other             # pipe stdout into another command
+cmd 2>&1 | tee log      # log both streams and see them live
+cmd > /dev/null 2>&1    # silence everything
+```
+
+**30. Explain how to securely set up SSH key authentication.**
+
+```bash
+# 1. On client: generate a key pair (Ed25519 preferred over RSA)
+ssh-keygen -t ed25519 -C "you@host"
+# Produces ~/.ssh/id_ed25519 (private — NEVER share) and id_ed25519.pub
+
+# 2. Copy the public key to the server:
+ssh-copy-id user@server
+# Or manually: append id_ed25519.pub to ~/.ssh/authorized_keys on the server
+
+# 3. Lock down server-side:
+sudo vi /etc/ssh/sshd_config
+#   PasswordAuthentication no
+#   PermitRootLogin prohibit-password   # or no
+#   PubkeyAuthentication yes
+sudo systemctl restart sshd
+
+# 4. Protect the private key:
+chmod 600 ~/.ssh/id_ed25519
+```
+
+Best practice: use **separate keys per machine**, protect private keys with a **passphrase** + `ssh-agent`, and rotate keys periodically.
+
+---
+
+### Hard (Senior Level)
+
+**31. Explain how Linux memory management works (paging, swap, OOM killer).**
+
+Linux uses **virtual memory** — each process sees a private 64-bit address space backed by physical pages. The kernel splits memory into 4 KiB **pages**, mapped via per-process page tables. Unused pages get **paged out to swap**; frequently-accessed disk blocks are kept in the **page cache** to speed reads.
+
+When physical RAM is exhausted **and** swap is exhausted (or fast filling), the **OOM killer** runs. It picks a victim using `oom_score` (computed from RSS + `oom_score_adj`) and sends SIGKILL. To favor or protect a process:
+
+```bash
+echo -1000 > /proc/<pid>/oom_score_adj   # never kill (range -1000..1000)
+```
+
+Tune with **`vm.swappiness`** (paging aggressiveness), **`vm.overcommit_memory`** (allocation policy), and **`vm.dirty_ratio`** (dirty page flush threshold).
+
+**32. What are cgroups and namespaces? How are they used in containers?**
+
+Both are kernel features that together enable containers.
+
+- **Namespaces** isolate **what a process can see**: PID, network, mount, UTS (hostname), IPC, user, cgroup. A process in a new PID namespace sees its own PID 1; in a new network namespace it has its own interfaces.
+- **cgroups** ("control groups") limit **what resources a process can use**: CPU shares, memory caps, I/O bandwidth, PIDs count. cgroups v2 is the modern unified hierarchy.
+
+Docker / Podman / Kubernetes combine namespaces (isolation) + cgroups (limits) + a layered filesystem (overlayfs) + capabilities/seccomp/AppArmor (security) to build a container. A container is not a VM — it shares the host kernel.
+
+**33. How does copy-on-write `fork()` work?**
+
+`fork()` creates a child process that's a near-exact copy of the parent. Naive implementation: copy every page. Linux uses **copy-on-write (COW)**: the child shares the parent's pages, marked read-only. Both processes can read freely; the first **write** triggers a page fault, the kernel allocates a fresh page, copies the original, marks both writable, and resumes. Pages that are never written are never duplicated.
+
+That's why `fork()` followed immediately by `execve()` is cheap — `execve` discards the address space before any writes happen, so almost nothing is actually copied.
+
+**34. Explain inodes. What happens when you run out of inodes?**
+
+An **inode** is the on-disk record holding a file's metadata: type, permissions, owner, size, timestamps, link count, and pointers to data blocks. The **filename is not in the inode** — it lives in a directory entry that maps a name → inode number.
+
+Ext2/3/4 allocate inodes at `mkfs` time (fixed pool); XFS/Btrfs allocate dynamically. If you create millions of tiny files on ext4, you can **exhaust inodes** even with bytes free — `df -h` shows free space, but `df -i` shows 100%. The fix: delete files, or reformat with `mkfs.ext4 -i <bytes-per-inode>` to allocate more inodes per byte.
+
+**35. How would you debug high load average with low CPU usage?**
+
+**Load average includes runnable + uninterruptible (D-state) processes.** Low CPU + high load = processes blocked on I/O, not CPU.
+
+Diagnosis order:
+
+```bash
+uptime               # confirm high load
+mpstat 1 5           # see %iowait — if high, it's disk
+vmstat 1 5           # b column = blocked procs; wa = iowait
+iostat -xz 1         # per-disk %util, await — find the busy disk
+iotop -o             # which PROCESS is doing the I/O
+ps -eo pid,stat,wchan,cmd | awk '$2 ~ /D/'   # processes stuck in D state
+```
+
+Common culprits: failing disk (check `dmesg`), NFS hang, swap thrashing, a misbehaving database flush.
+
+**36. What's the difference between Buffer and Cache in `free` output?**
+
+Historically:
+- **Buffers** = raw block-device cache (e.g. filesystem metadata blocks read by `dd if=/dev/sda`).
+- **Cache** = page cache (file contents read by `cat /etc/passwd`).
+
+Modern Linux unifies them — both are reclaimable. The number that actually matters is **`available`**, which estimates how much memory a new process can grab without forcing swap. "Used" memory in `free` includes cache; that's not memory pressure.
+
+**37. How does filesystem journaling work?**
+
+A **journal** is a log of pending filesystem changes written **before** the changes are applied to the main FS structures. After a crash, the FS replays the journal at mount time, finishing or discarding in-progress operations — so the FS is always recoverable to a consistent state.
+
+ext4 journal modes:
+- **`data=writeback`** — metadata journaled, data not. Fastest, can leak stale data after crash.
+- **`data=ordered`** (default) — metadata journaled; data written before its metadata commit.
+- **`data=journal`** — both data and metadata journaled. Safest, slowest.
+
+XFS and Btrfs have their own designs; both are crash-safe by construction.
+
+**38. What happens step-by-step when you type a command and press Enter?**
+
+1. **Shell reads** the line, performs **word splitting**, **glob expansion** (`*.txt`), **variable expansion** (`$HOME`), **command substitution** (`$(...)`), **pipe/redirect setup**.
+2. Shell looks up the command: **builtins** first (`cd`, `echo`), then **functions/aliases**, then **`$PATH`** lookup.
+3. Shell calls **`fork()`** → child process is created via COW.
+4. Child calls **`execve("/usr/bin/cmd", argv, envp)`** — kernel replaces the child's address space with the binary.
+5. Kernel loads the **dynamic linker** (`ld-linux.so`), which maps shared libraries.
+6. Binary's `main()` runs; it makes **syscalls** (open, read, write) via the `syscall` instruction.
+7. On exit, child calls **`exit()`**; kernel reaps resources and stores the **exit code**.
+8. Parent shell's `wait()` returns; **`$?`** is set to the exit code; shell prints the prompt.
+
+**39. How would you find which process is consuming the most I/O?**
+
+```bash
+# Live, per-process:
+sudo iotop -oP             # -o: only active, -P: processes (not threads)
+
+# Scriptable / non-curses:
+sudo pidstat -d 1 5
+
+# Per-disk view first, then drill down:
+iostat -xz 1               # find the busy device (%util, await)
+sudo lsof <device-or-mount>   # who has it open?
+
+# Kernel-level eBPF (most precise):
+sudo biosnoop-bpfcc         # per-I/O latency + offending process
+sudo biolatency-bpfcc       # histogram of I/O latencies
+```
+
+**40. Explain LVM and its benefits.**
+
+**LVM** (Logical Volume Manager) is an abstraction layer between physical disks and filesystems:
+
+```
+Physical Volumes (PVs)   ← raw disks/partitions (pvcreate /dev/sdb1)
+        ↓
+Volume Group (VG)        ← pool of PV storage (vgcreate vg0 /dev/sdb1)
+        ↓
+Logical Volumes (LVs)    ← carved out of VG, looks like a partition (lvcreate -L 100G vg0)
+        ↓
+Filesystem (ext4/xfs)    ← mkfs.ext4 /dev/vg0/data
+```
+
+Benefits: **online resize** (grow `/` without reboot), **snapshots** (consistent point-in-time copies for backups), **adding disks to existing volumes** (extend VG with `vgextend`), **thin provisioning**, **mirroring/striping** built in.
+
+**41. How does SSH key-based authentication work cryptographically?**
+
+1. Client sends "I'd like to authenticate as user X with this **public key** fingerprint".
+2. Server checks its `~user/.ssh/authorized_keys`. If the fingerprint matches an entry:
+3. Server generates a **random challenge**, encrypts it with the **public key**, sends it.
+4. Client decrypts with its **private key** (only the holder can do this), signs the result, returns it.
+5. Server verifies the signature using the public key — if valid, authentication succeeds.
+
+It's **public-key cryptography**: the public key encrypts (or verifies); only the private key can decrypt (or sign). The private key never leaves the client. Modern setups use **Ed25519** or **ECDSA**; RSA is still common but requires ≥ 3072-bit keys.
+
+**42. What is SELinux/AppArmor, and how do they differ from traditional permissions?**
+
+Traditional Unix permissions are **discretionary** (DAC) — the file owner controls access. **SELinux** and **AppArmor** add **mandatory access control** (MAC) — a system-wide policy decides what every process can do, on top of DAC.
+
+- **SELinux** (Red Hat ancestry, default on RHEL/Fedora) — labels every file/process with a **security context** (`user:role:type:level`). Policy says "processes of type `httpd_t` can only read files of type `httpd_config_t`". Powerful but complex.
+- **AppArmor** (default on Ubuntu/SUSE) — **path-based** profiles per binary. `/usr/sbin/nginx` is restricted by `/etc/apparmor.d/usr.sbin.nginx`. Simpler than SELinux, less granular.
+
+Even **root** is restricted by MAC — that's the point.
+
+**43. Explain the difference between threads and processes in Linux.**
+
+In Linux, both threads and processes are created by **`clone(2)`**. The difference is the flags:
+
+- A **process** has its own address space, file descriptors, and PID. `clone()` without `CLONE_VM` / `CLONE_FILES` (or equivalently `fork()`).
+- A **thread** shares the address space, file descriptors, signal handlers, and PID with siblings, but has its own TID and stack. `clone(CLONE_VM | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | ...)`.
+
+Threads are cheaper to create (no page-table copy) and communicate via shared memory; processes are more isolated. `ps -eLf` shows threads; `/proc/<pid>/task/` lists them. `getpid()` returns the TGID (process); `gettid()` returns the TID.
+
+**44. What is eBPF, and how is it used in production?**
+
+**eBPF** ("extended Berkeley Packet Filter") is a tiny safe VM **inside the Linux kernel** that lets you attach programs to kernel events (syscalls, tracepoints, network packets, scheduler events) without writing a kernel module. Programs are verified for safety before loading, so they can't crash the kernel.
+
+Production uses:
+- **Observability**: `bpftrace`, `bcc-tools` (`biolatency`, `tcpconnect`, `execsnoop`) — low-overhead tracing
+- **Networking**: **Cilium** (Kubernetes CNI), **Katran** (L4 load balancer at Meta)
+- **Security**: **Falco** (runtime threat detection), syscall filtering, audit replacement
+- **Performance**: profiling without `perf` overhead, custom histograms in production
+
+eBPF is what "observability platforms" (Datadog, Pixie, Groundcover) use under the hood.
+
+**45. How does a system call actually work? (user → kernel → return)**
+
+```
+Userspace:
+  mov rax, 0          ; syscall number (0 = read)
+  mov rdi, fd         ; arg 1 → first 6 args go in registers
+  mov rsi, buf        ; arg 2
+  mov rdx, count      ; arg 3
+  syscall             ; ← traps into ring 0
+
+Kernel:
+  - CPU switches CS to kernel code segment, RSP to kernel stack
+  - entry_SYSCALL_64 saves user registers
+  - Looks up rax in sys_call_table → calls sys_read()
+  - sys_read does the work, returns result in rax
+  - Restores user registers
+  - sysretq → CPU back to ring 3
+
+Userspace:
+  - rax now holds bytes read (or -errno as a negative number)
+  - libc wrapper converts -errno → sets errno, returns -1
+```
+
+`strace -c` shows you which syscalls a program uses and how often. The vDSO maps a few hot syscalls (`gettimeofday`, `clock_gettime`) directly into user space to skip the trap.
+
+**46. How would you debug a kernel panic?**
+
+A kernel panic prints a stack trace to the console (and sometimes the journal). Recovery steps:
+
+1. **Capture the panic** — photo of the screen, or enable **`kdump`** to write a `vmcore` to `/var/crash/` on next boot.
+2. **Read the trace** — top frame is usually the offender. Look for `[<addr>] function_name+0xNN/0xMM`.
+3. **Match to a module** — `lsmod`-equivalent in `vmcore` shows which driver was active.
+4. **Check recent changes** — new kernel? new module? new hardware? Rolling back is often the fastest fix.
+5. **Reproduce in a VM** with the same kernel, then `crash` / `gdb vmlinux vmcore` to inspect state.
+6. **Boot the previous kernel** from GRUB's "Advanced options" while investigating.
+
+Common causes: bad RAM (run `memtester` / `memtest86`), bad disk controller, buggy out-of-tree driver (NVIDIA, ZFS), kernel bug.
+
+**47. Explain how `strace` works under the hood.**
+
+`strace` uses **`ptrace(2)`** — a syscall that lets a tracer attach to a tracee. When the tracee enters or exits a syscall, the kernel stops it and notifies the tracer. The tracer reads registers (syscall number, args) and the tracee's memory (string contents) via `ptrace(PTRACE_PEEKDATA, ...)`.
+
+```bash
+strace -p <pid>           # attach to a running process
+strace -f cmd             # follow forks
+strace -c cmd             # summary table at end
+strace -e openat cmd      # only specific syscalls
+```
+
+Overhead is high — every syscall doubles in cost (entry + exit stop). For production tracing, use **eBPF-based tools** (`execsnoop`, `opensnoop`) instead — kernel-level, near-zero overhead.
+
+**48. What's the difference between a container and a VM at the kernel level?**
+
+| Aspect          | Virtual machine                       | Container                                    |
+| --------------- | ------------------------------------- | -------------------------------------------- |
+| Kernel          | Each VM has its own kernel             | Shares the host kernel                       |
+| Hardware        | Emulated/virtualized via hypervisor    | None — direct syscalls to host kernel        |
+| Boot time       | Tens of seconds                        | Milliseconds                                 |
+| Memory overhead | Hundreds of MB per VM                  | Megabytes per container                      |
+| Isolation       | Strong — hardware-level (Ring -1, VT-x) | Kernel-level (namespaces + cgroups + seccomp) |
+| Density         | ~10s per host                          | ~100s–1000s per host                         |
+| Cross-OS        | Yes (Linux VM on Windows host)         | No — Linux container needs Linux kernel      |
+
+A container is fundamentally a **regular Linux process** with restricted views (namespaces) and resource caps (cgroups). It's not "lightweight virtualization"; it's process isolation.
+
+**49. How do you tune a Linux server for high-performance networking?**
+
+```bash
+# 1. Increase socket buffer sizes:
+sysctl -w net.core.rmem_max=134217728
+sysctl -w net.core.wmem_max=134217728
+sysctl -w net.ipv4.tcp_rmem="4096 87380 134217728"
+sysctl -w net.ipv4.tcp_wmem="4096 65536 134217728"
+
+# 2. Bump backlog queues:
+sysctl -w net.core.somaxconn=4096
+sysctl -w net.core.netdev_max_backlog=10000
+sysctl -w net.ipv4.tcp_max_syn_backlog=8192
+
+# 3. Reuse TIME_WAIT sockets (short-lived connections):
+sysctl -w net.ipv4.tcp_tw_reuse=1
+
+# 4. BBR congestion control (better than cubic for high-bandwidth):
+sysctl -w net.ipv4.tcp_congestion_control=bbr
+
+# 5. NIC tuning:
+ethtool -K eth0 gro on tso on gso on
+ethtool -G eth0 rx 4096 tx 4096      # ring buffer sizes
+ethtool -L eth0 combined $(nproc)    # multi-queue, one per CPU
+
+# 6. IRQ affinity — spread NIC interrupts across CPUs:
+sudo systemctl restart irqbalance
+# Or pin manually via /proc/irq/<N>/smp_affinity
+
+# 7. Raise file descriptor limits:
+ulimit -n 1048576                    # session
+# Persistent: /etc/security/limits.conf
+```
+
+Persist via `/etc/sysctl.d/99-network.conf`. Always benchmark before/after with `iperf3` / `wrk`.
+
+**50. Explain how the OOM killer chooses which process to kill.**
+
+When memory is exhausted and swap is full (or filling fast), the OOM killer walks every process and computes an **`oom_score`** (0–1000) for each. The process with the **highest score gets SIGKILL**.
+
+Score is roughly:
+
+```
+oom_score = (RSS + swap usage) / total memory × 1000   + oom_score_adj
+```
+
+So it favors killing **big memory consumers**. Adjustments:
+
+- **`/proc/<pid>/oom_score_adj`** — range −1000 to +1000. `-1000` = "never kill", `+1000` = "always pick me first".
+- **systemd**: set `OOMScoreAdjust=` in a unit file.
+- **Critical services** (sshd, init): typically `oom_score_adj=-1000`.
+
+Check who was killed:
+
+```bash
+dmesg | grep -i "killed process"
+journalctl -k --grep="Out of memory"
+```
+
+OOM events also indicate that you need **more RAM**, **lower memory cgroup limits**, or **a leak fix** — not just a higher score adjustment.
 
 ---
 
