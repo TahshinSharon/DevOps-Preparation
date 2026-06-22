@@ -43,8 +43,15 @@
   - [Samba](#samba)
 - [Networking Fundamentals](#networking-fundamentals)
   - [One Shot Revision](#one-shot-revision-1)
+  - [Network Basics](#network-basics)
+    - [Core Network Components](#core-network-components)
+    - [Understanding Network Types: WAN, LAN, and WLAN](#understanding-network-types-wan-lan-and-wlan)
+    - [Hosts and Packets](#hosts-and-packets)
   - [OSI Model](#osi-model)
+    - [Overview](#overview)
   - [TCP/IP Model](#tcpip-model)
+    - [Basic](#basic)
+    - [The Four Layers of the TCP/IP Model](#the-four-layers-of-the-tcpip-model)
   - [IP Addressing](#ip-addressing)
   - [Subnetting & CIDR](#subnetting--cidr)
   - [Ports & Protocols](#ports--protocols)
@@ -401,6 +408,7 @@ The core concepts every command in this guide is built on — how data moves bet
 
 | Topic                                       | Short Description                                                       |
 | ------------------------------------------- | ----------------------------------------------------------------------- |
+| [Network Basics](#network-basics)           | Core components, network types (LAN/WAN/WLAN), hosts and packets        |
 | [OSI Model](#osi-model)                     | 7-layer reference model: Physical → Data Link → … → Application         |
 | [TCP/IP Model](#tcpip-model)                | The 4-layer model that the real internet actually runs on               |
 | [IP Addressing](#ip-addressing)             | IPv4 vs IPv6, public vs private, static vs DHCP                         |
@@ -408,13 +416,108 @@ The core concepts every command in this guide is built on — how data moves bet
 | [Ports & Protocols](#ports--protocols)      | TCP vs UDP, well-known ports, ephemeral ports                           |
 | [MAC Addresses & ARP](#mac-addresses--arp)  | Layer-2 identity and how IP maps to MAC on a LAN                        |
 
+### Network Basics
+
+Before diving into models and protocols, it helps to know **what's actually on a network** and **how data moves between the pieces**.
+
+#### Core Network Components
+
+The building blocks every network — from a home Wi-Fi to a data center — is made of:
+
+| Component                    | Role                                                                                     |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| **Host**                     | Any device with an IP address — laptop, server, phone, IoT sensor.                       |
+| **NIC** (Network Interface Card) | Hardware that connects a host to the network (wired Ethernet or wireless radio).     |
+| **Switch**                   | Forwards frames between devices on the **same LAN** using MAC addresses (Layer 2).       |
+| **Router**                   | Forwards packets between **different networks** using IP addresses (Layer 3).            |
+| **Access Point (AP)**        | Bridges wireless clients onto a wired LAN — what most "Wi-Fi routers" actually do.       |
+| **Modem**                    | Translates the ISP's signal (DSL / cable / fiber) into Ethernet your router can use.     |
+| **Firewall**                 | Filters traffic by rule — can be host-based (`iptables`, `ufw`) or a dedicated appliance.|
+| **Cabling / Media**          | The physical medium — copper (Cat5e/6), fiber, or air (Wi-Fi, 4G/5G).                    |
+| **Protocols**                | The agreed rules for how data is formatted and exchanged (TCP/IP, HTTP, DNS, …).         |
+
+**Rule of thumb:** if it has an IP, it's a **host**; if it moves traffic between hosts, it's **infrastructure** (switch / router / AP / firewall).
+
+#### Understanding Network Types: WAN, LAN, and WLAN
+
+Networks are usually classified by **how far they reach**.
+
+| Type      | Full Name                      | Typical Scope                  | Example                                |
+| --------- | ------------------------------ | ------------------------------ | -------------------------------------- |
+| **LAN**   | Local Area Network             | One building / floor / home    | Office network, home Ethernet          |
+| **WLAN**  | Wireless LAN                   | Same scope as LAN — but wireless | Home/office Wi-Fi (802.11)           |
+| **WAN**   | Wide Area Network              | City → country → worldwide     | The Internet itself, an SD-WAN link    |
+| **MAN**   | Metropolitan Area Network      | A city                         | A citywide ISP backbone                |
+| **PAN**   | Personal Area Network          | A few meters around one user   | Bluetooth phone ↔ headphones           |
+
+**Notes:**
+
+- A **LAN** is fast (Gbps), private, and usually owned by a single organization.
+- A **WAN** is slower (latency-bound), spans multiple sites, and is rented from carriers / ISPs.
+- A **WLAN** is just a LAN over Wi-Fi instead of cables — same addressing, same protocols, just a different physical layer.
+
+#### Hosts and Packets
+
+- A **host** is any addressable device on a network. It can be a **client** (laptop, phone), a **server** (web / database / storage), or sometimes an intermediary (a router has IPs too).
+- A **packet** is the unit of data that travels across an IP network. Large messages are chopped into many small packets and reassembled at the destination.
+- Each packet has two parts:
+  - **Header** — metadata: source IP, destination IP, protocol, sequence number, etc.
+  - **Payload** — the actual data being delivered (a chunk of an HTTP response, a DNS reply, …).
+- Packets are forwarded **hop by hop**: each router inspects the destination IP and decides the next hop. Packets from the same conversation can take different paths and arrive out of order — the **Transport layer** (TCP) is what puts them back together.
+
 ### OSI Model
 
-_To be filled in._
+The **Open Systems Interconnection** model is a 7-layer reference model defined by ISO. Almost no real system implements all 7 layers cleanly, but it's the shared vocabulary every networking engineer uses to describe **where a problem lives** ("that's a Layer 2 issue", "that's a Layer 7 bug").
+
+#### Overview
+
+| #   | Layer            | Responsibility                                  | Examples                       |
+| --- | ---------------- | ----------------------------------------------- | ------------------------------ |
+| 7   | **Application**  | Protocols users / apps interact with directly   | HTTP, FTP, SMTP, DNS, SSH      |
+| 6   | **Presentation** | Data format, encoding, encryption, compression  | TLS, JPEG, ASCII, UTF-8        |
+| 5   | **Session**      | Open, manage, and close conversations           | NetBIOS, RPC                   |
+| 4   | **Transport**    | End-to-end delivery and reliability             | TCP, UDP                       |
+| 3   | **Network**      | Logical addressing & routing between networks   | IP, ICMP                       |
+| 2   | **Data Link**    | Frame delivery on the local segment             | Ethernet, ARP, MAC, Wi-Fi      |
+| 1   | **Physical**     | Raw bits on the medium                          | Copper, fiber, radio waves     |
+
+**Mnemonic (top → bottom):** **A**ll **P**eople **S**eem **T**o **N**eed **D**ata **P**rocessing.
+
+**Why the model matters:**
+
+- Gives a clean way to localize a problem: "DNS resolves but TCP won't connect" → Layer 4 / firewall; "ping works but HTTPS fails" → Layer 6 (TLS) or Layer 7.
+- Each layer **hides the layer below**: HTTP doesn't care about Ethernet, IP doesn't care about whether you're on Wi-Fi or fiber.
 
 ### TCP/IP Model
 
-_To be filled in._
+The **TCP/IP Model** is the protocol stack the real internet actually runs on. It predates OSI, was developed by the US DoD for ARPANET, and collapses OSI's 7 layers into **4 practical ones**.
+
+#### Basic
+
+- Named after its two flagship protocols: **TCP** (Transmission Control Protocol) and **IP** (Internet Protocol).
+- More pragmatic than OSI — it describes what's actually **implemented**, not an idealized model.
+- Maps loosely to OSI: TCP/IP's **Application** layer covers OSI 5–7; **Network Access** covers OSI 1–2.
+- Every packet on the modern internet flows **down** these four layers on the way out, and **up** them on the way in.
+
+#### The Four Layers of the TCP/IP Model
+
+| #   | Layer                       | OSI Equivalent              | Responsibility                                    | Protocols                                |
+| --- | --------------------------- | --------------------------- | ------------------------------------------------- | ---------------------------------------- |
+| 4   | **Application**             | Session + Presentation + App | App-level data and APIs                           | HTTP, HTTPS, DNS, SSH, FTP, SMTP         |
+| 3   | **Transport**               | Transport                   | Process-to-process delivery using **ports**       | TCP, UDP                                 |
+| 2   | **Internet**                | Network                     | Logical addressing & routing across networks      | IP, ICMP, ARP\*                          |
+| 1   | **Network Access** (Link)   | Data Link + Physical        | Frames on the local medium                        | Ethernet, Wi-Fi (802.11), PPP            |
+
+\* ARP technically sits between Layer 2 and 3 but is usually grouped with the Internet layer in TCP/IP discussions.
+
+**Flow of a packet (outbound):**
+
+1. **Application** produces data — e.g. `GET /index.html` from your browser.
+2. **Transport** wraps it in a TCP segment, adding source / destination **ports**.
+3. **Internet** wraps that in an IP packet, adding source / destination **IP addresses**.
+4. **Network Access** wraps that in an Ethernet / Wi-Fi frame with source / destination **MAC addresses** and pushes it onto the wire.
+
+On the receiving host the process runs in reverse: the frame is unwrapped layer by layer until the application gets its data back.
 
 ### IP Addressing
 
