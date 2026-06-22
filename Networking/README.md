@@ -52,7 +52,10 @@
   - [TCP/IP Model](#tcpip-model)
     - [Basic](#basic)
     - [The Four Layers of the TCP/IP Model](#the-four-layers-of-the-tcpip-model)
-  - [IP Addressing](#ip-addressing)
+  - [Network Addressing](#network-addressing)
+  - [Application Layer](#application-layer)
+  - [Transport Layer](#transport-layer)
+  - [Network Layer](#network-layer)
   - [Subnetting & CIDR](#subnetting--cidr)
   - [Ports & Protocols](#ports--protocols)
   - [MAC Addresses & ARP](#mac-addresses--arp)
@@ -411,7 +414,10 @@ The core concepts every command in this guide is built on — how data moves bet
 | [Network Basics](#network-basics)           | Core components, network types (LAN/WAN/WLAN), hosts and packets        |
 | [OSI Model](#osi-model)                     | 7-layer reference model: Physical → Data Link → … → Application         |
 | [TCP/IP Model](#tcpip-model)                | The 4-layer model that the real internet actually runs on               |
-| [IP Addressing](#ip-addressing)             | IPv4 vs IPv6, public vs private, static vs DHCP                         |
+| [Network Addressing](#network-addressing)   | IPv4 vs IPv6, public vs private, static vs DHCP, special addresses      |
+| [Application Layer](#application-layer)     | Layer-7 protocols apps actually speak: HTTP, DNS, SSH, SMTP, …          |
+| [Transport Layer](#transport-layer)         | TCP vs UDP, ports, sockets, the three-way handshake                     |
+| [Network Layer](#network-layer)             | IP routing, default gateway, ICMP, MTU & fragmentation                  |
 | [Subnetting & CIDR](#subnetting--cidr)      | Splitting networks with `/24`-style masks                               |
 | [Ports & Protocols](#ports--protocols)      | TCP vs UDP, well-known ports, ephemeral ports                           |
 | [MAC Addresses & ARP](#mac-addresses--arp)  | Layer-2 identity and how IP maps to MAC on a LAN                        |
@@ -519,9 +525,342 @@ The **TCP/IP Model** is the protocol stack the real internet actually runs on. I
 
 On the receiving host the process runs in reverse: the frame is unwrapped layer by layer until the application gets its data back.
 
-### IP Addressing
+### Network Addressing
 
-_To be filled in._
+Every device that talks on a network needs an **address** so packets know where to go. On modern IP networks that address comes in two flavors — **IPv4** and **IPv6** — and a host typically has both.
+
+#### IPv4 vs IPv6
+
+| Aspect            | IPv4                                | IPv6                                          |
+| ----------------- | ----------------------------------- | --------------------------------------------- |
+| **Size**          | 32 bits (~4.3 billion addresses)    | 128 bits (~3.4 × 10³⁸ addresses)              |
+| **Notation**      | Dotted decimal — `192.168.1.10`     | Colon hex — `2001:db8::1`                     |
+| **Header**        | Variable length, has checksum       | Fixed 40-byte header, no checksum             |
+| **Configuration** | Manual or DHCP                      | Manual, DHCPv6, or **SLAAC** (autoconfig)     |
+| **Broadcast**     | Yes (`255.255.255.255`)             | No — replaced by **multicast**                |
+| **NAT needed?**   | Usually (address exhaustion)        | No — every host can have a public address     |
+
+**Example IPv4 packet flow:** `192.168.1.10` → `8.8.8.8` over the public internet (NAT'd at the home router).
+
+**Example IPv6 address parts:** `2001:0db8:0000:0000:0000:0000:0000:0001` shortens to `2001:db8::1` (consecutive zero groups collapse to `::`, exactly once per address).
+
+#### Public vs Private Addresses
+
+Private ranges are reserved by **RFC 1918** for use inside organizations — they are **not routable on the public internet** and need NAT to reach the outside world.
+
+| Range                | CIDR              | Typical Use                                  |
+| -------------------- | ----------------- | -------------------------------------------- |
+| `10.0.0.0 – 10.255.255.255`        | `10.0.0.0/8`      | Large corporate networks, cloud VPCs         |
+| `172.16.0.0 – 172.31.255.255`      | `172.16.0.0/12`   | Mid-size networks, Docker default bridges    |
+| `192.168.0.0 – 192.168.255.255`    | `192.168.0.0/16`  | Home and small-office LANs                   |
+
+Everything else is **public** — assigned by IANA/RIRs and globally reachable.
+
+#### Static vs Dynamic Assignment
+
+| Method     | How Address Is Assigned                                       | When to Use                                          |
+| ---------- | ------------------------------------------------------------- | ---------------------------------------------------- |
+| **Static** | Manually configured on the host (`/etc/network/...`, `nmcli`) | Servers, routers, printers — anything you connect to |
+| **DHCP**   | A DHCP server hands out a lease when the host boots           | Laptops, phones, ephemeral VMs                       |
+| **SLAAC**  | IPv6 host self-generates an address from a router advertisement | Default on IPv6 LANs                              |
+
+A DHCP lease comes with more than just an IP — it usually also delivers the **subnet mask**, **default gateway**, and **DNS servers**.
+
+#### Special-Purpose Addresses
+
+| Address / Range                | Meaning                                                            |
+| ------------------------------ | ------------------------------------------------------------------ |
+| `127.0.0.1` / `::1`            | **Loopback** — refers to the host itself                           |
+| `0.0.0.0`                      | "Any address" — bind to all interfaces; also a default route       |
+| `255.255.255.255`              | IPv4 **limited broadcast** (current network only)                  |
+| `169.254.0.0/16`               | **APIPA / link-local** — assigned when DHCP fails                  |
+| `fe80::/10`                    | IPv6 link-local — every IPv6 interface always has one              |
+| `224.0.0.0/4`                  | IPv4 **multicast** group addresses                                 |
+| `ff00::/8`                     | IPv6 multicast                                                     |
+
+#### Inspecting Addresses on Linux
+
+```bash
+# Show every interface and its IPv4/IPv6 addresses
+ip a
+
+# Just one interface
+ip a show eth0
+
+# Show only IPv4 or IPv6
+ip -4 a
+ip -6 a
+
+# Find the address your host uses to reach a destination
+ip route get 8.8.8.8
+```
+
+**Notes:**
+
+- A single interface can — and usually does — hold **multiple addresses** (IPv4 + IPv6, link-local + global).
+- "My IP" is ambiguous: a host has a **LAN IP** (what the router sees) and a **public IP** (what the internet sees). `curl ifconfig.me` reveals the latter.
+- An address alone isn't enough to route a packet — it's the address **plus its subnet mask** (see [Subnetting & CIDR](#subnetting--cidr)) that defines the network.
+- IPv4 exhaustion is real — new cloud regions and mobile carriers increasingly require IPv6 connectivity end-to-end.
+
+### Application Layer
+
+The **Application Layer** is the top of the stack — Layer 7 in OSI, Layer 4 in TCP/IP. It's where the protocols **users and apps actually speak** live. Everything below (TCP, IP, Ethernet) exists only to deliver these messages from one process to another.
+
+#### What Belongs at This Layer
+
+- **Anything an application directly produces or consumes** — an HTTP request body, a DNS query, an SSH command, an SMTP `MAIL FROM:` line.
+- **Format & semantics**: what the bytes mean, how a request is structured, how the other side should reply.
+- It does **not** handle "how do these bytes get there?" — that's TCP/UDP's job underneath.
+
+#### Common Application-Layer Protocols
+
+| Protocol         | Default Port  | Transport | Purpose                                                          |
+| ---------------- | ------------- | --------- | ---------------------------------------------------------------- |
+| **HTTP**         | 80            | TCP       | The web — request/response for HTML, APIs, static assets         |
+| **HTTPS**        | 443           | TCP (+TLS)| HTTP wrapped in TLS for confidentiality and integrity            |
+| **DNS**          | 53            | UDP / TCP | Resolve names (`example.com`) to IP addresses                    |
+| **SSH**          | 22            | TCP       | Encrypted remote shell and file transfer                         |
+| **FTP**          | 21 (ctrl)     | TCP       | Legacy file transfer (cleartext — use SFTP/FTPS instead)         |
+| **SFTP**         | 22            | TCP       | File transfer **over SSH** — same port as ssh                    |
+| **SMTP**         | 25 / 587      | TCP       | Send/relay email between mail servers                            |
+| **IMAP / POP3**  | 143 / 110     | TCP       | Read email from a mail server (IMAP keeps state, POP3 downloads) |
+| **NTP**          | 123           | UDP       | Synchronize system clocks across hosts                           |
+| **SNMP**         | 161 / 162     | UDP       | Poll devices for monitoring data and receive traps               |
+| **DHCP**         | 67 / 68       | UDP       | Hand out IP leases, gateway, and DNS info to hosts at boot       |
+| **LDAP**         | 389 / 636     | TCP       | Directory lookups (users, groups) — often behind auth systems    |
+
+#### How an Application-Layer Conversation Looks
+
+A single web request quietly touches several Layer-7 protocols:
+
+1. **DNS** — your browser asks a resolver for the IP of `example.com`.
+2. **TLS handshake** — Layer 6/7 negotiation sets up encryption with the server.
+3. **HTTP** — the browser sends `GET / HTTP/1.1` and the server replies with status, headers, and a body.
+4. (Optional) **WebSocket / HTTP/2 streams** — keep the connection open for further messages.
+
+You can poke at most of these directly from the shell:
+
+```bash
+# HTTP — see request/response headers
+curl -v https://example.com
+
+# DNS — see the resolution path
+dig example.com
+
+# SSH — connect with verbose output to watch the protocol handshake
+ssh -v user@host
+
+# SMTP — talk to a mail server by hand (great for debugging)
+nc smtp.example.com 25
+```
+
+**Notes:**
+
+- **Ports are a transport-layer concept**, but each Layer-7 protocol has a **well-known port** by convention — covered next in [Ports & Protocols](#ports--protocols).
+- Most modern app-layer protocols run **on top of TLS** (HTTPS, SMTPS, IMAPS, LDAPS) — same protocol, encrypted transport, different default port.
+- When something "doesn't work" but `ping` and `traceroute` are fine, the bug usually lives at this layer: bad TLS cert, wrong `Host` header, a 401, a malformed DNS reply.
+- HTTP/2 and HTTP/3 keep the same Layer-7 semantics (`GET`, headers, status codes) — they only change the framing below the API surface. HTTP/3 famously runs over **UDP** via QUIC instead of TCP.
+
+### Transport Layer
+
+The **Transport Layer** sits directly under the Application Layer — Layer 4 in OSI, Layer 3 in TCP/IP. Its job is **process-to-process delivery**: getting a stream of bytes from one program on one host to another program on another host, identified by a **port number**.
+
+#### What This Layer Adds On Top of IP
+
+| Service                | Provided By                                                              |
+| ---------------------- | ------------------------------------------------------------------------ |
+| **Multiplexing**       | Ports let many app conversations share one IP address                    |
+| **Reliability**        | TCP retransmits lost bytes; UDP does not                                 |
+| **Ordering**           | TCP delivers bytes in the order they were sent                           |
+| **Flow control**       | TCP receiver tells sender how much it can accept (window)                |
+| **Congestion control** | TCP backs off when the network is overloaded                             |
+| **Error detection**    | Checksum over header + payload (both TCP and UDP)                        |
+
+The Network Layer (IP) only promises **"best effort"** delivery between hosts — anything above that, including knowing *which app* on the host should receive the data, is the Transport Layer's job.
+
+#### TCP vs UDP
+
+| Aspect                | **TCP**                                              | **UDP**                                              |
+| --------------------- | ---------------------------------------------------- | ---------------------------------------------------- |
+| **Connection**        | Connection-oriented (handshake before data)          | Connectionless (just send)                           |
+| **Reliability**       | Guaranteed delivery + ordering + retransmission      | No guarantees — packets may be lost or reordered     |
+| **Header size**       | 20+ bytes                                            | 8 bytes                                              |
+| **Speed**             | Slower — more bookkeeping                            | Faster — minimal overhead                            |
+| **Flow / Congestion** | Yes                                                  | No                                                   |
+| **Best for**          | HTTP, SSH, SMTP, databases, file transfer            | DNS queries, NTP, VoIP, video, gaming, DHCP          |
+
+**Rule of thumb:** *"If losing a packet would corrupt the data, use TCP. If losing one is OK because a newer one will come in a moment, use UDP."*
+
+#### Ports & Sockets
+
+- A **port** is a 16-bit number (0–65535) identifying a specific service/process on a host.
+- A **socket** is the full endpoint: `IP:port` — e.g. `192.168.1.10:443`.
+- A TCP connection is uniquely identified by a **4-tuple**: `src-IP : src-port  ↔  dst-IP : dst-port`.
+
+| Range            | Name              | Typical Use                                        |
+| ---------------- | ----------------- | -------------------------------------------------- |
+| `0 – 1023`       | **Well-known**    | Standard services (HTTP 80, HTTPS 443, SSH 22)     |
+| `1024 – 49151`   | **Registered**    | Apps that registered with IANA (Postgres 5432, …) |
+| `49152 – 65535`  | **Ephemeral**     | Temporary ports for client-side connections        |
+
+#### TCP Three-Way Handshake
+
+Before TCP sends any application data, the two sides agree on initial sequence numbers:
+
+```
+Client                       Server
+  | --------- SYN --------> |   "I want to talk, my seq = X"
+  | <----- SYN, ACK ------- |   "OK, my seq = Y, ack X+1"
+  | --------- ACK --------> |   "Got it, ack Y+1"
+  |        DATA flows       |
+```
+
+Closing is a similar four-way exchange (`FIN` → `ACK` → `FIN` → `ACK`).
+
+#### Common TCP Connection States
+
+You'll see these in `ss` / `netstat` output:
+
+| State           | Meaning                                                            |
+| --------------- | ------------------------------------------------------------------ |
+| `LISTEN`        | Server is waiting for incoming connections on a port               |
+| `SYN-SENT`      | Client sent SYN, waiting for SYN-ACK                               |
+| `SYN-RECV`      | Server received SYN, sent SYN-ACK, waiting for final ACK           |
+| `ESTABLISHED`   | Connection is open — data can flow                                 |
+| `FIN-WAIT-1/2`  | One side has started closing the connection                        |
+| `TIME-WAIT`     | Local side closed, holding the socket briefly to absorb stragglers |
+| `CLOSE-WAIT`    | Remote side closed; local app hasn't called `close()` yet          |
+
+A pile of `CLOSE-WAIT` sockets almost always means an **application bug** — the program isn't closing its sockets.
+
+#### Inspecting the Transport Layer on Linux
+
+```bash
+# Every listening TCP/UDP socket with its owning process
+ss -tulpn
+
+# All established TCP connections
+ss -tan state established
+
+# UDP sockets only
+ss -uan
+
+# Quick TCP port-open check
+nc -zv example.com 443
+
+# Watch the handshake on the wire
+sudo tcpdump -ni any 'tcp port 443 and (tcp-syn|tcp-ack) != 0'
+```
+
+**Notes:**
+
+- Ports `< 1024` require **root** to bind. Use a reverse proxy or `setcap` for non-root binds.
+- **UDP has no "connection"** — `ss -u` shows sockets, not flows; "UDP connection refused" really means an ICMP `port unreachable` came back.
+- **TLS lives just above TCP** — by the time a TLS handshake happens, the TCP handshake is already done.
+- **QUIC / HTTP/3** moves transport responsibilities (reliability, ordering, congestion control) into user space on top of **UDP** — same Layer-4 *role*, different implementation.
+- A common interview question: *"What happens when you type `example.com` in a browser?"* — the answer walks through DNS (App), the TCP handshake (Transport), IP routing (Network), and back up.
+
+### Network Layer
+
+The **Network Layer** is Layer 3 in OSI and the **Internet** layer in TCP/IP. Its job is to get a packet from any host on any network to any other host on any other network — across switches, routers, ISPs, and continents — using **logical addresses** (IP) rather than the physical MAC addresses used by the link below.
+
+#### What This Layer Does
+
+| Service                    | Provided By                                                       |
+| -------------------------- | ----------------------------------------------------------------- |
+| **Logical addressing**     | IPv4 / IPv6 addresses identify hosts independent of hardware      |
+| **Routing**                | Pick the next hop toward the destination, hop by hop              |
+| **Forwarding**             | Move a packet from an input interface to the right output one     |
+| **Fragmentation**          | Split a packet that's larger than the link's MTU (mostly IPv4)    |
+| **Error / control signals**| ICMP messages — "host unreachable", "TTL exceeded", echo reply    |
+
+It is **connectionless and best-effort** — no handshake, no guaranteed delivery, no ordering. Reliability (if needed) is added by TCP above.
+
+#### Key Protocols at This Layer
+
+| Protocol     | Purpose                                                                |
+| ------------ | ---------------------------------------------------------------------- |
+| **IPv4 / IPv6** | The actual packet format and addressing                             |
+| **ICMP / ICMPv6** | Diagnostic and error messages — what `ping` and `traceroute` ride on |
+| **ARP**\*    | Maps IPv4 → MAC on the local segment (sits between L2 and L3)          |
+| **NDP**      | IPv6 equivalent of ARP — neighbor discovery, router advertisements     |
+| **IGMP**     | Manage IPv4 multicast group membership                                 |
+
+\* ARP is technically a Layer 2.5 protocol but is almost always discussed alongside IP.
+
+#### Routing — How a Packet Finds Its Way
+
+Every host (and router) keeps a **routing table**. For each outgoing packet:
+
+1. Look up the destination IP in the table — pick the **most specific (longest-prefix)** match.
+2. If the destination is on a **directly connected** network, send it out that interface.
+3. Otherwise, hand the packet to the matching **next-hop router**.
+4. Decrement **TTL** (IPv4) / **Hop Limit** (IPv6). If it hits 0, drop the packet and send back an ICMP "TTL exceeded".
+
+That last bit is exactly what `traceroute` exploits — it sends packets with TTL = 1, 2, 3, … and collects the "TTL exceeded" replies from each router on the path.
+
+```bash
+# Show the routing table
+ip route
+
+# Which interface + gateway will my host use to reach 8.8.8.8?
+ip route get 8.8.8.8
+
+# Add a static route (admin)
+sudo ip route add 10.20.0.0/16 via 192.168.1.1
+
+# IPv6 routes
+ip -6 route
+```
+
+A typical small routing table looks like this:
+
+```
+default via 192.168.1.1 dev wlan0       # send everything else to the home router
+192.168.1.0/24 dev wlan0 proto kernel   # directly connected LAN
+169.254.0.0/16 dev wlan0 scope link     # link-local
+```
+
+The `default` route (also written `0.0.0.0/0`) is the **default gateway** — the catch-all next hop when nothing more specific matches.
+
+#### ICMP — The Network Layer's Voice
+
+ICMP doesn't carry user data; it carries **signals about the network itself**.
+
+| ICMP Type                  | When You See It                                                  |
+| -------------------------- | ---------------------------------------------------------------- |
+| **Echo Request / Reply**   | `ping` — "are you alive?"                                        |
+| **Destination Unreachable** | No route, port closed (for UDP), or admin filter                |
+| **Time Exceeded**          | TTL hit 0 — fuel for `traceroute`                                |
+| **Redirect**               | Router telling you "use this other gateway instead" (often filtered) |
+| **Fragmentation Needed**   | Packet too big, "Don't Fragment" bit was set                     |
+
+Heavy ICMP filtering on the path is a frequent cause of mysterious failures: `ping` works, big TCP transfers stall — usually a **PMTU black hole** caused by dropping ICMP "Fragmentation Needed".
+
+#### MTU & Fragmentation
+
+- **MTU** (Maximum Transmission Unit) — the largest payload a link can carry without splitting. Ethernet default is **1500 bytes**.
+- If an IPv4 packet is bigger than the next link's MTU and the **DF** (Don't Fragment) bit is **not** set, the router fragments it. If DF **is** set, the router drops it and replies with ICMP "Fragmentation Needed" — that's how **Path MTU Discovery (PMTUD)** works.
+- **IPv6 never fragments in transit** — only the sender does, after PMTUD. Routers that need to fragment just drop the packet and send `Packet Too Big`.
+
+```bash
+# Check an interface's MTU
+ip link show eth0 | grep mtu
+
+# Force a specific payload size to test for MTU issues
+ping -M do -s 1472 example.com    # 1472 + 28 (ICMP/IP headers) = 1500
+
+# Find the path MTU end-to-end
+tracepath example.com
+```
+
+**Notes:**
+
+- **Routers operate at this layer**; switches operate one layer below (Layer 2, MACs). A "router" with a built-in switch is doing both.
+- **NAT** (Network Address Translation) lives here too — your home router rewrites the source IP/port of outgoing packets so many private hosts can share one public IP.
+- A host with **no default route** can only reach its own LAN. Adding `default via <gateway>` is what turns it into an "internet-connected" host.
+- Many "the internet is slow" tickets bottom out as Layer-3 problems: asymmetric routing, a bad next hop, MTU mismatch on a VPN, or an ISP black-holing a prefix.
+- `mtr` is the best single command for diagnosing Network-Layer issues — it shows per-hop loss and latency continuously.
 
 ### Subnetting & CIDR
 
