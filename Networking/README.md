@@ -56,6 +56,8 @@
   - [Application Layer](#application-layer)
   - [Transport Layer](#transport-layer)
   - [Network Layer](#network-layer)
+  - [Link Layer](#link-layer)
+  - [DHCP Overview](#dhcp-overview)
   - [Subnetting & CIDR](#subnetting--cidr)
   - [Ports & Protocols](#ports--protocols)
   - [MAC Addresses & ARP](#mac-addresses--arp)
@@ -418,6 +420,8 @@ The core concepts every command in this guide is built on — how data moves bet
 | [Application Layer](#application-layer)     | Layer-7 protocols apps actually speak: HTTP, DNS, SSH, SMTP, …          |
 | [Transport Layer](#transport-layer)         | TCP vs UDP, ports, sockets, the three-way handshake                     |
 | [Network Layer](#network-layer)             | IP routing, default gateway, ICMP, MTU & fragmentation                  |
+| [Link Layer](#link-layer)                   | Frames, MAC addresses, switches, Ethernet/Wi-Fi                         |
+| [DHCP Overview](#dhcp-overview)             | How hosts get IP, gateway, and DNS automatically via the DORA handshake |
 | [Subnetting & CIDR](#subnetting--cidr)      | Splitting networks with `/24`-style masks                               |
 | [Ports & Protocols](#ports--protocols)      | TCP vs UDP, well-known ports, ephemeral ports                           |
 | [MAC Addresses & ARP](#mac-addresses--arp)  | Layer-2 identity and how IP maps to MAC on a LAN                        |
@@ -861,6 +865,160 @@ tracepath example.com
 - A host with **no default route** can only reach its own LAN. Adding `default via <gateway>` is what turns it into an "internet-connected" host.
 - Many "the internet is slow" tickets bottom out as Layer-3 problems: asymmetric routing, a bad next hop, MTU mismatch on a VPN, or an ISP black-holing a prefix.
 - `mtr` is the best single command for diagnosing Network-Layer issues — it shows per-hop loss and latency continuously.
+
+### Link Layer
+
+The **Link Layer** (Layer 2 in OSI, **Network Access** in TCP/IP) sits directly above the Physical layer. Its job is to move **frames** between two devices that share the same physical or wireless segment, identifying them by **MAC address** rather than IP.
+
+#### What This Layer Does
+
+| Service              | Provided By                                                                  |
+| -------------------- | ---------------------------------------------------------------------------- |
+| **Framing**          | Wrap network-layer packets in link-specific frames (Ethernet, Wi-Fi, …)      |
+| **Local addressing** | MAC addresses identify NICs on the same segment                              |
+| **Medium access**    | Decide who can transmit when — CSMA/CD on Ethernet, CSMA/CA on Wi-Fi         |
+| **Error detection**  | Frame Check Sequence (FCS) catches corrupted bits — corrupted frames dropped |
+| **Local delivery**   | Move frames within one broadcast domain — no routing here                    |
+
+The link layer only worries about **one hop at a time** — getting a frame from your NIC to the next device that owns the destination MAC. Anything beyond that segment is the Network Layer's problem.
+
+#### Frames vs Packets vs Segments
+
+The same chunk of data wears a different name at each layer it passes through:
+
+| PDU         | Layer       | Header Adds                                          |
+| ----------- | ----------- | ---------------------------------------------------- |
+| **Frame**   | Data Link   | Source/destination **MAC**, EtherType, FCS           |
+| **Packet**  | Network     | Source/destination **IP**, TTL, protocol             |
+| **Segment** | Transport   | Source/destination **port**, sequence/ack numbers    |
+
+On the wire it looks like nested envelopes: `Frame[ IP[ TCP[ HTTP-bytes ] ] ]`.
+
+#### Common Link-Layer Technologies
+
+| Technology               | Where You See It                | Notes                                                |
+| ------------------------ | ------------------------------- | ---------------------------------------------------- |
+| **Ethernet (802.3)**     | Wired LANs, data centers        | MAC + EtherType frame; 1G / 10G / 25G / 100G+        |
+| **Wi-Fi (802.11)**       | Wireless LANs                   | Same MAC scheme; uses CSMA/CA and retransmits        |
+| **PPP**                  | DSL, dial-up, some WAN links    | Point-to-point, often with built-in authentication   |
+| **VLAN (802.1Q)**        | Enterprise switching            | Tags frames so one switch hosts many isolated LANs   |
+| **MPLS**                 | ISP backbones                   | Label-switched forwarding — sits between L2 and L3   |
+
+#### MAC Addresses
+
+- A **MAC address** is a 48-bit identifier burned into (or spoofed onto) a NIC, written as six hex pairs: `aa:bb:cc:11:22:33`.
+- The first 24 bits are the **OUI** — vendor identifier assigned by IEEE.
+- Broadcast MAC `ff:ff:ff:ff:ff:ff` reaches every host on the segment.
+- Multicast frames have the **low-order bit** of the first byte set to 1 (e.g. `01:00:5e:…`).
+
+```bash
+# Show MAC addresses for every interface
+ip link
+
+# Just one interface
+ip link show eth0
+
+# Show the neighbor table — IP ↔ MAC mappings learned via ARP
+ip neigh
+```
+
+#### Switches and Broadcast Domains
+
+- A **switch** is a Layer-2 device. It learns which MAC lives on which port and forwards frames only out the right one (unlike a hub, which floods every port).
+- All ports on a switch — without VLANs — form a single **broadcast domain**: a broadcast frame reaches every host in it.
+- A **router** breaks broadcast domains: each router interface is its own L2 segment.
+- **VLANs** let one physical switch host several broadcast domains by tagging frames; a router or L3 switch is still needed to move traffic between them.
+
+**Notes:**
+
+- A "Layer-2 problem" is usually a cable, a dead NIC, a wrong VLAN tag, or a duplicate MAC — `ping` to anything off-subnet fails because the ARP step (see [MAC Addresses & ARP](#mac-addresses--arp)) can't complete.
+- **MTU is a link-layer property** — that's why different links have different MTUs and IP has to deal with fragmentation above.
+- Same broadcast domain → ARP works → IP works. Different broadcast domains → a router must sit in between.
+- A NIC in **promiscuous mode** accepts every frame it sees on the wire, not just frames addressed to its MAC — that's how `tcpdump` and Wireshark capture other hosts' traffic on a hub or mirror port.
+
+### DHCP Overview
+
+**DHCP** (Dynamic Host Configuration Protocol) is how hosts get their IP configuration automatically when they boot. Instead of someone typing IPs by hand, the host shouts on the LAN and a DHCP server answers with everything needed to participate on the network.
+
+#### What a DHCP Lease Includes
+
+A lease isn't just an address — it's a small bundle of network config:
+
+| Field                       | Purpose                                                  |
+| --------------------------- | -------------------------------------------------------- |
+| **IP address**              | The address the host may use, for a limited time         |
+| **Subnet mask**             | Defines the local network (e.g. `/24`)                   |
+| **Default gateway**         | Router IP for off-LAN traffic                            |
+| **DNS servers**             | Where to send name lookups                               |
+| **Lease time**              | How long the assignment is valid (hours to days)         |
+| **Domain name / NTP / WPAD**| Optional extras delivered as numbered "DHCP options"     |
+
+#### The DORA Handshake
+
+DHCPv4 is a four-message conversation, easy to remember as **DORA**:
+
+```
+Client                                Server
+  | --- DHCPDISCOVER (broadcast) --> |   "Anyone out there have an IP for me?"
+  | <--- DHCPOFFER  (broadcast) ---- |   "I can give you 192.168.1.50"
+  | --- DHCPREQUEST (broadcast) --> |   "I'll take that one"
+  | <--- DHCPACK    (broadcast) ---- |   "Confirmed — here's your lease"
+```
+
+- All four messages run over **UDP** — client port **68**, server port **67**.
+- The first packets are **broadcast** because the client has no IP yet.
+- If multiple servers reply, the client picks one `OFFER`; the others release the reservation.
+
+#### Lease Renewal
+
+- At **T1 (~50% of lease)** the client tries to renew with its current server via a unicast `DHCPREQUEST`.
+- At **T2 (~87.5%)** if renewal failed, it broadcasts a `DHCPREQUEST` to any server.
+- At lease **expiry**, it must restart from `DHCPDISCOVER`.
+- On clean shutdown the client may send a `DHCPRELEASE` so the address returns to the pool immediately.
+
+#### DHCP on Linux
+
+Most distros drive DHCP via `dhclient`, `systemd-networkd`, or `NetworkManager`.
+
+```bash
+# Force a fresh lease (NetworkManager)
+sudo nmcli connection down eth0 && sudo nmcli connection up eth0
+
+# Or with dhclient directly
+sudo dhclient -r eth0     # release current lease
+sudo dhclient   eth0      # renew / request a new lease
+
+# Inspect the current lease
+cat /var/lib/dhcp/dhclient.leases
+
+# systemd-networkd view of the lease + DNS handed out
+networkctl status eth0
+```
+
+#### When DHCP Fails
+
+If no server answers, the host falls back to an **APIPA / link-local** address from `169.254.0.0/16`. Symptoms: you can ping other link-local hosts but nothing off-LAN — usually a dead DHCP server, a broken VLAN, or a misconfigured switch port.
+
+```bash
+# Spot the fallback
+ip -4 a | grep 169.254
+```
+
+#### DHCPv6 and SLAAC
+
+IPv6 has two parallel mechanisms for auto-configuration:
+
+- **SLAAC** (Stateless Address Autoconfiguration) — the host listens to **Router Advertisements** and builds its own address from the advertised prefix. No server is needed for the address itself.
+- **DHCPv6** — used when you need stateful config (specific addresses, DNS, extra options) that SLAAC alone can't deliver. Uses ports **546 / 547**.
+
+Many networks run **SLAAC + DHCPv6** together — SLAAC for the address, DHCPv6 for DNS and domain info.
+
+**Notes:**
+
+- DHCP relies on **broadcasts on the local segment**. Across subnets you need a **DHCP relay** (`ip helper-address` on routers) to forward DISCOVER messages to a central server.
+- A rogue DHCP server (someone plugging a home AP into the office) can hand out wrong gateways or DNS — **DHCP snooping** on managed switches is the usual defense.
+- **Reservations** (static IP tied to a MAC in the DHCP server) are usually safer than fully static config — the host still picks up DNS/gateway updates automatically.
+- To see what the server actually handed you: `journalctl -u NetworkManager | grep -i dhcp` or `journalctl -u systemd-networkd`.
 
 ### Subnetting & CIDR
 
