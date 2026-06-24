@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-10-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-11-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -58,9 +58,10 @@
   - [Network Layer](#network-layer)
   - [Link Layer](#link-layer)
   - [DHCP Overview](#dhcp-overview)
-  - [Subnetting & CIDR](#subnetting--cidr)
   - [Ports & Protocols](#ports--protocols)
   - [MAC Addresses & ARP](#mac-addresses--arp)
+- [Subnetting](#subnetting)
+  - [IPv4](#ipv4)
 - [Network Configuration](#network-configuration)
   - [One Shot Revision](#one-shot-revision-2)
   - [ip](#ip)
@@ -422,7 +423,6 @@ The core concepts every command in this guide is built on — how data moves bet
 | [Network Layer](#network-layer)             | IP routing, default gateway, ICMP, MTU & fragmentation                  |
 | [Link Layer](#link-layer)                   | Frames, MAC addresses, switches, Ethernet/Wi-Fi                         |
 | [DHCP Overview](#dhcp-overview)             | How hosts get IP, gateway, and DNS automatically via the DORA handshake |
-| [Subnetting & CIDR](#subnetting--cidr)      | Splitting networks with `/24`-style masks                               |
 | [Ports & Protocols](#ports--protocols)      | TCP vs UDP, well-known ports, ephemeral ports                           |
 | [MAC Addresses & ARP](#mac-addresses--arp)  | Layer-2 identity and how IP maps to MAC on a LAN                        |
 
@@ -1020,10 +1020,6 @@ Many networks run **SLAAC + DHCPv6** together — SLAAC for the address, DHCPv6 
 - **Reservations** (static IP tied to a MAC in the DHCP server) are usually safer than fully static config — the host still picks up DNS/gateway updates automatically.
 - To see what the server actually handed you: `journalctl -u NetworkManager | grep -i dhcp` or `journalctl -u systemd-networkd`.
 
-### Subnetting & CIDR
-
-_To be filled in._
-
 ### Ports & Protocols
 
 _To be filled in._
@@ -1031,6 +1027,158 @@ _To be filled in._
 ### MAC Addresses & ARP
 
 _To be filled in._
+
+---
+
+## Subnetting
+
+A **subnet** is a smaller network carved out of a larger IP range. Subnetting lets you split a single block of addresses into multiple isolated networks — useful for separating teams, environments, or VLANs, and for keeping broadcast domains small.
+
+### One Shot Revision
+
+| Topic         | Short Description                                                                  |
+| ------------- | ---------------------------------------------------------------------------------- |
+| [IPv4](#ipv4) | 32-bit addressing, subnet masks, CIDR, network/broadcast/host math, VLSM           |
+
+### IPv4
+
+IPv4 subnetting is the art of borrowing bits from the **host** portion of an address to create more (smaller) networks. Once you can read a subnet mask in binary, the rest of the math falls out automatically.
+
+#### Anatomy of an IPv4 Address
+
+- An IPv4 address is **32 bits**, written as four **octets** (0–255) separated by dots: `192.168.1.10`.
+- Every address is split by a **subnet mask** into two parts:
+  - **Network portion** — identifies the network (shared by every host on the subnet).
+  - **Host portion** — identifies a specific host inside that network.
+
+```
+ Address : 192.168.1.10       → 11000000.10101000.00000001.00001010
+ Mask    : 255.255.255.0      → 11111111.11111111.11111111.00000000
+ Network : 192.168.1.0        → 11000000.10101000.00000001.00000000
+ Host    : .10                → 00000000.00000000.00000000.00001010
+```
+
+The mask is a contiguous run of `1`s followed by `0`s — the boundary between them is the network/host split.
+
+#### CIDR Notation
+
+**CIDR** (Classless Inter-Domain Routing) writes the mask as a single number after a `/` — the count of `1` bits in the mask.
+
+| CIDR  | Subnet Mask         | Network Bits | Host Bits | Usable Hosts |
+| ----- | ------------------- | ------------ | --------- | ------------ |
+| `/8`  | `255.0.0.0`         | 8            | 24        | 16,777,214   |
+| `/16` | `255.255.0.0`       | 16           | 16        | 65,534       |
+| `/24` | `255.255.255.0`     | 24           | 8         | 254          |
+| `/25` | `255.255.255.128`   | 25           | 7         | 126          |
+| `/26` | `255.255.255.192`   | 26           | 6         | 62           |
+| `/27` | `255.255.255.224`   | 27           | 5         | 30           |
+| `/28` | `255.255.255.240`   | 28           | 4         | 14           |
+| `/29` | `255.255.255.248`   | 29           | 3         | 6            |
+| `/30` | `255.255.255.252`   | 30           | 2         | 2            |
+| `/31` | `255.255.255.254`   | 31           | 1         | 2 (point-to-point, RFC 3021) |
+| `/32` | `255.255.255.255`   | 32           | 0         | 1 (single host route)        |
+
+**Formulas:**
+
+- Total addresses in a subnet = `2^(host bits)`
+- Usable host addresses = `2^(host bits) − 2` (subtract the network + broadcast addresses)
+- Number of subnets when borrowing `n` bits = `2^n`
+
+#### Network, Broadcast, and Host Addresses
+
+Every IPv4 subnet has three special address types:
+
+| Address               | How to Find It                                          | Usable for Hosts? |
+| --------------------- | ------------------------------------------------------- | ----------------- |
+| **Network address**   | All host bits set to `0` — the first address in the block | No              |
+| **Broadcast address** | All host bits set to `1` — the last address in the block | No              |
+| **Host addresses**    | Everything in between                                   | Yes               |
+
+**Example:** for `192.168.1.0/24`:
+
+- Network address  → `192.168.1.0`
+- Broadcast address → `192.168.1.255`
+- Usable host range → `192.168.1.1` – `192.168.1.254` (254 hosts)
+
+#### Worked Example — Splitting `192.168.1.0/24` into Four Subnets
+
+Borrow **2 bits** from the host portion (`/24` → `/26`) to create `2² = 4` subnets, each with `2⁶ − 2 = 62` usable hosts.
+
+| Subnet | CIDR                  | Network        | First Host    | Last Host     | Broadcast      |
+| ------ | --------------------- | -------------- | ------------- | ------------- | -------------- |
+| 1      | `192.168.1.0/26`      | `192.168.1.0`  | `192.168.1.1` | `192.168.1.62`| `192.168.1.63` |
+| 2      | `192.168.1.64/26`     | `192.168.1.64` | `192.168.1.65`| `192.168.1.126`| `192.168.1.127`|
+| 3      | `192.168.1.128/26`    | `192.168.1.128`| `192.168.1.129`| `192.168.1.190`| `192.168.1.191`|
+| 4      | `192.168.1.192/26`    | `192.168.1.192`| `192.168.1.193`| `192.168.1.254`| `192.168.1.255`|
+
+**Block size shortcut:** for a `/26` mask, the last octet steps by `256 − 192 = 64`. Memorize this and you can write the table in seconds.
+
+#### Common Block Sizes (Last Octet)
+
+| CIDR  | Mask Last Octet | Block Size | Subnets per /24 |
+| ----- | --------------- | ---------- | --------------- |
+| `/25` | `128`           | 128        | 2               |
+| `/26` | `192`           | 64         | 4               |
+| `/27` | `224`           | 32         | 8               |
+| `/28` | `240`           | 16         | 16              |
+| `/29` | `248`           | 8          | 32              |
+| `/30` | `252`           | 4          | 64              |
+
+#### Determining If Two Hosts Are on the Same Subnet
+
+Apply the mask (bitwise AND) to both addresses and compare the network portions.
+
+```
+A: 10.0.5.20  /22   → network 10.0.4.0
+B: 10.0.6.30  /22   → network 10.0.4.0     ← same subnet ✓
+
+A: 10.0.5.20  /24   → network 10.0.5.0
+B: 10.0.6.30  /24   → network 10.0.6.0     ← different subnets ✗ (need a router)
+```
+
+#### VLSM — Variable Length Subnet Masking
+
+Real networks rarely need equal-sized subnets. **VLSM** lets you carve a parent block into subnets of **different** sizes, always starting from the **largest** requirement first.
+
+**Example:** split `192.168.10.0/24` for these needs:
+
+| Department | Hosts Needed | CIDR  | Range                                   |
+| ---------- | ------------ | ----- | --------------------------------------- |
+| Sales      | 100          | `/25` | `192.168.10.0`   – `192.168.10.127`     |
+| Engineering| 50           | `/26` | `192.168.10.128` – `192.168.10.191`     |
+| Ops        | 25           | `/27` | `192.168.10.192` – `192.168.10.223`     |
+| Mgmt       | 10           | `/28` | `192.168.10.224` – `192.168.10.239`     |
+| WAN link   | 2            | `/30` | `192.168.10.240` – `192.168.10.243`     |
+
+Always allocate the **biggest** block first — otherwise smaller subnets fragment the space and leave you unable to fit the larger ones.
+
+#### Inspecting Subnets on Linux
+
+```bash
+# Show interfaces with their CIDR — the /24, /22 part is the mask
+ip -4 a
+
+# Which subnet does my host think 10.0.5.20 is on?
+ip route get 10.0.5.20
+
+# Quick subnet math from the shell (requires `ipcalc`)
+ipcalc 192.168.1.0/26
+
+# Same idea with `sipcalc` (more detailed output)
+sipcalc 192.168.1.0/26
+
+# One-liner: is 10.0.6.30 inside 10.0.4.0/22 ?
+python3 -c "import ipaddress; print(ipaddress.ip_address('10.0.6.30') in ipaddress.ip_network('10.0.4.0/22'))"
+```
+
+**Notes:**
+
+- The mask **must be contiguous** — `255.255.255.0` is valid, `255.0.255.0` is not.
+- A `/31` is legal on point-to-point links (RFC 3021) — both addresses are usable, no broadcast.
+- Don't confuse a **subnet mask** (`/24`) with a **wildcard mask** (`0.0.0.255`) — they are bit-inverses and used in different tools (ACLs in Cisco IOS use wildcards).
+- **Classful ranges** (Class A `/8`, B `/16`, C `/24`) are historical — modern routing is classless (CIDR). They still show up in interview questions, so know them.
+- When in doubt, write the mask in binary — the network/host split becomes obvious.
+- Common interview question: *"How many usable hosts in a `/26`?"* → `2^6 − 2 = 62`.
 
 ---
 
