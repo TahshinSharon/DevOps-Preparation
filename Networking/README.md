@@ -61,9 +61,16 @@
   - [Ports & Protocols](#ports--protocols)
   - [MAC Addresses & ARP](#mac-addresses--arp)
 - [Subnetting](#subnetting)
-  - [IPv4](#ipv4)
-- [Network Configuration](#network-configuration)
   - [One Shot Revision](#one-shot-revision-2)
+  - [Subnets](#subnets)
+  - [Subnet Math](#subnet-math)
+  - [Subnetting Cheats](#subnetting-cheats)
+  - [CIDR](#cidr)
+  - [IPv4](#ipv4)
+  - [NAT](#nat)
+  - [IPv6](#ipv6)
+- [Network Configuration](#network-configuration)
+  - [One Shot Revision](#one-shot-revision-3)
   - [ip](#ip)
   - [ifconfig](#ifconfig)
   - [hostname](#hostname)
@@ -71,41 +78,41 @@
   - [/etc/resolv.conf](#etcresolvconf)
   - [NetworkManager (nmcli)](#networkmanager-nmcli)
 - [Connectivity & Diagnostics](#connectivity--diagnostics)
-  - [One Shot Revision](#one-shot-revision-3)
+  - [One Shot Revision](#one-shot-revision-4)
   - [ping](#ping)
   - [traceroute](#traceroute)
   - [mtr](#mtr)
   - [telnet](#telnet)
   - [nc (netcat)](#nc-netcat)
 - [DNS Tools](#dns-tools)
-  - [One Shot Revision](#one-shot-revision-4)
+  - [One Shot Revision](#one-shot-revision-5)
   - [DNS Concepts](#dns-concepts)
   - [dig](#dig)
   - [nslookup](#nslookup)
   - [host](#host)
 - [Sockets & Ports](#sockets--ports)
-  - [One Shot Revision](#one-shot-revision-5)
+  - [One Shot Revision](#one-shot-revision-6)
   - [ss](#ss)
   - [netstat](#netstat)
   - [lsof](#lsof)
 - [HTTP & Transfer Tools](#http--transfer-tools)
-  - [One Shot Revision](#one-shot-revision-6)
+  - [One Shot Revision](#one-shot-revision-7)
   - [curl](#curl)
   - [wget](#wget)
 - [Remote Access](#remote-access)
-  - [One Shot Revision](#one-shot-revision-7)
+  - [One Shot Revision](#one-shot-revision-8)
   - [ssh](#ssh)
   - [scp](#scp)
   - [rsync](#rsync-1)
   - [SSH Keys & Config](#ssh-keys--config)
 - [Firewall & Security](#firewall--security)
-  - [One Shot Revision](#one-shot-revision-8)
+  - [One Shot Revision](#one-shot-revision-9)
   - [iptables](#iptables)
   - [nftables](#nftables)
   - [ufw](#ufw)
   - [firewalld](#firewalld)
 - [Packet Analysis](#packet-analysis)
-  - [One Shot Revision](#one-shot-revision-9)
+  - [One Shot Revision](#one-shot-revision-10)
   - [tcpdump](#tcpdump)
   - [wireshark / tshark](#wireshark--tshark)
   - [nmap](#nmap)
@@ -1036,9 +1043,189 @@ A **subnet** is a smaller network carved out of a larger IP range. Subnetting le
 
 ### One Shot Revision
 
-| Topic         | Short Description                                                                  |
-| ------------- | ---------------------------------------------------------------------------------- |
-| [IPv4](#ipv4) | 32-bit addressing, subnet masks, CIDR, network/broadcast/host math, VLSM           |
+| Topic                                   | Short Description                                                              |
+| --------------------------------------- | ------------------------------------------------------------------------------ |
+| [Subnets](#subnets)                     | What a subnet is, why we subnet, broadcast domains, key terminology            |
+| [Subnet Math](#subnet-math)             | Powers of two, formulas, host counts, bit-borrowing intuition                  |
+| [Subnetting Cheats](#subnetting-cheats) | Magic number, block size shortcut, fast mental math                            |
+| [CIDR](#cidr)                           | Classless notation, supernetting, route aggregation, reserved blocks           |
+| [IPv4](#ipv4)                           | 32-bit addressing, masks, network/broadcast/host math, VLSM, worked examples   |
+| [NAT](#nat)                             | SNAT, DNAT, PAT, CGNAT, NAT64, Linux `iptables` / `nftables` examples          |
+| [IPv6](#ipv6)                           | 128-bit addressing, address types, `/64` subnets, SLAAC vs DHCPv6, NDP         |
+
+### Subnets
+
+A subnet is a smaller network carved out of a larger IP range. Subnetting splits one address block into many isolated networks so you can keep broadcast domains small, separate teams or environments, and tighten security boundaries.
+
+**Why subnet?**
+
+- **Smaller broadcast domains** — broadcasts (ARP, DHCP discovery) only reach hosts inside the same subnet. Big flat networks drown in broadcast traffic.
+- **Isolation** — DMZ, prod, dev, IoT, guest Wi-Fi each live on their own subnet; routers/firewalls control traffic between them.
+- **Security** — ACLs and firewall rules apply at subnet boundaries, so a compromised host can't freely reach every other host.
+- **Address efficiency** — instead of giving a 50-host office a `/24` (254 hosts), give it a `/26` (62 hosts) and use the rest elsewhere.
+- **Routing scalability** — backbone routers carry summary routes (a single `/16`) instead of thousands of individual host routes.
+
+**Key terms:**
+
+| Term                  | Meaning                                                                                              |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Subnet mask**       | The contiguous run of `1` bits that marks the network portion of an address (e.g., `255.255.255.0`). |
+| **Prefix length**     | Same idea, written in CIDR form (e.g., `/24`).                                                       |
+| **Network address**   | First address of the subnet — all host bits `0`. Not assignable to a host.                           |
+| **Broadcast address** | Last address of the subnet — all host bits `1`. Not assignable to a host.                            |
+| **Host addresses**    | Everything between network and broadcast — usable for endpoints.                                     |
+| **Default gateway**   | The router IP a host uses to reach destinations outside its own subnet.                              |
+| **Broadcast domain**  | Set of devices that receive each other's broadcasts — one per subnet on a typical L3 design.         |
+
+Subnets only span a single L2 segment by default. To talk between subnets, traffic must pass through a router (or L3 switch).
+
+### Subnet Math
+
+Subnet math reduces to **powers of two** — once the table is in muscle memory, you can compute any subnet size in your head.
+
+**Powers of two (last octet):**
+
+| `2^n` | Value | Used for                                |
+| ----- | ----- | --------------------------------------- |
+| `2^1` | 2     | `/31` block / 2-host point-to-point     |
+| `2^2` | 4     | `/30` block / 2 usable hosts            |
+| `2^3` | 8     | `/29` block / 6 usable hosts            |
+| `2^4` | 16    | `/28` block / 14 usable hosts           |
+| `2^5` | 32    | `/27` block / 30 usable hosts           |
+| `2^6` | 64    | `/26` block / 62 usable hosts           |
+| `2^7` | 128   | `/25` block / 126 usable hosts          |
+| `2^8` | 256   | `/24` block (full octet, 254 usable)    |
+
+**Core formulas:**
+
+```
+Total addresses in subnet  = 2^(host bits)
+Usable host addresses      = 2^(host bits) − 2     (network + broadcast unusable)
+Number of subnets borrowed = 2^(borrowed bits)
+Host bits                  = 32 − prefix length
+Block size (last octet)    = 256 − (mask last octet)
+```
+
+**Worked walkthrough — `172.16.20.50 /20`:**
+
+```
+Host bits   = 32 − 20 = 12        → 2^12 = 4096 addresses, 4094 usable
+Mask        = 255.255.240.0       (240 = 11110000 — four mask bits in the 3rd octet)
+Block step  = 256 − 240 = 16      (3rd octet steps in 16s: .0, .16, .32, ...)
+Subnet      = 172.16.16.0/20      (largest multiple of 16 ≤ 20 is 16)
+Broadcast   = 172.16.31.255       (subnet + block − 1 in 3rd octet, .255 in last)
+Host range  = 172.16.16.1 – 172.16.31.254
+```
+
+**Bit-borrowing intuition:** every bit you borrow from the host side doubles the number of subnets and halves their size.
+
+| Start | Borrow | Result | Subnets | Hosts each |
+| ----- | ------ | ------ | ------- | ---------- |
+| `/24` | 0      | `/24`  | 1       | 254        |
+| `/24` | 1      | `/25`  | 2       | 126        |
+| `/24` | 2      | `/26`  | 4       | 62         |
+| `/24` | 3      | `/27`  | 8       | 30         |
+| `/24` | 4      | `/28`  | 16      | 14         |
+
+### Subnetting Cheats
+
+Tricks that turn subnetting into mental arithmetic — handy under interview pressure or while debugging at 3 AM.
+
+**The "magic number" (block size):**
+
+```
+Block size = 256 − (mask last octet)
+```
+
+Find the **interesting octet** (the one that isn't `255` or `0`) and step by the block size. That gives every subnet boundary instantly.
+
+```
+Mask 255.255.255.192  →  block = 256 − 192 = 64
+Subnets: x.x.x.0, x.x.x.64, x.x.x.128, x.x.x.192
+```
+
+**Cheat table — memorize these:**
+
+| Prefix | Mask Last Octet | Block | Hosts | Mnemonic                       |
+| ------ | --------------- | ----- | ----- | ------------------------------ |
+| `/25`  | `128`           | 128   | 126   | "Half a /24"                   |
+| `/26`  | `192`           | 64    | 62    | "Quarter a /24"                |
+| `/27`  | `224`           | 32    | 30    | "Eighth a /24"                 |
+| `/28`  | `240`           | 16    | 14    | "Sixteenth a /24"              |
+| `/29`  | `248`           | 8     | 6     | "Storage networks / small links" |
+| `/30`  | `252`           | 4     | 2     | "Classic point-to-point link"  |
+
+**Fast usable-host count:** `2^(32 − prefix) − 2`. For a `/N` close to `/24`, count down from `254`: `/24` → 254, `/25` → 126, `/26` → 62, `/27` → 30, `/28` → 14… each step roughly halves.
+
+**Finger trick — "which subnet is `X.X.X.Y` in?":**
+
+1. Block size = `256 − mask`.
+2. Largest multiple of block ≤ `Y` is the network address.
+3. Network + block − 1 is the broadcast.
+
+```
+Q: 10.0.0.155 /27 — what subnet?
+   Block = 256 − 224 = 32
+   155 ÷ 32 = 4 remainder 27  → network = 4 × 32 = 128
+   Subnet = 10.0.0.128/27, broadcast 10.0.0.159
+   Host range = 10.0.0.129 – 10.0.0.158
+```
+
+**Decimal mask values you must recognize on sight:** `128, 192, 224, 240, 248, 252, 254, 255`. Anything else in a mask octet is malformed.
+
+**Reserved gotchas:** `/31` is legal point-to-point (RFC 3021, both addresses usable, no broadcast). `/32` is a single-host route — common for loopbacks and ACL targets.
+
+### CIDR
+
+**CIDR** (Classless Inter-Domain Routing, RFC 4632) replaced the old **classful** (`A`/`B`/`C`) addressing scheme. Instead of fixed `/8`, `/16`, `/24` boundaries, CIDR allows any prefix length from `/0` to `/32`, written as `address/prefix-length`.
+
+**Classful vs Classless:**
+
+| Class | Old Range                       | Implicit Mask    | Why retired                                       |
+| ----- | ------------------------------- | ---------------- | ------------------------------------------------- |
+| A     | `1.0.0.0` – `126.255.255.255`   | `/8` (16M hosts) | Wasted huge blocks on small organizations.        |
+| B     | `128.0.0.0` – `191.255.255.255` | `/16` (65K hosts)| Same problem — coarse boundaries.                 |
+| C     | `192.0.0.0` – `223.255.255.255` | `/24` (254 hosts)| Routing tables exploded as the internet grew.     |
+
+CIDR fixed both problems: arbitrary prefix lengths for right-sized allocation, plus **route aggregation** to shrink global routing tables.
+
+**Supernetting (aggregation):** combine multiple contiguous subnets into one larger advertised prefix.
+
+```
+192.168.0.0/24
+192.168.1.0/24
+192.168.2.0/24
+192.168.3.0/24
+        ↓ aggregate
+192.168.0.0/22         (four /24s combined — one route advertised)
+```
+
+For aggregation to work the blocks must be **contiguous** and **aligned** on the larger prefix boundary.
+
+**Reading a CIDR block fast:**
+
+```
+10.20.0.0/19
+  prefix /19 → host bits = 13 → 2^13 = 8192 addresses, 8190 usable
+  mask = 255.255.224.0
+  3rd-octet block size = 256 − 224 = 32
+  → covers 10.20.0.0 – 10.20.31.255
+```
+
+**Special CIDR blocks worth knowing:**
+
+| CIDR              | Meaning                                                                  |
+| ----------------- | ------------------------------------------------------------------------ |
+| `0.0.0.0/0`       | Default route — "everything not matched elsewhere".                      |
+| `10.0.0.0/8`      | RFC 1918 private.                                                        |
+| `172.16.0.0/12`   | RFC 1918 private (covers `172.16.0.0` – `172.31.255.255`).               |
+| `192.168.0.0/16`  | RFC 1918 private.                                                        |
+| `127.0.0.0/8`     | Loopback.                                                                |
+| `169.254.0.0/16`  | Link-local (APIPA — host couldn't reach DHCP).                           |
+| `100.64.0.0/10`   | Carrier-grade NAT (RFC 6598).                                            |
+| `224.0.0.0/4`     | Multicast.                                                               |
+
+**Wildcard masks** (Cisco ACLs) are the bit-inverse of a subnet mask — `/24` ↔ `0.0.0.255`. Don't mix them up with subnet masks.
 
 ### IPv4
 
@@ -1179,6 +1366,151 @@ python3 -c "import ipaddress; print(ipaddress.ip_address('10.0.6.30') in ipaddre
 - **Classful ranges** (Class A `/8`, B `/16`, C `/24`) are historical — modern routing is classless (CIDR). They still show up in interview questions, so know them.
 - When in doubt, write the mask in binary — the network/host split becomes obvious.
 - Common interview question: *"How many usable hosts in a `/26`?"* → `2^6 − 2 = 62`.
+
+### NAT
+
+**NAT** (Network Address Translation, RFC 3022) rewrites IP addresses (and often ports) as packets cross a boundary — typically between a private RFC 1918 network and the public internet. NAT is what lets thousands of home or office devices share a single public IPv4 address.
+
+**Why NAT exists:** IPv4 has only ~4.3 billion addresses. NAT lets one public IP front many private hosts, postponing IPv4 exhaustion. IPv6 was designed to eliminate this need — see the next section.
+
+**Types of NAT:**
+
+| Type                                    | Direction               | What it rewrites                | Use case                                                  |
+| --------------------------------------- | ----------------------- | ------------------------------- | --------------------------------------------------------- |
+| **SNAT** (Source NAT)                   | Outbound                | Source IP (sometimes port)      | Hide internal IPs behind a public one.                    |
+| **DNAT** (Destination NAT)              | Inbound                 | Destination IP (sometimes port) | Port forwarding — expose an internal server.              |
+| **PAT** / **NAPT**                      | Outbound, many-to-one   | Source IP **and** port          | Home routers — many private hosts share one public IP.    |
+| **Static NAT**                          | Both                    | 1-to-1 IP mapping, no port change | Permanently map a public IP to one internal server.     |
+| **Hairpin NAT**                         | Internal → public → internal | Both source and destination | Reach your own server via its public IP from inside.      |
+| **NAT64 / DNS64**                       | IPv6 ↔ IPv4             | Address family                  | Let IPv6-only clients reach IPv4-only services.           |
+| **CGNAT** (Carrier-grade NAT)           | ISP-level               | Multiple layers of NAT          | ISPs share one public IP across many subscribers (`100.64.0.0/10`). |
+
+**NAT connection-tracking flow (PAT example):**
+
+```
+Internal client 10.0.0.5:51234  → router rewrites → 203.0.113.10:40001  → server 8.8.8.8:443
+Server replies:                  203.0.113.10:40001 → router rewrites back → 10.0.0.5:51234
+```
+
+The router keeps a **connection-tracking table** mapping `(public-ip, public-port) ↔ (private-ip, private-port)`. When the flow ends or times out, the entry is freed.
+
+**NAT on Linux — `nftables`:**
+
+```bash
+# Masquerade (SNAT with the dynamic interface IP) — classic home-router pattern
+nft add table ip nat
+nft add chain ip nat postrouting '{ type nat hook postrouting priority 100; }'
+nft add rule ip nat postrouting oifname "eth0" masquerade
+
+# DNAT — forward public :8080 to internal web server :80
+nft add chain ip nat prerouting '{ type nat hook prerouting priority -100; }'
+nft add rule ip nat prerouting iifname "eth0" tcp dport 8080 dnat to 10.0.0.20:80
+```
+
+**Equivalent with `iptables` (legacy but ubiquitous):**
+
+```bash
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+iptables -t nat -A PREROUTING  -i eth0 -p tcp --dport 8080 -j DNAT --to 10.0.0.20:80
+```
+
+**NAT trade-offs:**
+
+- Breaks end-to-end connectivity — peer-to-peer protocols (SIP, FTP, WebRTC, BitTorrent) need helpers like **STUN / TURN / ICE** or **ALGs**.
+- Hides the real client IP from servers (mitigated by `X-Forwarded-For`, PROXY protocol).
+- Stateful — the router must remember every flow; large NAT tables can become a bottleneck.
+- Provides *incidental* security (inbound unsolicited traffic has no mapping), but it's **not** a firewall — don't treat NAT as a security boundary.
+
+**Inspect NAT state on Linux:**
+
+```bash
+# Live NAT / conntrack entries
+sudo conntrack -L
+
+# Just show the NAT rules currently loaded
+sudo nft list table nat
+sudo iptables -t nat -L -nv
+```
+
+### IPv6
+
+**IPv6** (RFC 8200) replaces IPv4's 32-bit addresses with **128-bit** addresses — `2^128` ≈ `3.4 × 10^38` total, enough that NAT and address scarcity disappear as design constraints. Subnetting still uses CIDR notation but with very different conventions.
+
+**Address format:**
+
+- 128 bits, written as **eight 16-bit hex groups** separated by colons: `2001:0db8:85a3:0000:0000:8a2e:0370:7334`.
+- **Compression rules:**
+  - Drop leading zeros in each group: `2001:db8:85a3:0:0:8a2e:370:7334`.
+  - Replace one run of all-zero groups with `::` (only once per address): `2001:db8:85a3::8a2e:370:7334`.
+
+**Address types:**
+
+| Type                    | Prefix             | Meaning                                                                       |
+| ----------------------- | ------------------ | ----------------------------------------------------------------------------- |
+| **Global Unicast (GUA)**| `2000::/3`         | Routable on the public internet (analog of IPv4 public addresses).            |
+| **Unique Local (ULA)**  | `fc00::/7` (typically `fd00::/8`) | Private, non-routable on the internet (analog of RFC 1918).    |
+| **Link-Local (LLA)**    | `fe80::/10`        | Auto-assigned per interface, valid only on that link. Every IPv6 interface has one. |
+| **Multicast**           | `ff00::/8`         | Replaces broadcast — `ff02::1` = all nodes, `ff02::2` = all routers on the link. |
+| **Loopback**            | `::1/128`          | Equivalent of `127.0.0.1`.                                                    |
+| **Unspecified**         | `::/128`           | Equivalent of `0.0.0.0` — "no address yet".                                   |
+| **IPv4-mapped**         | `::ffff:0:0/96`    | Used in dual-stack sockets — `::ffff:192.0.2.1` represents an IPv4 inside IPv6. |
+
+**Subnetting conventions:**
+
+- Standard **end-site allocation** is `/48` per organization, **`/64` per subnet**, leaving 16 bits of subnet ID — 65,536 subnets per site.
+- **`/64` is the universal subnet size** — required for SLAAC (Stateless Address Autoconfiguration) to work. Don't make IPv6 subnets smaller than `/64` except on point-to-point links (`/127`) or loopbacks (`/128`).
+- The 64-bit **interface ID** is auto-generated from the MAC (modified EUI-64) or random (privacy extensions, RFC 4941).
+
+**Common prefix lengths:**
+
+| Prefix | Typical use                                          |
+| ------ | ---------------------------------------------------- |
+| `/32`  | ISP allocation from an RIR.                          |
+| `/48`  | Site / organization allocation.                      |
+| `/56`  | Smaller end-site (what some ISPs hand out to homes). |
+| `/64`  | A single subnet (standard).                          |
+| `/127` | Point-to-point link (RFC 6164).                      |
+| `/128` | Single host / loopback.                              |
+
+**SLAAC vs DHCPv6:**
+
+- **SLAAC** — host hears a Router Advertisement, builds its own address from the announced `/64` prefix + a 64-bit interface ID. No server needed.
+- **DHCPv6** — stateful, server-assigned, used when you need to track or push extra config (DNS, NTP). Often combined with SLAAC (`M` / `O` flags in the RA).
+
+**No NAT — by design:** every host can have a globally routable address, so NAT is unnecessary. Privacy comes from **temporary addresses** (random interface IDs that rotate). Firewalls still enforce inbound policy.
+
+**Inspect IPv6 on Linux:**
+
+```bash
+# Show IPv6 addresses on all interfaces
+ip -6 a
+
+# Show the IPv6 routing table
+ip -6 route
+
+# Show the IPv6 neighbor cache (IPv6's equivalent of ARP)
+ip -6 neigh
+
+# Ping IPv6
+ping -6 2606:4700:4700::1111      # Cloudflare public DNS
+ping ::1                          # loopback
+
+# Discover routers on the link
+rdisc6 eth0
+```
+
+**IPv6 vs IPv4 quick contrasts:**
+
+| Aspect              | IPv4                       | IPv6                                            |
+| ------------------- | -------------------------- | ----------------------------------------------- |
+| Address size        | 32 bits                    | 128 bits                                        |
+| Notation            | Dotted-decimal             | Colon-hex with `::` compression                 |
+| Address resolution  | ARP                        | NDP (Neighbor Discovery Protocol) over ICMPv6   |
+| Broadcast           | Yes (`x.x.x.255`)          | None — replaced by multicast                    |
+| Autoconfig          | DHCP only                  | SLAAC, DHCPv6, or both                          |
+| NAT                 | Common (NAT44, PAT)        | Discouraged — designed for end-to-end           |
+| Header              | Variable, with options     | Fixed 40-byte, extension headers                |
+| Fragmentation       | Routers + hosts            | Hosts only (PMTUD required)                     |
 
 ---
 

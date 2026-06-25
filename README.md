@@ -135,7 +135,7 @@ The Linux networking stack and the tools used to inspect, configure, and trouble
 
 - **Network Sharing** — file sharing overview, `rsync`, simple HTTP server, NFS, Samba.
 - **Networking Fundamentals** — network basics (components, LAN/WAN/WLAN, hosts & packets), OSI/TCP-IP models, per-layer deep-dives (application, transport, network, link), IP addressing, DHCP, ports, ARP.
-- **Subnetting** — IPv4 addressing, subnet masks, CIDR notation, network/broadcast math, VLSM.
+- **Subnetting** — subnets & broadcast domains, subnet math, mental-math cheats, CIDR & supernetting, IPv4 with VLSM, NAT (SNAT/DNAT/PAT/CGNAT), IPv6 (`/64`, SLAAC, NDP).
 - **Network Configuration** — `ip`, `ifconfig`, `hostname`, `/etc/hosts`, `nmcli`.
 - **Connectivity & Diagnostics** — `ping`, `traceroute`, `mtr`, `telnet`, `nc`.
 - **DNS Tools** — `dig`, `nslookup`, `host`.
