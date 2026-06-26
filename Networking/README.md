@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-11-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-12-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -69,8 +69,17 @@
   - [IPv4](#ipv4)
   - [NAT](#nat)
   - [IPv6](#ipv6)
-- [Network Configuration](#network-configuration)
+- [Routing](#routing)
   - [One Shot Revision](#one-shot-revision-3)
+  - [Routing Basics](#routing-basics)
+  - [Routing Table](#routing-table)
+  - [Default Gateway](#default-gateway)
+  - [Static vs Dynamic Routing](#static-vs-dynamic-routing)
+  - [Routing Protocols](#routing-protocols)
+  - [IGP vs EGP](#igp-vs-egp)
+  - [Linux Routing](#linux-routing)
+- [Network Configuration](#network-configuration)
+  - [One Shot Revision](#one-shot-revision-4)
   - [ip](#ip)
   - [ifconfig](#ifconfig)
   - [hostname](#hostname)
@@ -78,41 +87,41 @@
   - [/etc/resolv.conf](#etcresolvconf)
   - [NetworkManager (nmcli)](#networkmanager-nmcli)
 - [Connectivity & Diagnostics](#connectivity--diagnostics)
-  - [One Shot Revision](#one-shot-revision-4)
+  - [One Shot Revision](#one-shot-revision-5)
   - [ping](#ping)
   - [traceroute](#traceroute)
   - [mtr](#mtr)
   - [telnet](#telnet)
   - [nc (netcat)](#nc-netcat)
 - [DNS Tools](#dns-tools)
-  - [One Shot Revision](#one-shot-revision-5)
+  - [One Shot Revision](#one-shot-revision-6)
   - [DNS Concepts](#dns-concepts)
   - [dig](#dig)
   - [nslookup](#nslookup)
   - [host](#host)
 - [Sockets & Ports](#sockets--ports)
-  - [One Shot Revision](#one-shot-revision-6)
+  - [One Shot Revision](#one-shot-revision-7)
   - [ss](#ss)
   - [netstat](#netstat)
   - [lsof](#lsof)
 - [HTTP & Transfer Tools](#http--transfer-tools)
-  - [One Shot Revision](#one-shot-revision-7)
+  - [One Shot Revision](#one-shot-revision-8)
   - [curl](#curl)
   - [wget](#wget)
 - [Remote Access](#remote-access)
-  - [One Shot Revision](#one-shot-revision-8)
+  - [One Shot Revision](#one-shot-revision-9)
   - [ssh](#ssh)
   - [scp](#scp)
   - [rsync](#rsync-1)
   - [SSH Keys & Config](#ssh-keys--config)
 - [Firewall & Security](#firewall--security)
-  - [One Shot Revision](#one-shot-revision-9)
+  - [One Shot Revision](#one-shot-revision-10)
   - [iptables](#iptables)
   - [nftables](#nftables)
   - [ufw](#ufw)
   - [firewalld](#firewalld)
 - [Packet Analysis](#packet-analysis)
-  - [One Shot Revision](#one-shot-revision-10)
+  - [One Shot Revision](#one-shot-revision-11)
   - [tcpdump](#tcpdump)
   - [wireshark / tshark](#wireshark--tshark)
   - [nmap](#nmap)
@@ -1511,6 +1520,215 @@ rdisc6 eth0
 | NAT                 | Common (NAT44, PAT)        | Discouraged — designed for end-to-end           |
 | Header              | Variable, with options     | Fixed 40-byte, extension headers                |
 | Fragmentation       | Routers + hosts            | Hosts only (PMTUD required)                     |
+
+---
+
+## Routing
+
+**Routing** is how packets find their way from source to destination across multiple networks. Each router compares the destination IP of every incoming packet against its **routing table** and forwards the packet out the best-matching interface — hop by hop, until it reaches the target network.
+
+### One Shot Revision
+
+| Topic                                                   | Short Description                                                        |
+| ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [Routing Basics](#routing-basics)                       | How routers move packets between networks, hop-by-hop forwarding         |
+| [Routing Table](#routing-table)                         | Entries, longest-prefix match, metrics, administrative distance          |
+| [Default Gateway](#default-gateway)                     | The `0.0.0.0/0` route used when nothing more specific matches            |
+| [Static vs Dynamic Routing](#static-vs-dynamic-routing) | When to hand-code routes vs let a protocol discover them                 |
+| [Routing Protocols](#routing-protocols)                 | RIP, OSPF, EIGRP, BGP — what each is for                                 |
+| [IGP vs EGP](#igp-vs-egp)                               | Interior vs exterior gateway protocols and where they run                |
+| [Linux Routing](#linux-routing)                         | `ip route`, policy routing, multiple tables                              |
+
+### Routing Basics
+
+A **router** is a Layer-3 device that forwards packets between different IP networks. Every router maintains a **routing table** — a list of known destination networks plus the next-hop or outgoing interface for each.
+
+**How forwarding works (per packet):**
+
+1. A packet arrives on an interface; the router reads its **destination IP**.
+2. The router searches its table for the **longest matching prefix** (most specific entry).
+3. The packet is rewritten with a new Layer-2 header and sent out the matching interface toward the **next hop**.
+4. TTL is decremented; if it hits `0`, the packet is dropped and an ICMP Time Exceeded is returned.
+
+**Key concepts:**
+
+| Term                        | Meaning                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------ |
+| **Next hop**                | IP of the neighboring router that should receive the packet next.                    |
+| **Outgoing interface**      | Local interface the router sends the packet out on.                                  |
+| **Metric**                  | A number used to break ties between routes from the same protocol (lower = better).  |
+| **Administrative distance** | Trust level between sources — e.g., static beats OSPF beats RIP.                     |
+| **Convergence**             | How long it takes for every router to agree on the topology after a change.          |
+
+Routers only forward — they don't inspect payloads. End hosts also have a routing table; for a typical laptop it has just two entries: its own subnet and a default gateway.
+
+### Routing Table
+
+A routing table holds entries that say "to reach destination D, send the packet via next hop N out interface I." The router picks the **most specific** match — this is **longest-prefix match**.
+
+**Sample table (Linux `ip route`):**
+
+```
+default via 192.168.1.1 dev eth0 proto dhcp metric 100
+10.0.0.0/8 via 192.168.1.254 dev eth0
+192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.42
+```
+
+| Destination      | Next Hop        | Interface | Notes                          |
+| ---------------- | --------------- | --------- | ------------------------------ |
+| `0.0.0.0/0`      | `192.168.1.1`   | `eth0`    | Default route                  |
+| `10.0.0.0/8`     | `192.168.1.254` | `eth0`    | Static route to internal block |
+| `192.168.1.0/24` | —               | `eth0`    | Directly connected subnet      |
+
+**Longest-prefix match — worked example.** A packet destined for `10.0.5.20` arrives. The table contains:
+
+```
+0.0.0.0/0     via 192.168.1.1
+10.0.0.0/8    via 192.168.1.254
+10.0.5.0/24   via 10.10.10.2
+```
+
+All three entries match, but `/24` is more specific than `/8`, which is more specific than `/0`. The router uses `10.0.5.0/24` and forwards to `10.10.10.2`.
+
+**Administrative distance (Cisco defaults):**
+
+| Source     | AD  |
+| ---------- | --- |
+| Connected  | 0   |
+| Static     | 1   |
+| eBGP       | 20  |
+| OSPF       | 110 |
+| RIP        | 120 |
+| iBGP       | 200 |
+
+When two protocols learn the **same** prefix, the router installs the one with the **lowest** AD.
+
+### Default Gateway
+
+The **default gateway** is the router a host uses when the destination isn't on any directly connected subnet — it's the route that matches every IP, written `0.0.0.0/0` (IPv4) or `::/0` (IPv6).
+
+```bash
+# Show the default gateway
+ip route show default
+# default via 192.168.1.1 dev eth0
+
+# Set a default gateway manually
+sudo ip route add default via 192.168.1.1 dev eth0
+
+# Remove it
+sudo ip route del default
+```
+
+Most laptops, phones, and servers learn their default gateway via **DHCP**; you only set it by hand on static-IP servers or routers.
+
+### Static vs Dynamic Routing
+
+Two ways to populate a routing table — they're not mutually exclusive; most real networks use both.
+
+| Aspect            | Static Routing                              | Dynamic Routing                            |
+| ----------------- | ------------------------------------------- | ------------------------------------------ |
+| Configuration     | Hand-entered by admin                       | Learned via a routing protocol             |
+| Reacts to outages | No — manual fix required                    | Yes — protocol reconverges automatically   |
+| Overhead          | Zero — no protocol traffic, no CPU          | CPU + bandwidth for hellos and updates     |
+| Scalability       | Fine for small or stub networks             | Required for medium and large networks     |
+| Predictability    | Fully deterministic                         | Depends on protocol convergence behavior   |
+| Common uses       | Default routes, point-to-point links, edges | Backbones, multi-path networks, ISPs       |
+
+**Static route on Linux:**
+
+```bash
+# Send 10.20.0.0/16 traffic via 192.168.1.254
+sudo ip route add 10.20.0.0/16 via 192.168.1.254 dev eth0
+
+# Persist across reboots (Debian/Ubuntu netplan example)
+# /etc/netplan/01-netcfg.yaml:
+#   routes:
+#     - to: 10.20.0.0/16
+#       via: 192.168.1.254
+```
+
+**When to prefer static:** small networks, predictable topology, security-sensitive paths where you want zero protocol surface, or backup routes that should never auto-reconverge.
+
+### Routing Protocols
+
+Dynamic routing protocols let routers **discover** the topology and **react** to link changes without human intervention. Four show up everywhere.
+
+| Protocol  | Type                 | Algorithm        | Metric                                | Typical Use                                  |
+| --------- | -------------------- | ---------------- | ------------------------------------- | -------------------------------------------- |
+| **RIP**   | IGP, distance-vector | Bellman-Ford     | Hop count (max 15)                    | Tiny legacy networks; rare today             |
+| **OSPF**  | IGP, link-state      | Dijkstra (SPF)   | Cost (based on bandwidth)             | Most enterprise LANs and campuses            |
+| **EIGRP** | IGP, hybrid          | DUAL             | Bandwidth + delay (configurable)      | Cisco-heavy networks                         |
+| **BGP**   | EGP, path-vector     | Best-path policy | AS path, local pref, MED, communities | The protocol of the internet (between ASes)  |
+
+**Quick characterizations:**
+
+- **RIP** — simple, periodic full-table updates every 30s; max 15 hops makes anything bigger unreachable. Mostly historical.
+- **OSPF** — every router floods Link-State Advertisements (LSAs) describing its own links; each router independently runs Dijkstra to compute shortest paths. Fast convergence, organized into **areas** for scale.
+- **EIGRP** — originally Cisco-proprietary (now open); converges fast using the DUAL algorithm and keeps a feasible successor (precomputed backup path).
+- **BGP** — the protocol that holds the internet together. Each Autonomous System announces the prefixes it owns; BGP picks paths based on **policy**, not just shortest hop count.
+
+### IGP vs EGP
+
+Routing protocols are categorized by **where** they run.
+
+| Category | Stands For                | Runs Where                        | Examples                  |
+| -------- | ------------------------- | --------------------------------- | ------------------------- |
+| **IGP**  | Interior Gateway Protocol | Inside a single Autonomous System | RIP, OSPF, EIGRP, IS-IS   |
+| **EGP**  | Exterior Gateway Protocol | Between Autonomous Systems        | BGP (only one in real use)|
+
+An **Autonomous System (AS)** is a network under a single administrative authority — an ISP, a large enterprise, a cloud provider — identified by a globally unique **AS number (ASN)**.
+
+- Inside your AS, you use an IGP (commonly OSPF) to learn internal routes fast.
+- To talk to other ASes (the rest of the internet), you peer with them over **BGP**.
+
+### Linux Routing
+
+The kernel keeps one or more routing tables; `ip route` is the modern interface.
+
+```bash
+# Show the main routing table
+ip route
+# default via 192.168.1.1 dev eth0
+# 192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.42
+
+# Show how the kernel would route a specific destination
+ip route get 8.8.8.8
+# 8.8.8.8 via 192.168.1.1 dev eth0 src 192.168.1.42 uid 1000
+
+# Add a static route
+sudo ip route add 10.20.0.0/16 via 192.168.1.254 dev eth0
+
+# Delete a route
+sudo ip route del 10.20.0.0/16
+
+# Enable IP forwarding (turn a Linux box into a router)
+sudo sysctl -w net.ipv4.ip_forward=1
+# Persist in /etc/sysctl.conf:  net.ipv4.ip_forward = 1
+```
+
+**Multiple routing tables (policy routing):**
+
+Linux supports many named tables (`/etc/iproute2/rt_tables`) and rules that pick which table to consult per packet — useful for multi-homed hosts, VPNs, and source-based routing.
+
+```bash
+# List rules (which table to use for which packets)
+ip rule show
+
+# Show a non-default table
+ip route show table 100
+
+# Add a rule: traffic from 192.168.50.0/24 uses table 100
+sudo ip rule add from 192.168.50.0/24 table 100
+
+# Add a default route inside table 100
+sudo ip route add default via 10.0.0.1 dev eth1 table 100
+```
+
+**Notes:**
+
+- `ip route` changes are **runtime only** — to persist, use NetworkManager, netplan, systemd-networkd, or `/etc/network/interfaces` depending on distro.
+- A Linux router with `ip_forward=1` and proper firewall/NAT rules can replace a small commercial router — and it's exactly what most home routers run under the hood.
+- For BGP/OSPF on Linux use a routing daemon like **FRR** (Free Range Routing, the successor to Quagga) or **BIRD**.
 
 ---
 
