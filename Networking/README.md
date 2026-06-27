@@ -26,6 +26,8 @@
   <a href="../Linux/README.md"><b>Linux Notes</b></a>
   &nbsp;·&nbsp;
   <a href="../Git-Github/README.md"><b>Git &amp; GitHub Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="../Cloud-Engineering/README.md"><b>Cloud Engineering Notes</b></a>
 </p>
 
 ---

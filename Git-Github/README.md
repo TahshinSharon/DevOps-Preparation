@@ -26,6 +26,8 @@
   <a href="../Linux/README.md"><b>Linux Notes</b></a>
   &nbsp;·&nbsp;
   <a href="../Networking/README.md"><b>Networking Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="../Cloud-Engineering/README.md"><b>Cloud Engineering Notes</b></a>
 </p>
 
 ---

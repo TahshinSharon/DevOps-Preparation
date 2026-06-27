@@ -14,7 +14,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/Topics-3-blue?style=flat-square" alt="Topics">
+  <img src="https://img.shields.io/badge/Topics-4-blue?style=flat-square" alt="Topics">
   <img src="https://img.shields.io/badge/Made%20For-DevOps%20Prep-orange?style=flat-square" alt="Made For">
 </p>
 
@@ -26,6 +26,8 @@
   <a href="./Git-Github/README.md"><b>Git &amp; GitHub Notes</b></a>
   &nbsp;·&nbsp;
   <a href="./Networking/README.md"><b>Networking Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="./Cloud-Engineering/README.md"><b>Cloud Engineering Notes</b></a>
 </p>
 
 ---
@@ -39,6 +41,7 @@
   - [Linux](#linux)
   - [Git & GitHub](#git--github)
   - [Networking](#networking)
+  - [Cloud Engineering](#cloud-engineering)
 - [Conventions](#conventions)
 - [Contributing / Personal Use](#contributing--personal-use)
 - [References](#references)
@@ -66,8 +69,10 @@ DevOps-Preparation/
 │   └── README.md            ← Linux commands, text formating, user management, ...
 ├── Git-Github/
 │   └── README.md            ← Git workflows, branching, GitHub & gh CLI, Actions, ...
-└── Networking/
-    └── README.md            ← OSI/TCP-IP, ip/ss/dig/curl/ssh, firewalls, packet capture, ...
+├── Networking/
+│   └── README.md            ← OSI/TCP-IP, ip/ss/dig/curl/ssh, firewalls, packet capture, ...
+└── Cloud-Engineering/
+    └── README.md            ← AWS EC2 and other cloud services, concepts, and notes
 ```
 
 Every topic folder holds a single `README.md` that acts as the full reference for that subject. New topics (Docker, Kubernetes, CI/CD, Networking, Cloud, etc.) will be added the same way — one folder, one self-contained `README.md`.
@@ -147,6 +152,14 @@ The Linux networking stack and the tools used to inspect, configure, and trouble
 - **Packet Analysis** — `tcpdump`, `wireshark`/`tshark`, `nmap`.
 
 → [Open the Networking notes](./Networking/README.md)
+
+### Cloud Engineering
+
+Cloud-native services on AWS (and equivalents on other providers) used to build, deploy, and scale infrastructure.
+
+- **Elastic Compute Cloud (EC2)** — resizable virtual servers in AWS — instances, AMIs, instance types, key pairs, regions, availability zones.
+
+→ [Open the Cloud Engineering notes](./Cloud-Engineering/README.md)
 
 ---
 
