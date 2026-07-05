@@ -75,6 +75,7 @@
   - [One Shot Revision](#one-shot-revision-3)
   - [Routing Basics](#routing-basics)
   - [Routing Table](#routing-table)
+  - [Path of a Packet](#path-of-a-packet)
   - [Default Gateway](#default-gateway)
   - [Static vs Dynamic Routing](#static-vs-dynamic-routing)
   - [Routing Protocols](#routing-protocols)
@@ -185,25 +186,25 @@ Make files and directories reachable from other machines on the network — from
 
 ### One Shot Revision
 
-| Topic                                            | Short Description                                                       |
-| ------------------------------------------------ | ----------------------------------------------------------------------- |
-| [File Sharing Overview](#file-sharing-overview)  | When to pick `scp` vs `rsync` vs HTTP vs NFS vs Samba                   |
-| [`rsync`](#rsync)                                | Incremental, delta-based file sync — local or over SSH                  |
-| [Simple HTTP Server](#simple-http-server)        | One-line file server with `python3 -m http.server`                      |
-| [NFS](#nfs)                                      | Unix-native shared filesystem — mount a remote directory as if local    |
-| [Samba](#samba)                                  | SMB/CIFS shares — interoperate with Windows clients                     |
+| Topic                                           | Short Description                                                    |
+| ----------------------------------------------- | -------------------------------------------------------------------- |
+| [File Sharing Overview](#file-sharing-overview) | When to pick `scp` vs `rsync` vs HTTP vs NFS vs Samba                |
+| [`rsync`](#rsync)                               | Incremental, delta-based file sync — local or over SSH               |
+| [Simple HTTP Server](#simple-http-server)       | One-line file server with `python3 -m http.server`                   |
+| [NFS](#nfs)                                     | Unix-native shared filesystem — mount a remote directory as if local |
+| [Samba](#samba)                                 | SMB/CIFS shares — interoperate with Windows clients                  |
 
 ### File Sharing Overview
 
 **Description:** A quick map of the common ways to move or share files over a network on Linux, and when each one is the right tool.
 
-| Method                  | Best For                                              | Transport      | Persistent Mount? |
-| ----------------------- | ----------------------------------------------------- | -------------- | ----------------- |
-| `scp`                   | One-shot file copy over SSH                           | SSH (TCP/22)   | No                |
-| `rsync`                 | Repeated syncs — copies only what changed             | SSH or rsyncd  | No                |
-| `python3 -m http.server`| Quick read-only download server for a directory       | HTTP (TCP)     | No                |
-| **NFS**                 | Sharing dirs between Linux/Unix hosts                 | NFS (TCP/2049) | Yes (`mount`)     |
-| **Samba (SMB/CIFS)**    | Sharing dirs with Windows/macOS clients               | SMB (TCP/445)  | Yes (`mount`)     |
+| Method                   | Best For                                        | Transport      | Persistent Mount? |
+| ------------------------ | ----------------------------------------------- | -------------- | ----------------- |
+| `scp`                    | One-shot file copy over SSH                     | SSH (TCP/22)   | No                |
+| `rsync`                  | Repeated syncs — copies only what changed       | SSH or rsyncd  | No                |
+| `python3 -m http.server` | Quick read-only download server for a directory | HTTP (TCP)     | No                |
+| **NFS**                  | Sharing dirs between Linux/Unix hosts           | NFS (TCP/2049) | Yes (`mount`)     |
+| **Samba (SMB/CIFS)**     | Sharing dirs with Windows/macOS clients         | SMB (TCP/445)  | Yes (`mount`)     |
 
 **How to choose:**
 
@@ -229,15 +230,15 @@ rsync [options] SOURCE DESTINATION
 
 **Common Options:**
 
-| Option         | Description                                                       |
-| -------------- | ----------------------------------------------------------------- |
-| `-a`           | Archive mode — preserves permissions, timestamps, symlinks, etc.  |
-| `-v`           | Verbose — show files being transferred.                           |
-| `-z`           | Compress data during transfer.                                    |
-| `-P`           | Show progress and keep partial files on interruption.             |
-| `--delete`     | Delete files on destination that no longer exist on source.       |
-| `-n` / `--dry-run` | Show what would be transferred without copying anything.      |
-| `-e ssh`       | Force the use of SSH as the transport (default for remote paths). |
+| Option             | Description                                                       |
+| ------------------ | ----------------------------------------------------------------- |
+| `-a`               | Archive mode — preserves permissions, timestamps, symlinks, etc.  |
+| `-v`               | Verbose — show files being transferred.                           |
+| `-z`               | Compress data during transfer.                                    |
+| `-P`               | Show progress and keep partial files on interruption.             |
+| `--delete`         | Delete files on destination that no longer exist on source.       |
+| `-n` / `--dry-run` | Show what would be transferred without copying anything.          |
+| `-e ssh`           | Force the use of SSH as the transport (default for remote paths). |
 
 **Examples:**
 
@@ -271,11 +272,11 @@ python3 -m http.server [PORT] [--bind ADDRESS] [--directory PATH]
 
 **Common Options:**
 
-| Option            | Description                                                       |
-| ----------------- | ----------------------------------------------------------------- |
-| `PORT`            | Port to listen on (default `8000`).                               |
-| `--bind ADDRESS`  | Bind to a specific IP (default all interfaces).                   |
-| `--directory DIR` | Serve files from `DIR` instead of the current directory.          |
+| Option            | Description                                              |
+| ----------------- | -------------------------------------------------------- |
+| `PORT`            | Port to listen on (default `8000`).                      |
+| `--bind ADDRESS`  | Bind to a specific IP (default all interfaces).          |
+| `--directory DIR` | Serve files from `DIR` instead of the current directory. |
 
 **Examples:**
 
@@ -339,13 +340,13 @@ ls /mnt/nfs
 
 **Common Export Options:**
 
-| Option              | Description                                                       |
-| ------------------- | ----------------------------------------------------------------- |
-| `rw` / `ro`         | Read-write or read-only access.                                   |
-| `sync` / `async`    | Reply only after writes hit disk / reply immediately.             |
-| `no_subtree_check`  | Skip subtree checks — faster, recommended for whole-disk exports. |
-| `root_squash`       | Map remote `root` to an unprivileged user (default, safer).       |
-| `no_root_squash`    | Let remote `root` act as local `root` — use with care.            |
+| Option             | Description                                                       |
+| ------------------ | ----------------------------------------------------------------- |
+| `rw` / `ro`        | Read-write or read-only access.                                   |
+| `sync` / `async`   | Reply only after writes hit disk / reply immediately.             |
+| `no_subtree_check` | Skip subtree checks — faster, recommended for whole-disk exports. |
+| `root_squash`      | Map remote `root` to an unprivileged user (default, safer).       |
+| `no_root_squash`   | Let remote `root` act as local `root` — use with care.            |
 
 **Notes:**
 
@@ -405,14 +406,14 @@ sudo mount -t cifs //server-ip/share /mnt/samba \
 
 **Common smb.conf Options:**
 
-| Option            | Description                                                       |
-| ----------------- | ----------------------------------------------------------------- |
-| `path`            | Directory on the server being shared.                             |
-| `browseable`      | Whether the share shows up in network browse lists.               |
-| `read only`       | `yes` = read-only; `no` = read-write.                             |
-| `valid users`     | Comma-separated list of users allowed to connect.                 |
-| `guest ok`        | Allow unauthenticated access if `yes`.                            |
-| `create mask`     | Default permissions for new files (e.g. `0644`).                  |
+| Option        | Description                                         |
+| ------------- | --------------------------------------------------- |
+| `path`        | Directory on the server being shared.               |
+| `browseable`  | Whether the share shows up in network browse lists. |
+| `read only`   | `yes` = read-only; `no` = read-write.               |
+| `valid users` | Comma-separated list of users allowed to connect.   |
+| `guest ok`    | Allow unauthenticated access if `yes`.              |
+| `create mask` | Default permissions for new files (e.g. `0644`).    |
 
 **Notes:**
 
@@ -430,19 +431,19 @@ The core concepts every command in this guide is built on — how data moves bet
 
 ### One Shot Revision
 
-| Topic                                       | Short Description                                                       |
-| ------------------------------------------- | ----------------------------------------------------------------------- |
-| [Network Basics](#network-basics)           | Core components, network types (LAN/WAN/WLAN), hosts and packets        |
-| [OSI Model](#osi-model)                     | 7-layer reference model: Physical → Data Link → … → Application         |
-| [TCP/IP Model](#tcpip-model)                | The 4-layer model that the real internet actually runs on               |
-| [Network Addressing](#network-addressing)   | IPv4 vs IPv6, public vs private, static vs DHCP, special addresses      |
-| [Application Layer](#application-layer)     | Layer-7 protocols apps actually speak: HTTP, DNS, SSH, SMTP, …          |
-| [Transport Layer](#transport-layer)         | TCP vs UDP, ports, sockets, the three-way handshake                     |
-| [Network Layer](#network-layer)             | IP routing, default gateway, ICMP, MTU & fragmentation                  |
-| [Link Layer](#link-layer)                   | Frames, MAC addresses, switches, Ethernet/Wi-Fi                         |
-| [DHCP Overview](#dhcp-overview)             | How hosts get IP, gateway, and DNS automatically via the DORA handshake |
-| [Ports & Protocols](#ports--protocols)      | TCP vs UDP, well-known ports, ephemeral ports                           |
-| [MAC Addresses & ARP](#mac-addresses--arp)  | Layer-2 identity and how IP maps to MAC on a LAN                        |
+| Topic                                      | Short Description                                                       |
+| ------------------------------------------ | ----------------------------------------------------------------------- |
+| [Network Basics](#network-basics)          | Core components, network types (LAN/WAN/WLAN), hosts and packets        |
+| [OSI Model](#osi-model)                    | 7-layer reference model: Physical → Data Link → … → Application         |
+| [TCP/IP Model](#tcpip-model)               | The 4-layer model that the real internet actually runs on               |
+| [Network Addressing](#network-addressing)  | IPv4 vs IPv6, public vs private, static vs DHCP, special addresses      |
+| [Application Layer](#application-layer)    | Layer-7 protocols apps actually speak: HTTP, DNS, SSH, SMTP, …          |
+| [Transport Layer](#transport-layer)        | TCP vs UDP, ports, sockets, the three-way handshake                     |
+| [Network Layer](#network-layer)            | IP routing, default gateway, ICMP, MTU & fragmentation                  |
+| [Link Layer](#link-layer)                  | Frames, MAC addresses, switches, Ethernet/Wi-Fi                         |
+| [DHCP Overview](#dhcp-overview)            | How hosts get IP, gateway, and DNS automatically via the DORA handshake |
+| [Ports & Protocols](#ports--protocols)     | TCP vs UDP, well-known ports, ephemeral ports                           |
+| [MAC Addresses & ARP](#mac-addresses--arp) | Layer-2 identity and how IP maps to MAC on a LAN                        |
 
 ### Network Basics
 
@@ -452,17 +453,17 @@ Before diving into models and protocols, it helps to know **what's actually on a
 
 The building blocks every network — from a home Wi-Fi to a data center — is made of:
 
-| Component                    | Role                                                                                     |
-| ---------------------------- | ---------------------------------------------------------------------------------------- |
-| **Host**                     | Any device with an IP address — laptop, server, phone, IoT sensor.                       |
-| **NIC** (Network Interface Card) | Hardware that connects a host to the network (wired Ethernet or wireless radio).     |
-| **Switch**                   | Forwards frames between devices on the **same LAN** using MAC addresses (Layer 2).       |
-| **Router**                   | Forwards packets between **different networks** using IP addresses (Layer 3).            |
-| **Access Point (AP)**        | Bridges wireless clients onto a wired LAN — what most "Wi-Fi routers" actually do.       |
-| **Modem**                    | Translates the ISP's signal (DSL / cable / fiber) into Ethernet your router can use.     |
-| **Firewall**                 | Filters traffic by rule — can be host-based (`iptables`, `ufw`) or a dedicated appliance.|
-| **Cabling / Media**          | The physical medium — copper (Cat5e/6), fiber, or air (Wi-Fi, 4G/5G).                    |
-| **Protocols**                | The agreed rules for how data is formatted and exchanged (TCP/IP, HTTP, DNS, …).         |
+| Component                        | Role                                                                                      |
+| -------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Host**                         | Any device with an IP address — laptop, server, phone, IoT sensor.                        |
+| **NIC** (Network Interface Card) | Hardware that connects a host to the network (wired Ethernet or wireless radio).          |
+| **Switch**                       | Forwards frames between devices on the **same LAN** using MAC addresses (Layer 2).        |
+| **Router**                       | Forwards packets between **different networks** using IP addresses (Layer 3).             |
+| **Access Point (AP)**            | Bridges wireless clients onto a wired LAN — what most "Wi-Fi routers" actually do.        |
+| **Modem**                        | Translates the ISP's signal (DSL / cable / fiber) into Ethernet your router can use.      |
+| **Firewall**                     | Filters traffic by rule — can be host-based (`iptables`, `ufw`) or a dedicated appliance. |
+| **Cabling / Media**              | The physical medium — copper (Cat5e/6), fiber, or air (Wi-Fi, 4G/5G).                     |
+| **Protocols**                    | The agreed rules for how data is formatted and exchanged (TCP/IP, HTTP, DNS, …).          |
 
 **Rule of thumb:** if it has an IP, it's a **host**; if it moves traffic between hosts, it's **infrastructure** (switch / router / AP / firewall).
 
@@ -470,13 +471,13 @@ The building blocks every network — from a home Wi-Fi to a data center — is 
 
 Networks are usually classified by **how far they reach**.
 
-| Type      | Full Name                      | Typical Scope                  | Example                                |
-| --------- | ------------------------------ | ------------------------------ | -------------------------------------- |
-| **LAN**   | Local Area Network             | One building / floor / home    | Office network, home Ethernet          |
-| **WLAN**  | Wireless LAN                   | Same scope as LAN — but wireless | Home/office Wi-Fi (802.11)           |
-| **WAN**   | Wide Area Network              | City → country → worldwide     | The Internet itself, an SD-WAN link    |
-| **MAN**   | Metropolitan Area Network      | A city                         | A citywide ISP backbone                |
-| **PAN**   | Personal Area Network          | A few meters around one user   | Bluetooth phone ↔ headphones           |
+| Type     | Full Name                 | Typical Scope                    | Example                             |
+| -------- | ------------------------- | -------------------------------- | ----------------------------------- |
+| **LAN**  | Local Area Network        | One building / floor / home      | Office network, home Ethernet       |
+| **WLAN** | Wireless LAN              | Same scope as LAN — but wireless | Home/office Wi-Fi (802.11)          |
+| **WAN**  | Wide Area Network         | City → country → worldwide       | The Internet itself, an SD-WAN link |
+| **MAN**  | Metropolitan Area Network | A city                           | A citywide ISP backbone             |
+| **PAN**  | Personal Area Network     | A few meters around one user     | Bluetooth phone ↔ headphones        |
 
 **Notes:**
 
@@ -499,15 +500,15 @@ The **Open Systems Interconnection** model is a 7-layer reference model defined 
 
 #### Overview
 
-| #   | Layer            | Responsibility                                  | Examples                       |
-| --- | ---------------- | ----------------------------------------------- | ------------------------------ |
-| 7   | **Application**  | Protocols users / apps interact with directly   | HTTP, FTP, SMTP, DNS, SSH      |
-| 6   | **Presentation** | Data format, encoding, encryption, compression  | TLS, JPEG, ASCII, UTF-8        |
-| 5   | **Session**      | Open, manage, and close conversations           | NetBIOS, RPC                   |
-| 4   | **Transport**    | End-to-end delivery and reliability             | TCP, UDP                       |
-| 3   | **Network**      | Logical addressing & routing between networks   | IP, ICMP                       |
-| 2   | **Data Link**    | Frame delivery on the local segment             | Ethernet, ARP, MAC, Wi-Fi      |
-| 1   | **Physical**     | Raw bits on the medium                          | Copper, fiber, radio waves     |
+| #   | Layer            | Responsibility                                 | Examples                   |
+| --- | ---------------- | ---------------------------------------------- | -------------------------- |
+| 7   | **Application**  | Protocols users / apps interact with directly  | HTTP, FTP, SMTP, DNS, SSH  |
+| 6   | **Presentation** | Data format, encoding, encryption, compression | TLS, JPEG, ASCII, UTF-8    |
+| 5   | **Session**      | Open, manage, and close conversations          | NetBIOS, RPC               |
+| 4   | **Transport**    | End-to-end delivery and reliability            | TCP, UDP                   |
+| 3   | **Network**      | Logical addressing & routing between networks  | IP, ICMP                   |
+| 2   | **Data Link**    | Frame delivery on the local segment            | Ethernet, ARP, MAC, Wi-Fi  |
+| 1   | **Physical**     | Raw bits on the medium                         | Copper, fiber, radio waves |
 
 **Mnemonic (top → bottom):** **A**ll **P**eople **S**eem **T**o **N**eed **D**ata **P**rocessing.
 
@@ -529,12 +530,12 @@ The **TCP/IP Model** is the protocol stack the real internet actually runs on. I
 
 #### The Four Layers of the TCP/IP Model
 
-| #   | Layer                       | OSI Equivalent              | Responsibility                                    | Protocols                                |
-| --- | --------------------------- | --------------------------- | ------------------------------------------------- | ---------------------------------------- |
-| 4   | **Application**             | Session + Presentation + App | App-level data and APIs                           | HTTP, HTTPS, DNS, SSH, FTP, SMTP         |
-| 3   | **Transport**               | Transport                   | Process-to-process delivery using **ports**       | TCP, UDP                                 |
-| 2   | **Internet**                | Network                     | Logical addressing & routing across networks      | IP, ICMP, ARP\*                          |
-| 1   | **Network Access** (Link)   | Data Link + Physical        | Frames on the local medium                        | Ethernet, Wi-Fi (802.11), PPP            |
+| #   | Layer                     | OSI Equivalent               | Responsibility                               | Protocols                        |
+| --- | ------------------------- | ---------------------------- | -------------------------------------------- | -------------------------------- |
+| 4   | **Application**           | Session + Presentation + App | App-level data and APIs                      | HTTP, HTTPS, DNS, SSH, FTP, SMTP |
+| 3   | **Transport**             | Transport                    | Process-to-process delivery using **ports**  | TCP, UDP                         |
+| 2   | **Internet**              | Network                      | Logical addressing & routing across networks | IP, ICMP, ARP\*                  |
+| 1   | **Network Access** (Link) | Data Link + Physical         | Frames on the local medium                   | Ethernet, Wi-Fi (802.11), PPP    |
 
 \* ARP technically sits between Layer 2 and 3 but is usually grouped with the Internet layer in TCP/IP discussions.
 
@@ -553,14 +554,14 @@ Every device that talks on a network needs an **address** so packets know where 
 
 #### IPv4 vs IPv6
 
-| Aspect            | IPv4                                | IPv6                                          |
-| ----------------- | ----------------------------------- | --------------------------------------------- |
-| **Size**          | 32 bits (~4.3 billion addresses)    | 128 bits (~3.4 × 10³⁸ addresses)              |
-| **Notation**      | Dotted decimal — `192.168.1.10`     | Colon hex — `2001:db8::1`                     |
-| **Header**        | Variable length, has checksum       | Fixed 40-byte header, no checksum             |
-| **Configuration** | Manual or DHCP                      | Manual, DHCPv6, or **SLAAC** (autoconfig)     |
-| **Broadcast**     | Yes (`255.255.255.255`)             | No — replaced by **multicast**                |
-| **NAT needed?**   | Usually (address exhaustion)        | No — every host can have a public address     |
+| Aspect            | IPv4                             | IPv6                                      |
+| ----------------- | -------------------------------- | ----------------------------------------- |
+| **Size**          | 32 bits (~4.3 billion addresses) | 128 bits (~3.4 × 10³⁸ addresses)          |
+| **Notation**      | Dotted decimal — `192.168.1.10`  | Colon hex — `2001:db8::1`                 |
+| **Header**        | Variable length, has checksum    | Fixed 40-byte header, no checksum         |
+| **Configuration** | Manual or DHCP                   | Manual, DHCPv6, or **SLAAC** (autoconfig) |
+| **Broadcast**     | Yes (`255.255.255.255`)          | No — replaced by **multicast**            |
+| **NAT needed?**   | Usually (address exhaustion)     | No — every host can have a public address |
 
 **Example IPv4 packet flow:** `192.168.1.10` → `8.8.8.8` over the public internet (NAT'd at the home router).
 
@@ -570,35 +571,35 @@ Every device that talks on a network needs an **address** so packets know where 
 
 Private ranges are reserved by **RFC 1918** for use inside organizations — they are **not routable on the public internet** and need NAT to reach the outside world.
 
-| Range                | CIDR              | Typical Use                                  |
-| -------------------- | ----------------- | -------------------------------------------- |
-| `10.0.0.0 – 10.255.255.255`        | `10.0.0.0/8`      | Large corporate networks, cloud VPCs         |
-| `172.16.0.0 – 172.31.255.255`      | `172.16.0.0/12`   | Mid-size networks, Docker default bridges    |
-| `192.168.0.0 – 192.168.255.255`    | `192.168.0.0/16`  | Home and small-office LANs                   |
+| Range                           | CIDR             | Typical Use                               |
+| ------------------------------- | ---------------- | ----------------------------------------- |
+| `10.0.0.0 – 10.255.255.255`     | `10.0.0.0/8`     | Large corporate networks, cloud VPCs      |
+| `172.16.0.0 – 172.31.255.255`   | `172.16.0.0/12`  | Mid-size networks, Docker default bridges |
+| `192.168.0.0 – 192.168.255.255` | `192.168.0.0/16` | Home and small-office LANs                |
 
 Everything else is **public** — assigned by IANA/RIRs and globally reachable.
 
 #### Static vs Dynamic Assignment
 
-| Method     | How Address Is Assigned                                       | When to Use                                          |
-| ---------- | ------------------------------------------------------------- | ---------------------------------------------------- |
-| **Static** | Manually configured on the host (`/etc/network/...`, `nmcli`) | Servers, routers, printers — anything you connect to |
-| **DHCP**   | A DHCP server hands out a lease when the host boots           | Laptops, phones, ephemeral VMs                       |
-| **SLAAC**  | IPv6 host self-generates an address from a router advertisement | Default on IPv6 LANs                              |
+| Method     | How Address Is Assigned                                         | When to Use                                          |
+| ---------- | --------------------------------------------------------------- | ---------------------------------------------------- |
+| **Static** | Manually configured on the host (`/etc/network/...`, `nmcli`)   | Servers, routers, printers — anything you connect to |
+| **DHCP**   | A DHCP server hands out a lease when the host boots             | Laptops, phones, ephemeral VMs                       |
+| **SLAAC**  | IPv6 host self-generates an address from a router advertisement | Default on IPv6 LANs                                 |
 
 A DHCP lease comes with more than just an IP — it usually also delivers the **subnet mask**, **default gateway**, and **DNS servers**.
 
 #### Special-Purpose Addresses
 
-| Address / Range                | Meaning                                                            |
-| ------------------------------ | ------------------------------------------------------------------ |
-| `127.0.0.1` / `::1`            | **Loopback** — refers to the host itself                           |
-| `0.0.0.0`                      | "Any address" — bind to all interfaces; also a default route       |
-| `255.255.255.255`              | IPv4 **limited broadcast** (current network only)                  |
-| `169.254.0.0/16`               | **APIPA / link-local** — assigned when DHCP fails                  |
-| `fe80::/10`                    | IPv6 link-local — every IPv6 interface always has one              |
-| `224.0.0.0/4`                  | IPv4 **multicast** group addresses                                 |
-| `ff00::/8`                     | IPv6 multicast                                                     |
+| Address / Range     | Meaning                                                      |
+| ------------------- | ------------------------------------------------------------ |
+| `127.0.0.1` / `::1` | **Loopback** — refers to the host itself                     |
+| `0.0.0.0`           | "Any address" — bind to all interfaces; also a default route |
+| `255.255.255.255`   | IPv4 **limited broadcast** (current network only)            |
+| `169.254.0.0/16`    | **APIPA / link-local** — assigned when DHCP fails            |
+| `fe80::/10`         | IPv6 link-local — every IPv6 interface always has one        |
+| `224.0.0.0/4`       | IPv4 **multicast** group addresses                           |
+| `ff00::/8`          | IPv6 multicast                                               |
 
 #### Inspecting Addresses on Linux
 
@@ -636,20 +637,20 @@ The **Application Layer** is the top of the stack — Layer 7 in OSI, Layer 4 in
 
 #### Common Application-Layer Protocols
 
-| Protocol         | Default Port  | Transport | Purpose                                                          |
-| ---------------- | ------------- | --------- | ---------------------------------------------------------------- |
-| **HTTP**         | 80            | TCP       | The web — request/response for HTML, APIs, static assets         |
-| **HTTPS**        | 443           | TCP (+TLS)| HTTP wrapped in TLS for confidentiality and integrity            |
-| **DNS**          | 53            | UDP / TCP | Resolve names (`example.com`) to IP addresses                    |
-| **SSH**          | 22            | TCP       | Encrypted remote shell and file transfer                         |
-| **FTP**          | 21 (ctrl)     | TCP       | Legacy file transfer (cleartext — use SFTP/FTPS instead)         |
-| **SFTP**         | 22            | TCP       | File transfer **over SSH** — same port as ssh                    |
-| **SMTP**         | 25 / 587      | TCP       | Send/relay email between mail servers                            |
-| **IMAP / POP3**  | 143 / 110     | TCP       | Read email from a mail server (IMAP keeps state, POP3 downloads) |
-| **NTP**          | 123           | UDP       | Synchronize system clocks across hosts                           |
-| **SNMP**         | 161 / 162     | UDP       | Poll devices for monitoring data and receive traps               |
-| **DHCP**         | 67 / 68       | UDP       | Hand out IP leases, gateway, and DNS info to hosts at boot       |
-| **LDAP**         | 389 / 636     | TCP       | Directory lookups (users, groups) — often behind auth systems    |
+| Protocol        | Default Port | Transport  | Purpose                                                          |
+| --------------- | ------------ | ---------- | ---------------------------------------------------------------- |
+| **HTTP**        | 80           | TCP        | The web — request/response for HTML, APIs, static assets         |
+| **HTTPS**       | 443          | TCP (+TLS) | HTTP wrapped in TLS for confidentiality and integrity            |
+| **DNS**         | 53           | UDP / TCP  | Resolve names (`example.com`) to IP addresses                    |
+| **SSH**         | 22           | TCP        | Encrypted remote shell and file transfer                         |
+| **FTP**         | 21 (ctrl)    | TCP        | Legacy file transfer (cleartext — use SFTP/FTPS instead)         |
+| **SFTP**        | 22           | TCP        | File transfer **over SSH** — same port as ssh                    |
+| **SMTP**        | 25 / 587     | TCP        | Send/relay email between mail servers                            |
+| **IMAP / POP3** | 143 / 110    | TCP        | Read email from a mail server (IMAP keeps state, POP3 downloads) |
+| **NTP**         | 123          | UDP        | Synchronize system clocks across hosts                           |
+| **SNMP**        | 161 / 162    | UDP        | Poll devices for monitoring data and receive traps               |
+| **DHCP**        | 67 / 68      | UDP        | Hand out IP leases, gateway, and DNS info to hosts at boot       |
+| **LDAP**        | 389 / 636    | TCP        | Directory lookups (users, groups) — often behind auth systems    |
 
 #### How an Application-Layer Conversation Looks
 
@@ -689,29 +690,29 @@ The **Transport Layer** sits directly under the Application Layer — Layer 4 in
 
 #### What This Layer Adds On Top of IP
 
-| Service                | Provided By                                                              |
-| ---------------------- | ------------------------------------------------------------------------ |
-| **Multiplexing**       | Ports let many app conversations share one IP address                    |
-| **Reliability**        | TCP retransmits lost bytes; UDP does not                                 |
-| **Ordering**           | TCP delivers bytes in the order they were sent                           |
-| **Flow control**       | TCP receiver tells sender how much it can accept (window)                |
-| **Congestion control** | TCP backs off when the network is overloaded                             |
-| **Error detection**    | Checksum over header + payload (both TCP and UDP)                        |
+| Service                | Provided By                                               |
+| ---------------------- | --------------------------------------------------------- |
+| **Multiplexing**       | Ports let many app conversations share one IP address     |
+| **Reliability**        | TCP retransmits lost bytes; UDP does not                  |
+| **Ordering**           | TCP delivers bytes in the order they were sent            |
+| **Flow control**       | TCP receiver tells sender how much it can accept (window) |
+| **Congestion control** | TCP backs off when the network is overloaded              |
+| **Error detection**    | Checksum over header + payload (both TCP and UDP)         |
 
-The Network Layer (IP) only promises **"best effort"** delivery between hosts — anything above that, including knowing *which app* on the host should receive the data, is the Transport Layer's job.
+The Network Layer (IP) only promises **"best effort"** delivery between hosts — anything above that, including knowing _which app_ on the host should receive the data, is the Transport Layer's job.
 
 #### TCP vs UDP
 
-| Aspect                | **TCP**                                              | **UDP**                                              |
-| --------------------- | ---------------------------------------------------- | ---------------------------------------------------- |
-| **Connection**        | Connection-oriented (handshake before data)          | Connectionless (just send)                           |
-| **Reliability**       | Guaranteed delivery + ordering + retransmission      | No guarantees — packets may be lost or reordered     |
-| **Header size**       | 20+ bytes                                            | 8 bytes                                              |
-| **Speed**             | Slower — more bookkeeping                            | Faster — minimal overhead                            |
-| **Flow / Congestion** | Yes                                                  | No                                                   |
-| **Best for**          | HTTP, SSH, SMTP, databases, file transfer            | DNS queries, NTP, VoIP, video, gaming, DHCP          |
+| Aspect                | **TCP**                                         | **UDP**                                          |
+| --------------------- | ----------------------------------------------- | ------------------------------------------------ |
+| **Connection**        | Connection-oriented (handshake before data)     | Connectionless (just send)                       |
+| **Reliability**       | Guaranteed delivery + ordering + retransmission | No guarantees — packets may be lost or reordered |
+| **Header size**       | 20+ bytes                                       | 8 bytes                                          |
+| **Speed**             | Slower — more bookkeeping                       | Faster — minimal overhead                        |
+| **Flow / Congestion** | Yes                                             | No                                               |
+| **Best for**          | HTTP, SSH, SMTP, databases, file transfer       | DNS queries, NTP, VoIP, video, gaming, DHCP      |
 
-**Rule of thumb:** *"If losing a packet would corrupt the data, use TCP. If losing one is OK because a newer one will come in a moment, use UDP."*
+**Rule of thumb:** _"If losing a packet would corrupt the data, use TCP. If losing one is OK because a newer one will come in a moment, use UDP."_
 
 #### Ports & Sockets
 
@@ -719,11 +720,11 @@ The Network Layer (IP) only promises **"best effort"** delivery between hosts �
 - A **socket** is the full endpoint: `IP:port` — e.g. `192.168.1.10:443`.
 - A TCP connection is uniquely identified by a **4-tuple**: `src-IP : src-port  ↔  dst-IP : dst-port`.
 
-| Range            | Name              | Typical Use                                        |
-| ---------------- | ----------------- | -------------------------------------------------- |
-| `0 – 1023`       | **Well-known**    | Standard services (HTTP 80, HTTPS 443, SSH 22)     |
-| `1024 – 49151`   | **Registered**    | Apps that registered with IANA (Postgres 5432, …) |
-| `49152 – 65535`  | **Ephemeral**     | Temporary ports for client-side connections        |
+| Range           | Name           | Typical Use                                       |
+| --------------- | -------------- | ------------------------------------------------- |
+| `0 – 1023`      | **Well-known** | Standard services (HTTP 80, HTTPS 443, SSH 22)    |
+| `1024 – 49151`  | **Registered** | Apps that registered with IANA (Postgres 5432, …) |
+| `49152 – 65535` | **Ephemeral**  | Temporary ports for client-side connections       |
 
 #### TCP Three-Way Handshake
 
@@ -743,15 +744,15 @@ Closing is a similar four-way exchange (`FIN` → `ACK` → `FIN` → `ACK`).
 
 You'll see these in `ss` / `netstat` output:
 
-| State           | Meaning                                                            |
-| --------------- | ------------------------------------------------------------------ |
-| `LISTEN`        | Server is waiting for incoming connections on a port               |
-| `SYN-SENT`      | Client sent SYN, waiting for SYN-ACK                               |
-| `SYN-RECV`      | Server received SYN, sent SYN-ACK, waiting for final ACK           |
-| `ESTABLISHED`   | Connection is open — data can flow                                 |
-| `FIN-WAIT-1/2`  | One side has started closing the connection                        |
-| `TIME-WAIT`     | Local side closed, holding the socket briefly to absorb stragglers |
-| `CLOSE-WAIT`    | Remote side closed; local app hasn't called `close()` yet          |
+| State          | Meaning                                                            |
+| -------------- | ------------------------------------------------------------------ |
+| `LISTEN`       | Server is waiting for incoming connections on a port               |
+| `SYN-SENT`     | Client sent SYN, waiting for SYN-ACK                               |
+| `SYN-RECV`     | Server received SYN, sent SYN-ACK, waiting for final ACK           |
+| `ESTABLISHED`  | Connection is open — data can flow                                 |
+| `FIN-WAIT-1/2` | One side has started closing the connection                        |
+| `TIME-WAIT`    | Local side closed, holding the socket briefly to absorb stragglers |
+| `CLOSE-WAIT`   | Remote side closed; local app hasn't called `close()` yet          |
 
 A pile of `CLOSE-WAIT` sockets almost always means an **application bug** — the program isn't closing its sockets.
 
@@ -779,8 +780,8 @@ sudo tcpdump -ni any 'tcp port 443 and (tcp-syn|tcp-ack) != 0'
 - Ports `< 1024` require **root** to bind. Use a reverse proxy or `setcap` for non-root binds.
 - **UDP has no "connection"** — `ss -u` shows sockets, not flows; "UDP connection refused" really means an ICMP `port unreachable` came back.
 - **TLS lives just above TCP** — by the time a TLS handshake happens, the TCP handshake is already done.
-- **QUIC / HTTP/3** moves transport responsibilities (reliability, ordering, congestion control) into user space on top of **UDP** — same Layer-4 *role*, different implementation.
-- A common interview question: *"What happens when you type `example.com` in a browser?"* — the answer walks through DNS (App), the TCP handshake (Transport), IP routing (Network), and back up.
+- **QUIC / HTTP/3** moves transport responsibilities (reliability, ordering, congestion control) into user space on top of **UDP** — same Layer-4 _role_, different implementation.
+- A common interview question: _"What happens when you type `example.com` in a browser?"_ — the answer walks through DNS (App), the TCP handshake (Transport), IP routing (Network), and back up.
 
 ### Network Layer
 
@@ -788,25 +789,25 @@ The **Network Layer** is Layer 3 in OSI and the **Internet** layer in TCP/IP. It
 
 #### What This Layer Does
 
-| Service                    | Provided By                                                       |
-| -------------------------- | ----------------------------------------------------------------- |
-| **Logical addressing**     | IPv4 / IPv6 addresses identify hosts independent of hardware      |
-| **Routing**                | Pick the next hop toward the destination, hop by hop              |
-| **Forwarding**             | Move a packet from an input interface to the right output one     |
-| **Fragmentation**          | Split a packet that's larger than the link's MTU (mostly IPv4)    |
-| **Error / control signals**| ICMP messages — "host unreachable", "TTL exceeded", echo reply    |
+| Service                     | Provided By                                                    |
+| --------------------------- | -------------------------------------------------------------- |
+| **Logical addressing**      | IPv4 / IPv6 addresses identify hosts independent of hardware   |
+| **Routing**                 | Pick the next hop toward the destination, hop by hop           |
+| **Forwarding**              | Move a packet from an input interface to the right output one  |
+| **Fragmentation**           | Split a packet that's larger than the link's MTU (mostly IPv4) |
+| **Error / control signals** | ICMP messages — "host unreachable", "TTL exceeded", echo reply |
 
 It is **connectionless and best-effort** — no handshake, no guaranteed delivery, no ordering. Reliability (if needed) is added by TCP above.
 
 #### Key Protocols at This Layer
 
-| Protocol     | Purpose                                                                |
-| ------------ | ---------------------------------------------------------------------- |
-| **IPv4 / IPv6** | The actual packet format and addressing                             |
+| Protocol          | Purpose                                                              |
+| ----------------- | -------------------------------------------------------------------- |
+| **IPv4 / IPv6**   | The actual packet format and addressing                              |
 | **ICMP / ICMPv6** | Diagnostic and error messages — what `ping` and `traceroute` ride on |
-| **ARP**\*    | Maps IPv4 → MAC on the local segment (sits between L2 and L3)          |
-| **NDP**      | IPv6 equivalent of ARP — neighbor discovery, router advertisements     |
-| **IGMP**     | Manage IPv4 multicast group membership                                 |
+| **ARP**\*         | Maps IPv4 → MAC on the local segment (sits between L2 and L3)        |
+| **NDP**           | IPv6 equivalent of ARP — neighbor discovery, router advertisements   |
+| **IGMP**          | Manage IPv4 multicast group membership                               |
 
 \* ARP is technically a Layer 2.5 protocol but is almost always discussed alongside IP.
 
@@ -849,13 +850,13 @@ The `default` route (also written `0.0.0.0/0`) is the **default gateway** — th
 
 ICMP doesn't carry user data; it carries **signals about the network itself**.
 
-| ICMP Type                  | When You See It                                                  |
-| -------------------------- | ---------------------------------------------------------------- |
-| **Echo Request / Reply**   | `ping` — "are you alive?"                                        |
-| **Destination Unreachable** | No route, port closed (for UDP), or admin filter                |
-| **Time Exceeded**          | TTL hit 0 — fuel for `traceroute`                                |
-| **Redirect**               | Router telling you "use this other gateway instead" (often filtered) |
-| **Fragmentation Needed**   | Packet too big, "Don't Fragment" bit was set                     |
+| ICMP Type                   | When You See It                                                      |
+| --------------------------- | -------------------------------------------------------------------- |
+| **Echo Request / Reply**    | `ping` — "are you alive?"                                            |
+| **Destination Unreachable** | No route, port closed (for UDP), or admin filter                     |
+| **Time Exceeded**           | TTL hit 0 — fuel for `traceroute`                                    |
+| **Redirect**                | Router telling you "use this other gateway instead" (often filtered) |
+| **Fragmentation Needed**    | Packet too big, "Don't Fragment" bit was set                         |
 
 Heavy ICMP filtering on the path is a frequent cause of mysterious failures: `ping` works, big TCP transfers stall — usually a **PMTU black hole** caused by dropping ICMP "Fragmentation Needed".
 
@@ -904,23 +905,23 @@ The link layer only worries about **one hop at a time** — getting a frame from
 
 The same chunk of data wears a different name at each layer it passes through:
 
-| PDU         | Layer       | Header Adds                                          |
-| ----------- | ----------- | ---------------------------------------------------- |
-| **Frame**   | Data Link   | Source/destination **MAC**, EtherType, FCS           |
-| **Packet**  | Network     | Source/destination **IP**, TTL, protocol             |
-| **Segment** | Transport   | Source/destination **port**, sequence/ack numbers    |
+| PDU         | Layer     | Header Adds                                       |
+| ----------- | --------- | ------------------------------------------------- |
+| **Frame**   | Data Link | Source/destination **MAC**, EtherType, FCS        |
+| **Packet**  | Network   | Source/destination **IP**, TTL, protocol          |
+| **Segment** | Transport | Source/destination **port**, sequence/ack numbers |
 
 On the wire it looks like nested envelopes: `Frame[ IP[ TCP[ HTTP-bytes ] ] ]`.
 
 #### Common Link-Layer Technologies
 
-| Technology               | Where You See It                | Notes                                                |
-| ------------------------ | ------------------------------- | ---------------------------------------------------- |
-| **Ethernet (802.3)**     | Wired LANs, data centers        | MAC + EtherType frame; 1G / 10G / 25G / 100G+        |
-| **Wi-Fi (802.11)**       | Wireless LANs                   | Same MAC scheme; uses CSMA/CA and retransmits        |
-| **PPP**                  | DSL, dial-up, some WAN links    | Point-to-point, often with built-in authentication   |
-| **VLAN (802.1Q)**        | Enterprise switching            | Tags frames so one switch hosts many isolated LANs   |
-| **MPLS**                 | ISP backbones                   | Label-switched forwarding — sits between L2 and L3   |
+| Technology           | Where You See It             | Notes                                              |
+| -------------------- | ---------------------------- | -------------------------------------------------- |
+| **Ethernet (802.3)** | Wired LANs, data centers     | MAC + EtherType frame; 1G / 10G / 25G / 100G+      |
+| **Wi-Fi (802.11)**   | Wireless LANs                | Same MAC scheme; uses CSMA/CA and retransmits      |
+| **PPP**              | DSL, dial-up, some WAN links | Point-to-point, often with built-in authentication |
+| **VLAN (802.1Q)**    | Enterprise switching         | Tags frames so one switch hosts many isolated LANs |
+| **MPLS**             | ISP backbones                | Label-switched forwarding — sits between L2 and L3 |
 
 #### MAC Addresses
 
@@ -962,14 +963,14 @@ ip neigh
 
 A lease isn't just an address — it's a small bundle of network config:
 
-| Field                       | Purpose                                                  |
-| --------------------------- | -------------------------------------------------------- |
-| **IP address**              | The address the host may use, for a limited time         |
-| **Subnet mask**             | Defines the local network (e.g. `/24`)                   |
-| **Default gateway**         | Router IP for off-LAN traffic                            |
-| **DNS servers**             | Where to send name lookups                               |
-| **Lease time**              | How long the assignment is valid (hours to days)         |
-| **Domain name / NTP / WPAD**| Optional extras delivered as numbered "DHCP options"     |
+| Field                        | Purpose                                              |
+| ---------------------------- | ---------------------------------------------------- |
+| **IP address**               | The address the host may use, for a limited time     |
+| **Subnet mask**              | Defines the local network (e.g. `/24`)               |
+| **Default gateway**          | Router IP for off-LAN traffic                        |
+| **DNS servers**              | Where to send name lookups                           |
+| **Lease time**               | How long the assignment is valid (hours to days)     |
+| **Domain name / NTP / WPAD** | Optional extras delivered as numbered "DHCP options" |
 
 #### The DORA Handshake
 
@@ -1054,15 +1055,15 @@ A **subnet** is a smaller network carved out of a larger IP range. Subnetting le
 
 ### One Shot Revision
 
-| Topic                                   | Short Description                                                              |
-| --------------------------------------- | ------------------------------------------------------------------------------ |
-| [Subnets](#subnets)                     | What a subnet is, why we subnet, broadcast domains, key terminology            |
-| [Subnet Math](#subnet-math)             | Powers of two, formulas, host counts, bit-borrowing intuition                  |
-| [Subnetting Cheats](#subnetting-cheats) | Magic number, block size shortcut, fast mental math                            |
-| [CIDR](#cidr)                           | Classless notation, supernetting, route aggregation, reserved blocks           |
-| [IPv4](#ipv4)                           | 32-bit addressing, masks, network/broadcast/host math, VLSM, worked examples   |
-| [NAT](#nat)                             | SNAT, DNAT, PAT, CGNAT, NAT64, Linux `iptables` / `nftables` examples          |
-| [IPv6](#ipv6)                           | 128-bit addressing, address types, `/64` subnets, SLAAC vs DHCPv6, NDP         |
+| Topic                                   | Short Description                                                            |
+| --------------------------------------- | ---------------------------------------------------------------------------- |
+| [Subnets](#subnets)                     | What a subnet is, why we subnet, broadcast domains, key terminology          |
+| [Subnet Math](#subnet-math)             | Powers of two, formulas, host counts, bit-borrowing intuition                |
+| [Subnetting Cheats](#subnetting-cheats) | Magic number, block size shortcut, fast mental math                          |
+| [CIDR](#cidr)                           | Classless notation, supernetting, route aggregation, reserved blocks         |
+| [IPv4](#ipv4)                           | 32-bit addressing, masks, network/broadcast/host math, VLSM, worked examples |
+| [NAT](#nat)                             | SNAT, DNAT, PAT, CGNAT, NAT64, Linux `iptables` / `nftables` examples        |
+| [IPv6](#ipv6)                           | 128-bit addressing, address types, `/64` subnets, SLAAC vs DHCPv6, NDP       |
 
 ### Subnets
 
@@ -1096,16 +1097,16 @@ Subnet math reduces to **powers of two** — once the table is in muscle memory,
 
 **Powers of two (last octet):**
 
-| `2^n` | Value | Used for                                |
-| ----- | ----- | --------------------------------------- |
-| `2^1` | 2     | `/31` block / 2-host point-to-point     |
-| `2^2` | 4     | `/30` block / 2 usable hosts            |
-| `2^3` | 8     | `/29` block / 6 usable hosts            |
-| `2^4` | 16    | `/28` block / 14 usable hosts           |
-| `2^5` | 32    | `/27` block / 30 usable hosts           |
-| `2^6` | 64    | `/26` block / 62 usable hosts           |
-| `2^7` | 128   | `/25` block / 126 usable hosts          |
-| `2^8` | 256   | `/24` block (full octet, 254 usable)    |
+| `2^n` | Value | Used for                             |
+| ----- | ----- | ------------------------------------ |
+| `2^1` | 2     | `/31` block / 2-host point-to-point  |
+| `2^2` | 4     | `/30` block / 2 usable hosts         |
+| `2^3` | 8     | `/29` block / 6 usable hosts         |
+| `2^4` | 16    | `/28` block / 14 usable hosts        |
+| `2^5` | 32    | `/27` block / 30 usable hosts        |
+| `2^6` | 64    | `/26` block / 62 usable hosts        |
+| `2^7` | 128   | `/25` block / 126 usable hosts       |
+| `2^8` | 256   | `/24` block (full octet, 254 usable) |
 
 **Core formulas:**
 
@@ -1157,14 +1158,14 @@ Subnets: x.x.x.0, x.x.x.64, x.x.x.128, x.x.x.192
 
 **Cheat table — memorize these:**
 
-| Prefix | Mask Last Octet | Block | Hosts | Mnemonic                       |
-| ------ | --------------- | ----- | ----- | ------------------------------ |
-| `/25`  | `128`           | 128   | 126   | "Half a /24"                   |
-| `/26`  | `192`           | 64    | 62    | "Quarter a /24"                |
-| `/27`  | `224`           | 32    | 30    | "Eighth a /24"                 |
-| `/28`  | `240`           | 16    | 14    | "Sixteenth a /24"              |
+| Prefix | Mask Last Octet | Block | Hosts | Mnemonic                         |
+| ------ | --------------- | ----- | ----- | -------------------------------- |
+| `/25`  | `128`           | 128   | 126   | "Half a /24"                     |
+| `/26`  | `192`           | 64    | 62    | "Quarter a /24"                  |
+| `/27`  | `224`           | 32    | 30    | "Eighth a /24"                   |
+| `/28`  | `240`           | 16    | 14    | "Sixteenth a /24"                |
 | `/29`  | `248`           | 8     | 6     | "Storage networks / small links" |
-| `/30`  | `252`           | 4     | 2     | "Classic point-to-point link"  |
+| `/30`  | `252`           | 4     | 2     | "Classic point-to-point link"    |
 
 **Fast usable-host count:** `2^(32 − prefix) − 2`. For a `/N` close to `/24`, count down from `254`: `/24` → 254, `/25` → 126, `/26` → 62, `/27` → 30, `/28` → 14… each step roughly halves.
 
@@ -1192,11 +1193,11 @@ Q: 10.0.0.155 /27 — what subnet?
 
 **Classful vs Classless:**
 
-| Class | Old Range                       | Implicit Mask    | Why retired                                       |
-| ----- | ------------------------------- | ---------------- | ------------------------------------------------- |
-| A     | `1.0.0.0` – `126.255.255.255`   | `/8` (16M hosts) | Wasted huge blocks on small organizations.        |
-| B     | `128.0.0.0` – `191.255.255.255` | `/16` (65K hosts)| Same problem — coarse boundaries.                 |
-| C     | `192.0.0.0` – `223.255.255.255` | `/24` (254 hosts)| Routing tables exploded as the internet grew.     |
+| Class | Old Range                       | Implicit Mask     | Why retired                                   |
+| ----- | ------------------------------- | ----------------- | --------------------------------------------- |
+| A     | `1.0.0.0` – `126.255.255.255`   | `/8` (16M hosts)  | Wasted huge blocks on small organizations.    |
+| B     | `128.0.0.0` – `191.255.255.255` | `/16` (65K hosts) | Same problem — coarse boundaries.             |
+| C     | `192.0.0.0` – `223.255.255.255` | `/24` (254 hosts) | Routing tables exploded as the internet grew. |
 
 CIDR fixed both problems: arbitrary prefix lengths for right-sized allocation, plus **route aggregation** to shrink global routing tables.
 
@@ -1225,16 +1226,16 @@ For aggregation to work the blocks must be **contiguous** and **aligned** on the
 
 **Special CIDR blocks worth knowing:**
 
-| CIDR              | Meaning                                                                  |
-| ----------------- | ------------------------------------------------------------------------ |
-| `0.0.0.0/0`       | Default route — "everything not matched elsewhere".                      |
-| `10.0.0.0/8`      | RFC 1918 private.                                                        |
-| `172.16.0.0/12`   | RFC 1918 private (covers `172.16.0.0` – `172.31.255.255`).               |
-| `192.168.0.0/16`  | RFC 1918 private.                                                        |
-| `127.0.0.0/8`     | Loopback.                                                                |
-| `169.254.0.0/16`  | Link-local (APIPA — host couldn't reach DHCP).                           |
-| `100.64.0.0/10`   | Carrier-grade NAT (RFC 6598).                                            |
-| `224.0.0.0/4`     | Multicast.                                                               |
+| CIDR             | Meaning                                                    |
+| ---------------- | ---------------------------------------------------------- |
+| `0.0.0.0/0`      | Default route — "everything not matched elsewhere".        |
+| `10.0.0.0/8`     | RFC 1918 private.                                          |
+| `172.16.0.0/12`  | RFC 1918 private (covers `172.16.0.0` – `172.31.255.255`). |
+| `192.168.0.0/16` | RFC 1918 private.                                          |
+| `127.0.0.0/8`    | Loopback.                                                  |
+| `169.254.0.0/16` | Link-local (APIPA — host couldn't reach DHCP).             |
+| `100.64.0.0/10`  | Carrier-grade NAT (RFC 6598).                              |
+| `224.0.0.0/4`    | Multicast.                                                 |
 
 **Wildcard masks** (Cisco ACLs) are the bit-inverse of a subnet mask — `/24` ↔ `0.0.0.255`. Don't mix them up with subnet masks.
 
@@ -1262,19 +1263,19 @@ The mask is a contiguous run of `1`s followed by `0`s — the boundary between t
 
 **CIDR** (Classless Inter-Domain Routing) writes the mask as a single number after a `/` — the count of `1` bits in the mask.
 
-| CIDR  | Subnet Mask         | Network Bits | Host Bits | Usable Hosts |
-| ----- | ------------------- | ------------ | --------- | ------------ |
-| `/8`  | `255.0.0.0`         | 8            | 24        | 16,777,214   |
-| `/16` | `255.255.0.0`       | 16           | 16        | 65,534       |
-| `/24` | `255.255.255.0`     | 24           | 8         | 254          |
-| `/25` | `255.255.255.128`   | 25           | 7         | 126          |
-| `/26` | `255.255.255.192`   | 26           | 6         | 62           |
-| `/27` | `255.255.255.224`   | 27           | 5         | 30           |
-| `/28` | `255.255.255.240`   | 28           | 4         | 14           |
-| `/29` | `255.255.255.248`   | 29           | 3         | 6            |
-| `/30` | `255.255.255.252`   | 30           | 2         | 2            |
-| `/31` | `255.255.255.254`   | 31           | 1         | 2 (point-to-point, RFC 3021) |
-| `/32` | `255.255.255.255`   | 32           | 0         | 1 (single host route)        |
+| CIDR  | Subnet Mask       | Network Bits | Host Bits | Usable Hosts                 |
+| ----- | ----------------- | ------------ | --------- | ---------------------------- |
+| `/8`  | `255.0.0.0`       | 8            | 24        | 16,777,214                   |
+| `/16` | `255.255.0.0`     | 16           | 16        | 65,534                       |
+| `/24` | `255.255.255.0`   | 24           | 8         | 254                          |
+| `/25` | `255.255.255.128` | 25           | 7         | 126                          |
+| `/26` | `255.255.255.192` | 26           | 6         | 62                           |
+| `/27` | `255.255.255.224` | 27           | 5         | 30                           |
+| `/28` | `255.255.255.240` | 28           | 4         | 14                           |
+| `/29` | `255.255.255.248` | 29           | 3         | 6                            |
+| `/30` | `255.255.255.252` | 30           | 2         | 2                            |
+| `/31` | `255.255.255.254` | 31           | 1         | 2 (point-to-point, RFC 3021) |
+| `/32` | `255.255.255.255` | 32           | 0         | 1 (single host route)        |
 
 **Formulas:**
 
@@ -1286,15 +1287,15 @@ The mask is a contiguous run of `1`s followed by `0`s — the boundary between t
 
 Every IPv4 subnet has three special address types:
 
-| Address               | How to Find It                                          | Usable for Hosts? |
-| --------------------- | ------------------------------------------------------- | ----------------- |
-| **Network address**   | All host bits set to `0` — the first address in the block | No              |
-| **Broadcast address** | All host bits set to `1` — the last address in the block | No              |
-| **Host addresses**    | Everything in between                                   | Yes               |
+| Address               | How to Find It                                            | Usable for Hosts? |
+| --------------------- | --------------------------------------------------------- | ----------------- |
+| **Network address**   | All host bits set to `0` — the first address in the block | No                |
+| **Broadcast address** | All host bits set to `1` — the last address in the block  | No                |
+| **Host addresses**    | Everything in between                                     | Yes               |
 
 **Example:** for `192.168.1.0/24`:
 
-- Network address  → `192.168.1.0`
+- Network address → `192.168.1.0`
 - Broadcast address → `192.168.1.255`
 - Usable host range → `192.168.1.1` – `192.168.1.254` (254 hosts)
 
@@ -1302,12 +1303,12 @@ Every IPv4 subnet has three special address types:
 
 Borrow **2 bits** from the host portion (`/24` → `/26`) to create `2² = 4` subnets, each with `2⁶ − 2 = 62` usable hosts.
 
-| Subnet | CIDR                  | Network        | First Host    | Last Host     | Broadcast      |
-| ------ | --------------------- | -------------- | ------------- | ------------- | -------------- |
-| 1      | `192.168.1.0/26`      | `192.168.1.0`  | `192.168.1.1` | `192.168.1.62`| `192.168.1.63` |
-| 2      | `192.168.1.64/26`     | `192.168.1.64` | `192.168.1.65`| `192.168.1.126`| `192.168.1.127`|
-| 3      | `192.168.1.128/26`    | `192.168.1.128`| `192.168.1.129`| `192.168.1.190`| `192.168.1.191`|
-| 4      | `192.168.1.192/26`    | `192.168.1.192`| `192.168.1.193`| `192.168.1.254`| `192.168.1.255`|
+| Subnet | CIDR               | Network         | First Host      | Last Host       | Broadcast       |
+| ------ | ------------------ | --------------- | --------------- | --------------- | --------------- |
+| 1      | `192.168.1.0/26`   | `192.168.1.0`   | `192.168.1.1`   | `192.168.1.62`  | `192.168.1.63`  |
+| 2      | `192.168.1.64/26`  | `192.168.1.64`  | `192.168.1.65`  | `192.168.1.126` | `192.168.1.127` |
+| 3      | `192.168.1.128/26` | `192.168.1.128` | `192.168.1.129` | `192.168.1.190` | `192.168.1.191` |
+| 4      | `192.168.1.192/26` | `192.168.1.192` | `192.168.1.193` | `192.168.1.254` | `192.168.1.255` |
 
 **Block size shortcut:** for a `/26` mask, the last octet steps by `256 − 192 = 64`. Memorize this and you can write the table in seconds.
 
@@ -1340,13 +1341,13 @@ Real networks rarely need equal-sized subnets. **VLSM** lets you carve a parent 
 
 **Example:** split `192.168.10.0/24` for these needs:
 
-| Department | Hosts Needed | CIDR  | Range                                   |
-| ---------- | ------------ | ----- | --------------------------------------- |
-| Sales      | 100          | `/25` | `192.168.10.0`   – `192.168.10.127`     |
-| Engineering| 50           | `/26` | `192.168.10.128` – `192.168.10.191`     |
-| Ops        | 25           | `/27` | `192.168.10.192` – `192.168.10.223`     |
-| Mgmt       | 10           | `/28` | `192.168.10.224` – `192.168.10.239`     |
-| WAN link   | 2            | `/30` | `192.168.10.240` – `192.168.10.243`     |
+| Department  | Hosts Needed | CIDR  | Range                               |
+| ----------- | ------------ | ----- | ----------------------------------- |
+| Sales       | 100          | `/25` | `192.168.10.0` – `192.168.10.127`   |
+| Engineering | 50           | `/26` | `192.168.10.128` – `192.168.10.191` |
+| Ops         | 25           | `/27` | `192.168.10.192` – `192.168.10.223` |
+| Mgmt        | 10           | `/28` | `192.168.10.224` – `192.168.10.239` |
+| WAN link    | 2            | `/30` | `192.168.10.240` – `192.168.10.243` |
 
 Always allocate the **biggest** block first — otherwise smaller subnets fragment the space and leave you unable to fit the larger ones.
 
@@ -1376,7 +1377,7 @@ python3 -c "import ipaddress; print(ipaddress.ip_address('10.0.6.30') in ipaddre
 - Don't confuse a **subnet mask** (`/24`) with a **wildcard mask** (`0.0.0.255`) — they are bit-inverses and used in different tools (ACLs in Cisco IOS use wildcards).
 - **Classful ranges** (Class A `/8`, B `/16`, C `/24`) are historical — modern routing is classless (CIDR). They still show up in interview questions, so know them.
 - When in doubt, write the mask in binary — the network/host split becomes obvious.
-- Common interview question: *"How many usable hosts in a `/26`?"* → `2^6 − 2 = 62`.
+- Common interview question: _"How many usable hosts in a `/26`?"_ → `2^6 − 2 = 62`.
 
 ### NAT
 
@@ -1386,15 +1387,15 @@ python3 -c "import ipaddress; print(ipaddress.ip_address('10.0.6.30') in ipaddre
 
 **Types of NAT:**
 
-| Type                                    | Direction               | What it rewrites                | Use case                                                  |
-| --------------------------------------- | ----------------------- | ------------------------------- | --------------------------------------------------------- |
-| **SNAT** (Source NAT)                   | Outbound                | Source IP (sometimes port)      | Hide internal IPs behind a public one.                    |
-| **DNAT** (Destination NAT)              | Inbound                 | Destination IP (sometimes port) | Port forwarding — expose an internal server.              |
-| **PAT** / **NAPT**                      | Outbound, many-to-one   | Source IP **and** port          | Home routers — many private hosts share one public IP.    |
-| **Static NAT**                          | Both                    | 1-to-1 IP mapping, no port change | Permanently map a public IP to one internal server.     |
-| **Hairpin NAT**                         | Internal → public → internal | Both source and destination | Reach your own server via its public IP from inside.      |
-| **NAT64 / DNS64**                       | IPv6 ↔ IPv4             | Address family                  | Let IPv6-only clients reach IPv4-only services.           |
-| **CGNAT** (Carrier-grade NAT)           | ISP-level               | Multiple layers of NAT          | ISPs share one public IP across many subscribers (`100.64.0.0/10`). |
+| Type                          | Direction                    | What it rewrites                  | Use case                                                            |
+| ----------------------------- | ---------------------------- | --------------------------------- | ------------------------------------------------------------------- |
+| **SNAT** (Source NAT)         | Outbound                     | Source IP (sometimes port)        | Hide internal IPs behind a public one.                              |
+| **DNAT** (Destination NAT)    | Inbound                      | Destination IP (sometimes port)   | Port forwarding — expose an internal server.                        |
+| **PAT** / **NAPT**            | Outbound, many-to-one        | Source IP **and** port            | Home routers — many private hosts share one public IP.              |
+| **Static NAT**                | Both                         | 1-to-1 IP mapping, no port change | Permanently map a public IP to one internal server.                 |
+| **Hairpin NAT**               | Internal → public → internal | Both source and destination       | Reach your own server via its public IP from inside.                |
+| **NAT64 / DNS64**             | IPv6 ↔ IPv4                  | Address family                    | Let IPv6-only clients reach IPv4-only services.                     |
+| **CGNAT** (Carrier-grade NAT) | ISP-level                    | Multiple layers of NAT            | ISPs share one public IP across many subscribers (`100.64.0.0/10`). |
 
 **NAT connection-tracking flow (PAT example):**
 
@@ -1430,7 +1431,7 @@ iptables -t nat -A PREROUTING  -i eth0 -p tcp --dport 8080 -j DNAT --to 10.0.0.2
 - Breaks end-to-end connectivity — peer-to-peer protocols (SIP, FTP, WebRTC, BitTorrent) need helpers like **STUN / TURN / ICE** or **ALGs**.
 - Hides the real client IP from servers (mitigated by `X-Forwarded-For`, PROXY protocol).
 - Stateful — the router must remember every flow; large NAT tables can become a bottleneck.
-- Provides *incidental* security (inbound unsolicited traffic has no mapping), but it's **not** a firewall — don't treat NAT as a security boundary.
+- Provides _incidental_ security (inbound unsolicited traffic has no mapping), but it's **not** a firewall — don't treat NAT as a security boundary.
 
 **Inspect NAT state on Linux:**
 
@@ -1456,15 +1457,15 @@ sudo iptables -t nat -L -nv
 
 **Address types:**
 
-| Type                    | Prefix             | Meaning                                                                       |
-| ----------------------- | ------------------ | ----------------------------------------------------------------------------- |
-| **Global Unicast (GUA)**| `2000::/3`         | Routable on the public internet (analog of IPv4 public addresses).            |
-| **Unique Local (ULA)**  | `fc00::/7` (typically `fd00::/8`) | Private, non-routable on the internet (analog of RFC 1918).    |
-| **Link-Local (LLA)**    | `fe80::/10`        | Auto-assigned per interface, valid only on that link. Every IPv6 interface has one. |
-| **Multicast**           | `ff00::/8`         | Replaces broadcast — `ff02::1` = all nodes, `ff02::2` = all routers on the link. |
-| **Loopback**            | `::1/128`          | Equivalent of `127.0.0.1`.                                                    |
-| **Unspecified**         | `::/128`           | Equivalent of `0.0.0.0` — "no address yet".                                   |
-| **IPv4-mapped**         | `::ffff:0:0/96`    | Used in dual-stack sockets — `::ffff:192.0.2.1` represents an IPv4 inside IPv6. |
+| Type                     | Prefix                            | Meaning                                                                             |
+| ------------------------ | --------------------------------- | ----------------------------------------------------------------------------------- |
+| **Global Unicast (GUA)** | `2000::/3`                        | Routable on the public internet (analog of IPv4 public addresses).                  |
+| **Unique Local (ULA)**   | `fc00::/7` (typically `fd00::/8`) | Private, non-routable on the internet (analog of RFC 1918).                         |
+| **Link-Local (LLA)**     | `fe80::/10`                       | Auto-assigned per interface, valid only on that link. Every IPv6 interface has one. |
+| **Multicast**            | `ff00::/8`                        | Replaces broadcast — `ff02::1` = all nodes, `ff02::2` = all routers on the link.    |
+| **Loopback**             | `::1/128`                         | Equivalent of `127.0.0.1`.                                                          |
+| **Unspecified**          | `::/128`                          | Equivalent of `0.0.0.0` — "no address yet".                                         |
+| **IPv4-mapped**          | `::ffff:0:0/96`                   | Used in dual-stack sockets — `::ffff:192.0.2.1` represents an IPv4 inside IPv6.     |
 
 **Subnetting conventions:**
 
@@ -1512,16 +1513,16 @@ rdisc6 eth0
 
 **IPv6 vs IPv4 quick contrasts:**
 
-| Aspect              | IPv4                       | IPv6                                            |
-| ------------------- | -------------------------- | ----------------------------------------------- |
-| Address size        | 32 bits                    | 128 bits                                        |
-| Notation            | Dotted-decimal             | Colon-hex with `::` compression                 |
-| Address resolution  | ARP                        | NDP (Neighbor Discovery Protocol) over ICMPv6   |
-| Broadcast           | Yes (`x.x.x.255`)          | None — replaced by multicast                    |
-| Autoconfig          | DHCP only                  | SLAAC, DHCPv6, or both                          |
-| NAT                 | Common (NAT44, PAT)        | Discouraged — designed for end-to-end           |
-| Header              | Variable, with options     | Fixed 40-byte, extension headers                |
-| Fragmentation       | Routers + hosts            | Hosts only (PMTUD required)                     |
+| Aspect             | IPv4                   | IPv6                                          |
+| ------------------ | ---------------------- | --------------------------------------------- |
+| Address size       | 32 bits                | 128 bits                                      |
+| Notation           | Dotted-decimal         | Colon-hex with `::` compression               |
+| Address resolution | ARP                    | NDP (Neighbor Discovery Protocol) over ICMPv6 |
+| Broadcast          | Yes (`x.x.x.255`)      | None — replaced by multicast                  |
+| Autoconfig         | DHCP only              | SLAAC, DHCPv6, or both                        |
+| NAT                | Common (NAT44, PAT)    | Discouraged — designed for end-to-end         |
+| Header             | Variable, with options | Fixed 40-byte, extension headers              |
+| Fragmentation      | Routers + hosts        | Hosts only (PMTUD required)                   |
 
 ---
 
@@ -1531,15 +1532,16 @@ rdisc6 eth0
 
 ### One Shot Revision
 
-| Topic                                                   | Short Description                                                        |
-| ------------------------------------------------------- | ------------------------------------------------------------------------ |
-| [Routing Basics](#routing-basics)                       | How routers move packets between networks, hop-by-hop forwarding         |
-| [Routing Table](#routing-table)                         | Entries, longest-prefix match, metrics, administrative distance          |
-| [Default Gateway](#default-gateway)                     | The `0.0.0.0/0` route used when nothing more specific matches            |
-| [Static vs Dynamic Routing](#static-vs-dynamic-routing) | When to hand-code routes vs let a protocol discover them                 |
-| [Routing Protocols](#routing-protocols)                 | RIP, OSPF, EIGRP, BGP — what each is for                                 |
-| [IGP vs EGP](#igp-vs-egp)                               | Interior vs exterior gateway protocols and where they run                |
-| [Linux Routing](#linux-routing)                         | `ip route`, policy routing, multiple tables                              |
+| Topic                                                   | Short Description                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [Routing Basics](#routing-basics)                       | How routers move packets between networks, hop-by-hop forwarding            |
+| [Routing Table](#routing-table)                         | Entries, longest-prefix match, metrics, administrative distance             |
+| [Path of a Packet](#path-of-a-packet)                   | End-to-end walk of a packet from source host through routers to destination |
+| [Default Gateway](#default-gateway)                     | The `0.0.0.0/0` route used when nothing more specific matches               |
+| [Static vs Dynamic Routing](#static-vs-dynamic-routing) | When to hand-code routes vs let a protocol discover them                    |
+| [Routing Protocols](#routing-protocols)                 | RIP, OSPF, EIGRP, BGP — what each is for                                    |
+| [IGP vs EGP](#igp-vs-egp)                               | Interior vs exterior gateway protocols and where they run                   |
+| [Linux Routing](#linux-routing)                         | `ip route`, policy routing, multiple tables                                 |
 
 ### Routing Basics
 
@@ -1554,13 +1556,13 @@ A **router** is a Layer-3 device that forwards packets between different IP netw
 
 **Key concepts:**
 
-| Term                        | Meaning                                                                              |
-| --------------------------- | ------------------------------------------------------------------------------------ |
-| **Next hop**                | IP of the neighboring router that should receive the packet next.                    |
-| **Outgoing interface**      | Local interface the router sends the packet out on.                                  |
-| **Metric**                  | A number used to break ties between routes from the same protocol (lower = better).  |
-| **Administrative distance** | Trust level between sources — e.g., static beats OSPF beats RIP.                     |
-| **Convergence**             | How long it takes for every router to agree on the topology after a change.          |
+| Term                        | Meaning                                                                             |
+| --------------------------- | ----------------------------------------------------------------------------------- |
+| **Next hop**                | IP of the neighboring router that should receive the packet next.                   |
+| **Outgoing interface**      | Local interface the router sends the packet out on.                                 |
+| **Metric**                  | A number used to break ties between routes from the same protocol (lower = better). |
+| **Administrative distance** | Trust level between sources — e.g., static beats OSPF beats RIP.                    |
+| **Convergence**             | How long it takes for every router to agree on the topology after a change.         |
 
 Routers only forward — they don't inspect payloads. End hosts also have a routing table; for a typical laptop it has just two entries: its own subnet and a default gateway.
 
@@ -1594,14 +1596,14 @@ All three entries match, but `/24` is more specific than `/8`, which is more spe
 
 **Administrative distance (Cisco defaults):**
 
-| Source     | AD  |
-| ---------- | --- |
-| Connected  | 0   |
-| Static     | 1   |
-| eBGP       | 20  |
-| OSPF       | 110 |
-| RIP        | 120 |
-| iBGP       | 200 |
+| Source    | AD  |
+| --------- | --- |
+| Connected | 0   |
+| Static    | 1   |
+| eBGP      | 20  |
+| OSPF      | 110 |
+| RIP       | 120 |
+| iBGP      | 200 |
 
 When two protocols learn the **same** prefix, the router installs the one with the **lowest** AD.
 
@@ -1627,14 +1629,14 @@ Most laptops, phones, and servers learn their default gateway via **DHCP**; you 
 
 Two ways to populate a routing table — they're not mutually exclusive; most real networks use both.
 
-| Aspect            | Static Routing                              | Dynamic Routing                            |
-| ----------------- | ------------------------------------------- | ------------------------------------------ |
-| Configuration     | Hand-entered by admin                       | Learned via a routing protocol             |
-| Reacts to outages | No — manual fix required                    | Yes — protocol reconverges automatically   |
-| Overhead          | Zero — no protocol traffic, no CPU          | CPU + bandwidth for hellos and updates     |
-| Scalability       | Fine for small or stub networks             | Required for medium and large networks     |
-| Predictability    | Fully deterministic                         | Depends on protocol convergence behavior   |
-| Common uses       | Default routes, point-to-point links, edges | Backbones, multi-path networks, ISPs       |
+| Aspect            | Static Routing                              | Dynamic Routing                          |
+| ----------------- | ------------------------------------------- | ---------------------------------------- |
+| Configuration     | Hand-entered by admin                       | Learned via a routing protocol           |
+| Reacts to outages | No — manual fix required                    | Yes — protocol reconverges automatically |
+| Overhead          | Zero — no protocol traffic, no CPU          | CPU + bandwidth for hellos and updates   |
+| Scalability       | Fine for small or stub networks             | Required for medium and large networks   |
+| Predictability    | Fully deterministic                         | Depends on protocol convergence behavior |
+| Common uses       | Default routes, point-to-point links, edges | Backbones, multi-path networks, ISPs     |
 
 **Static route on Linux:**
 
@@ -1655,12 +1657,12 @@ sudo ip route add 10.20.0.0/16 via 192.168.1.254 dev eth0
 
 Dynamic routing protocols let routers **discover** the topology and **react** to link changes without human intervention. Four show up everywhere.
 
-| Protocol  | Type                 | Algorithm        | Metric                                | Typical Use                                  |
-| --------- | -------------------- | ---------------- | ------------------------------------- | -------------------------------------------- |
-| **RIP**   | IGP, distance-vector | Bellman-Ford     | Hop count (max 15)                    | Tiny legacy networks; rare today             |
-| **OSPF**  | IGP, link-state      | Dijkstra (SPF)   | Cost (based on bandwidth)             | Most enterprise LANs and campuses            |
-| **EIGRP** | IGP, hybrid          | DUAL             | Bandwidth + delay (configurable)      | Cisco-heavy networks                         |
-| **BGP**   | EGP, path-vector     | Best-path policy | AS path, local pref, MED, communities | The protocol of the internet (between ASes)  |
+| Protocol  | Type                 | Algorithm        | Metric                                | Typical Use                                 |
+| --------- | -------------------- | ---------------- | ------------------------------------- | ------------------------------------------- |
+| **RIP**   | IGP, distance-vector | Bellman-Ford     | Hop count (max 15)                    | Tiny legacy networks; rare today            |
+| **OSPF**  | IGP, link-state      | Dijkstra (SPF)   | Cost (based on bandwidth)             | Most enterprise LANs and campuses           |
+| **EIGRP** | IGP, hybrid          | DUAL             | Bandwidth + delay (configurable)      | Cisco-heavy networks                        |
+| **BGP**   | EGP, path-vector     | Best-path policy | AS path, local pref, MED, communities | The protocol of the internet (between ASes) |
 
 **Quick characterizations:**
 
@@ -1673,10 +1675,10 @@ Dynamic routing protocols let routers **discover** the topology and **react** to
 
 Routing protocols are categorized by **where** they run.
 
-| Category | Stands For                | Runs Where                        | Examples                  |
-| -------- | ------------------------- | --------------------------------- | ------------------------- |
-| **IGP**  | Interior Gateway Protocol | Inside a single Autonomous System | RIP, OSPF, EIGRP, IS-IS   |
-| **EGP**  | Exterior Gateway Protocol | Between Autonomous Systems        | BGP (only one in real use)|
+| Category | Stands For                | Runs Where                        | Examples                   |
+| -------- | ------------------------- | --------------------------------- | -------------------------- |
+| **IGP**  | Interior Gateway Protocol | Inside a single Autonomous System | RIP, OSPF, EIGRP, IS-IS    |
+| **EGP**  | Exterior Gateway Protocol | Between Autonomous Systems        | BGP (only one in real use) |
 
 An **Autonomous System (AS)** is a network under a single administrative authority — an ISP, a large enterprise, a cloud provider — identified by a globally unique **AS number (ASN)**.
 
@@ -1740,14 +1742,14 @@ Inspect and change interface settings, addresses, routes, and name resolution on
 
 ### One Shot Revision
 
-| Command                                       | Short Description                                          |
-| --------------------------------------------- | ---------------------------------------------------------- |
-| [`ip`](#ip)                                   | The modern Swiss-army tool for interfaces, addrs, routes   |
-| [`ifconfig`](#ifconfig)                       | Legacy interface tool (still common in older distros)      |
-| [`hostname`](#hostname)                       | Show or set the system hostname                            |
-| [`/etc/hosts`](#etchosts)                     | Static hostname → IP overrides, queried before DNS         |
-| [`/etc/resolv.conf`](#etcresolvconf)          | Configured DNS resolvers and search domains                |
-| [`nmcli`](#networkmanager-nmcli)              | NetworkManager CLI — manage connections and devices        |
+| Command                              | Short Description                                        |
+| ------------------------------------ | -------------------------------------------------------- |
+| [`ip`](#ip)                          | The modern Swiss-army tool for interfaces, addrs, routes |
+| [`ifconfig`](#ifconfig)              | Legacy interface tool (still common in older distros)    |
+| [`hostname`](#hostname)              | Show or set the system hostname                          |
+| [`/etc/hosts`](#etchosts)            | Static hostname → IP overrides, queried before DNS       |
+| [`/etc/resolv.conf`](#etcresolvconf) | Configured DNS resolvers and search domains              |
+| [`nmcli`](#networkmanager-nmcli)     | NetworkManager CLI — manage connections and devices      |
 
 ### ip
 
@@ -1781,13 +1783,13 @@ First-line tools for answering "can I reach that host, and if not, where does it
 
 ### One Shot Revision
 
-| Command                         | Short Description                                                |
-| ------------------------------- | ---------------------------------------------------------------- |
-| [`ping`](#ping)                 | Send ICMP echoes to test reachability and round-trip time        |
-| [`traceroute`](#traceroute)     | Show the hops packets take to reach a destination                |
-| [`mtr`](#mtr)                   | Combined `ping` + `traceroute` with continuous per-hop stats     |
-| [`telnet`](#telnet)             | Open a raw TCP connection to a host:port (handy for port checks) |
-| [`nc`](#nc-netcat)              | Netcat — read/write TCP & UDP, simple servers, port scans        |
+| Command                     | Short Description                                                |
+| --------------------------- | ---------------------------------------------------------------- |
+| [`ping`](#ping)             | Send ICMP echoes to test reachability and round-trip time        |
+| [`traceroute`](#traceroute) | Show the hops packets take to reach a destination                |
+| [`mtr`](#mtr)               | Combined `ping` + `traceroute` with continuous per-hop stats     |
+| [`telnet`](#telnet)         | Open a raw TCP connection to a host:port (handy for port checks) |
+| [`nc`](#nc-netcat)          | Netcat — read/write TCP & UDP, simple servers, port scans        |
 
 ### ping
 
@@ -1817,12 +1819,12 @@ Resolve names to addresses and inspect every layer of the lookup chain.
 
 ### One Shot Revision
 
-| Command                       | Short Description                                            |
-| ----------------------------- | ------------------------------------------------------------ |
-| [DNS Concepts](#dns-concepts) | Records (A, AAAA, CNAME, MX, TXT, NS), TTL, recursion        |
-| [`dig`](#dig)                 | The go-to DNS lookup tool — detailed, scriptable             |
-| [`nslookup`](#nslookup)       | Interactive DNS lookup, still widely used                    |
-| [`host`](#host)               | Simple, quick name → address lookups                         |
+| Command                       | Short Description                                     |
+| ----------------------------- | ----------------------------------------------------- |
+| [DNS Concepts](#dns-concepts) | Records (A, AAAA, CNAME, MX, TXT, NS), TTL, recursion |
+| [`dig`](#dig)                 | The go-to DNS lookup tool — detailed, scriptable      |
+| [`nslookup`](#nslookup)       | Interactive DNS lookup, still widely used             |
+| [`host`](#host)               | Simple, quick name → address lookups                  |
 
 ### DNS Concepts
 
@@ -1848,11 +1850,11 @@ See which processes are listening, which connections are open, and which ports a
 
 ### One Shot Revision
 
-| Command               | Short Description                                              |
-| --------------------- | -------------------------------------------------------------- |
-| [`ss`](#ss)           | Modern replacement for `netstat` — fast and detailed           |
-| [`netstat`](#netstat) | Legacy socket/port lister (still common in old runbooks)       |
-| [`lsof`](#lsof)       | List open files & sockets, mapped to processes                 |
+| Command               | Short Description                                        |
+| --------------------- | -------------------------------------------------------- |
+| [`ss`](#ss)           | Modern replacement for `netstat` — fast and detailed     |
+| [`netstat`](#netstat) | Legacy socket/port lister (still common in old runbooks) |
+| [`lsof`](#lsof)       | List open files & sockets, mapped to processes           |
 
 ### ss
 
@@ -1874,10 +1876,10 @@ Fetch URLs, inspect HTTP headers, and move files over the network.
 
 ### One Shot Revision
 
-| Command         | Short Description                                            |
-| --------------- | ------------------------------------------------------------ |
-| [`curl`](#curl) | Make HTTP(S) requests; inspect headers, status, timings      |
-| [`wget`](#wget) | Download files recursively, resume interrupted downloads     |
+| Command         | Short Description                                        |
+| --------------- | -------------------------------------------------------- |
+| [`curl`](#curl) | Make HTTP(S) requests; inspect headers, status, timings  |
+| [`wget`](#wget) | Download files recursively, resume interrupted downloads |
 
 ### curl
 
@@ -1895,12 +1897,12 @@ Log in to remote hosts and move files between them — the daily bread of any De
 
 ### One Shot Revision
 
-| Command                                 | Short Description                                          |
-| --------------------------------------- | ---------------------------------------------------------- |
-| [`ssh`](#ssh)                           | Encrypted remote shell over TCP/22                         |
-| [`scp`](#scp)                           | Copy files over SSH                                        |
-| [`rsync`](#rsync-1)                     | Efficient incremental file sync — local or over SSH        |
-| [SSH Keys & Config](#ssh-keys--config)  | Key generation, `~/.ssh/config`, agent forwarding          |
+| Command                                | Short Description                                   |
+| -------------------------------------- | --------------------------------------------------- |
+| [`ssh`](#ssh)                          | Encrypted remote shell over TCP/22                  |
+| [`scp`](#scp)                          | Copy files over SSH                                 |
+| [`rsync`](#rsync-1)                    | Efficient incremental file sync — local or over SSH |
+| [SSH Keys & Config](#ssh-keys--config) | Key generation, `~/.ssh/config`, agent forwarding   |
 
 ### ssh
 
@@ -1926,12 +1928,12 @@ Allow, drop, and rewrite traffic at the host level.
 
 ### One Shot Revision
 
-| Command                   | Short Description                                            |
-| ------------------------- | ------------------------------------------------------------ |
-| [`iptables`](#iptables)   | Classic netfilter rule manager (still everywhere)            |
-| [`nftables`](#nftables)   | Modern replacement for `iptables` — unified ruleset syntax   |
-| [`ufw`](#ufw)             | Uncomplicated Firewall — Ubuntu-friendly frontend            |
-| [`firewalld`](#firewalld) | Zone-based firewall daemon (RHEL/CentOS/Fedora)              |
+| Command                   | Short Description                                          |
+| ------------------------- | ---------------------------------------------------------- |
+| [`iptables`](#iptables)   | Classic netfilter rule manager (still everywhere)          |
+| [`nftables`](#nftables)   | Modern replacement for `iptables` — unified ruleset syntax |
+| [`ufw`](#ufw)             | Uncomplicated Firewall — Ubuntu-friendly frontend          |
+| [`firewalld`](#firewalld) | Zone-based firewall daemon (RHEL/CentOS/Fedora)            |
 
 ### iptables
 
@@ -1957,11 +1959,11 @@ Look at what's actually on the wire when the higher-level tools don't tell the f
 
 ### One Shot Revision
 
-| Command                                    | Short Description                                            |
-| ------------------------------------------ | ------------------------------------------------------------ |
-| [`tcpdump`](#tcpdump)                      | CLI packet capture — filter, dump, save as `.pcap`           |
-| [`wireshark / tshark`](#wireshark--tshark) | GUI / CLI deep-dive packet analysis with full dissection     |
-| [`nmap`](#nmap)                            | Port scanner & host/service discovery tool                   |
+| Command                                    | Short Description                                        |
+| ------------------------------------------ | -------------------------------------------------------- |
+| [`tcpdump`](#tcpdump)                      | CLI packet capture — filter, dump, save as `.pcap`       |
+| [`wireshark / tshark`](#wireshark--tshark) | GUI / CLI deep-dive packet analysis with full dissection |
+| [`nmap`](#nmap)                            | Port scanner & host/service discovery tool               |
 
 ### tcpdump
 
