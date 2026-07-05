@@ -79,6 +79,9 @@
   - [Default Gateway](#default-gateway)
   - [Static vs Dynamic Routing](#static-vs-dynamic-routing)
   - [Routing Protocols](#routing-protocols)
+  - [Distance Vector Protocols](#distance-vector-protocols)
+  - [Link State Protocols](#link-state-protocols)
+  - [Border Gateway Protocol](#border-gateway-protocol)
   - [IGP vs EGP](#igp-vs-egp)
   - [Linux Routing](#linux-routing)
 - [Network Configuration](#network-configuration)
@@ -1540,6 +1543,9 @@ rdisc6 eth0
 | [Default Gateway](#default-gateway)                     | The `0.0.0.0/0` route used when nothing more specific matches               |
 | [Static vs Dynamic Routing](#static-vs-dynamic-routing) | When to hand-code routes vs let a protocol discover them                    |
 | [Routing Protocols](#routing-protocols)                 | RIP, OSPF, EIGRP, BGP — what each is for                                    |
+| [Distance Vector Protocols](#distance-vector-protocols) | Bellman-Ford, routing by rumor, split horizon, RIP/EIGRP family             |
+| [Link State Protocols](#link-state-protocols)           | Dijkstra SPF, LSAs, LSDB, OSPF areas and adjacency states                   |
+| [Border Gateway Protocol](#border-gateway-protocol)     | Path-vector EGP of the internet; eBGP vs iBGP, best-path selection          |
 | [IGP vs EGP](#igp-vs-egp)                               | Interior vs exterior gateway protocols and where they run                   |
 | [Linux Routing](#linux-routing)                         | `ip route`, policy routing, multiple tables                                 |
 
@@ -1670,6 +1676,139 @@ Dynamic routing protocols let routers **discover** the topology and **react** to
 - **OSPF** — every router floods Link-State Advertisements (LSAs) describing its own links; each router independently runs Dijkstra to compute shortest paths. Fast convergence, organized into **areas** for scale.
 - **EIGRP** — originally Cisco-proprietary (now open); converges fast using the DUAL algorithm and keeps a feasible successor (precomputed backup path).
 - **BGP** — the protocol that holds the internet together. Each Autonomous System announces the prefixes it owns; BGP picks paths based on **policy**, not just shortest hop count.
+
+### Distance Vector Protocols
+
+Distance-vector protocols advertise **the distance and direction** to each destination — "I can reach network X in N hops, via me." Each router trusts its neighbors' summaries and never builds a full topology map. This is **routing by rumor**.
+
+**How they work:**
+
+1. Every router sends its **entire routing table** to directly connected neighbors on a timer.
+2. A neighbor adds its own cost (e.g., `+1` hop) and installs the route if it's better than what it already has.
+3. Repeat until the network converges — every router has consistent information.
+
+**Core algorithm:** Bellman-Ford — shortest path is computed incrementally by comparing each neighbor's advertised cost plus the link cost.
+
+| Protocol   | Metric                       | Update Style                         | Notes                                     |
+| ---------- | ---------------------------- | ------------------------------------ | ----------------------------------------- |
+| **RIPv1**  | Hop count (max 15)           | Full table, broadcast every 30s      | Classful; obsolete                        |
+| **RIPv2**  | Hop count (max 15)           | Full table, multicast `224.0.0.9`    | Classless (supports VLSM/CIDR); rare use  |
+| **RIPng**  | Hop count (max 15)           | IPv6 variant of RIPv2                | Rarely deployed                           |
+| **IGRP**   | Bandwidth + delay            | Cisco-proprietary; deprecated        | Superseded by EIGRP                       |
+| **EIGRP**  | Bandwidth + delay (DUAL)     | Triggered updates only               | Hybrid — has link-state-like properties   |
+
+**Weaknesses & the loops they cause:**
+
+- **Slow convergence** — updates propagate one hop per interval, so large networks take a long time to stabilize.
+- **Count-to-infinity** — after a link fails, two routers can keep advertising the dead route back and forth with ever-increasing metrics.
+- **Routing loops** — traffic can bounce between routers with stale views of the topology.
+
+**Loop-prevention tricks:**
+
+| Technique             | What It Does                                                                             |
+| --------------------- | ---------------------------------------------------------------------------------------- |
+| **Split horizon**     | Never advertise a route back out the interface you learned it from.                      |
+| **Route poisoning**   | Advertise a failed route with an unreachable metric (e.g., 16 hops in RIP).              |
+| **Poison reverse**    | Explicitly send the poisoned route back to the neighbor to break the loop faster.        |
+| **Hold-down timer**   | Ignore updates about a flapping route for a fixed period after it goes down.             |
+| **Triggered updates** | Send an update immediately on topology change instead of waiting for the periodic timer. |
+
+**When to use:** small, stable, low-budget networks — or never, in a modern enterprise. Most environments have moved on to OSPF or EIGRP.
+
+### Link State Protocols
+
+Link-state protocols advertise **the state of each of a router's own links** — not summaries from neighbors. Every router in an area ends up with an identical **map of the topology** and independently computes the shortest paths from its own point of view.
+
+**How they work:**
+
+1. Every router discovers its **directly connected neighbors** via periodic **Hello** packets.
+2. Each router originates **Link-State Advertisements (LSAs)** describing its links (neighbor, cost, state) and floods them reliably to all routers in the area.
+3. Every router assembles the LSAs into a **Link-State Database (LSDB)** — an identical topology graph across the area.
+4. Each router runs **Dijkstra's SPF algorithm** on the LSDB to compute the shortest path to every destination.
+
+**Core algorithm:** Dijkstra's Shortest Path First (SPF) — builds a tree rooted at the calculating router with the least-cost path to every other node.
+
+| Protocol  | Layer            | Metric                    | Notes                                                    |
+| --------- | ---------------- | ------------------------- | -------------------------------------------------------- |
+| **OSPF**  | IP (proto 89)    | Cost = ref-bw / link-bw   | Ubiquitous IGP; organized into **areas** for scalability |
+| **IS-IS** | Directly on L2   | Configurable cost         | Common in large ISPs and service-provider backbones      |
+
+**OSPF areas — why they exist:**
+
+Big flat link-state networks are expensive: every router runs Dijkstra over every link. OSPF splits the AS into **areas** that summarize routes to one another; area **0 (backbone)** must connect all others.
+
+| Area Type            | Description                                                                        |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Backbone (0)**     | Central area; every other area must attach to it.                                  |
+| **Standard**         | Normal area; carries intra- and inter-area routes.                                 |
+| **Stub**             | Blocks external (Type-5) LSAs; replaces them with a default route.                 |
+| **Totally Stubby**   | Blocks external **and** inter-area LSAs; only a default route leaves the area.     |
+| **NSSA**             | "Not-So-Stubby" — like stub but allows limited external routes via Type-7 LSAs.    |
+
+**Strengths:**
+
+- **Fast convergence** — LSAs flood immediately on change; SPF runs in milliseconds.
+- **No routing loops** — every router has the same map.
+- **Scalable** — hierarchical areas keep LSDB size and SPF cost bounded.
+
+**Costs:**
+
+- More CPU and memory per router (holding the LSDB, running SPF).
+- More complex to design and troubleshoot (areas, LSA types, adjacency states).
+
+**OSPF adjacency states** (worth recognizing in logs): `Down → Init → 2-Way → ExStart → Exchange → Loading → Full`. `Full` means the neighbors have synchronized their LSDBs.
+
+### Border Gateway Protocol
+
+**BGP** is the routing protocol that runs the **public internet**. Every ISP, cloud, and large enterprise that owns an AS uses BGP to tell the world "these prefixes belong to me, and here is the AS-path to reach them." Unlike IGPs, BGP is **policy-driven** — the "best" path is whatever the local network's business rules say it is, not necessarily the shortest.
+
+**Key characteristics:**
+
+| Attribute       | Value                                                                          |
+| --------------- | ------------------------------------------------------------------------------ |
+| Type            | **Path-vector** protocol (advertises the full AS-path, not just a distance)    |
+| Transport       | **TCP port 179** — sessions must be manually configured with each neighbor     |
+| Scope           | **EGP** — runs between Autonomous Systems (also runs inside as **iBGP**)       |
+| Convergence     | **Slow** by design — stability matters more than speed at internet scale       |
+| Table size      | The full internet routing table is ~950k+ IPv4 prefixes (as of 2026)           |
+
+**eBGP vs iBGP:**
+
+| Variant   | Runs Between                        | TTL      | Purpose                                          |
+| --------- | ----------------------------------- | -------- | ------------------------------------------------ |
+| **eBGP**  | Routers in **different** ASes       | 1        | Exchange routes with peers and providers         |
+| **iBGP**  | Routers in the **same** AS          | 255      | Distribute externally learned routes internally  |
+
+iBGP requires a **full mesh** (every iBGP speaker peers with every other) or a scalability workaround like **route reflectors** or **confederations**.
+
+**Best-path selection order** (simplified — real routers walk a longer list):
+
+1. **Weight** (Cisco-local; higher wins)
+2. **LOCAL_PREF** (higher wins; used to steer outbound traffic within an AS)
+3. **Locally originated** routes beat learned ones
+4. **AS_PATH length** (shorter wins — the closest thing BGP has to "hop count")
+5. **Origin type** (IGP `<` EGP `<` Incomplete)
+6. **MED** (Multi-Exit Discriminator; lower wins — hints to neighbors which entry point to prefer)
+7. **eBGP > iBGP**
+8. **Lowest IGP cost** to the next-hop
+9. **Router-ID tie-break**
+
+**Common BGP attributes:**
+
+| Attribute       | Purpose                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| **AS_PATH**     | Ordered list of ASes the prefix has traversed. Also prevents loops (reject if own ASN).    |
+| **NEXT_HOP**    | IP of the router to forward packets to for this prefix.                                    |
+| **LOCAL_PREF**  | Per-AS preference for outbound traffic (higher = more preferred).                          |
+| **MED**         | Cross-AS hint to influence a neighbor's inbound decision (lower = more preferred).         |
+| **COMMUNITIES** | Tags attached to routes (e.g., `65000:100`) used by policy filters at other ASes.          |
+
+**Operational realities:**
+
+- **Route hijacking** — anyone can announce anyone's prefix if their upstream doesn't filter. **RPKI** (Resource Public Key Infrastructure) cryptographically validates prefix ownership to mitigate this.
+- **BGP flapping** — unstable sessions cause churn; **route dampening** penalizes prefixes that flap repeatedly.
+- **Full table vs default** — small edge routers take only a default route from their ISP; transit routers take the **full internet table** (~950k+ IPv4 routes).
+- **On Linux** — use **FRR** (Free Range Routing) or **BIRD** to speak BGP; commonly seen inside data-center fabrics ("BGP in the DC") and cloud VPN gateways.
 
 ### IGP vs EGP
 

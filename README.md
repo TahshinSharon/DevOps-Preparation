@@ -141,7 +141,7 @@ The Linux networking stack and the tools used to inspect, configure, and trouble
 - **Network Sharing** — file sharing overview, `rsync`, simple HTTP server, NFS, Samba.
 - **Networking Fundamentals** — network basics (components, LAN/WAN/WLAN, hosts & packets), OSI/TCP-IP models, per-layer deep-dives (application, transport, network, link), IP addressing, DHCP, ports, ARP.
 - **Subnetting** — subnets & broadcast domains, subnet math, mental-math cheats, CIDR & supernetting, IPv4 with VLSM, NAT (SNAT/DNAT/PAT/CGNAT), IPv6 (`/64`, SLAAC, NDP).
-- **Routing** — routing tables & longest-prefix match, path of a packet end-to-end, default gateway, static vs dynamic routing, routing protocols (RIP/OSPF/EIGRP/BGP), IGP vs EGP, Linux `ip route` & policy routing.
+- **Routing** — routing tables & longest-prefix match, path of a packet end-to-end, default gateway, static vs dynamic routing, routing protocols (RIP/OSPF/EIGRP/BGP), distance-vector (Bellman-Ford, split horizon), link-state (Dijkstra SPF, OSPF areas), BGP (path-vector, eBGP/iBGP, best-path selection), IGP vs EGP, Linux `ip route` & policy routing.
 - **Network Configuration** — `ip`, `ifconfig`, `hostname`, `/etc/hosts`, `nmcli`.
 - **Connectivity & Diagnostics** — `ping`, `traceroute`, `mtr`, `telnet`, `nc`.
 - **DNS Tools** — `dig`, `nslookup`, `host`.
