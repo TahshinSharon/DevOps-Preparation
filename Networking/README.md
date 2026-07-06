@@ -87,11 +87,15 @@
 - [Network Configuration](#network-configuration)
   - [One Shot Revision](#one-shot-revision-4)
   - [ip](#ip)
+  - [Network Interfaces](#network-interfaces)
   - [ifconfig](#ifconfig)
+  - [route](#route)
   - [hostname](#hostname)
   - [/etc/hosts](#etchosts)
   - [/etc/resolv.conf](#etcresolvconf)
   - [NetworkManager (nmcli)](#networkmanager-nmcli)
+  - [dhclient](#dhclient)
+  - [arp](#arp)
 - [Connectivity & Diagnostics](#connectivity--diagnostics)
   - [One Shot Revision](#one-shot-revision-5)
   - [ping](#ping)
@@ -1881,20 +1885,32 @@ Inspect and change interface settings, addresses, routes, and name resolution on
 
 ### One Shot Revision
 
-| Command                              | Short Description                                        |
-| ------------------------------------ | -------------------------------------------------------- |
-| [`ip`](#ip)                          | The modern Swiss-army tool for interfaces, addrs, routes |
-| [`ifconfig`](#ifconfig)              | Legacy interface tool (still common in older distros)    |
-| [`hostname`](#hostname)              | Show or set the system hostname                          |
-| [`/etc/hosts`](#etchosts)            | Static hostname → IP overrides, queried before DNS       |
-| [`/etc/resolv.conf`](#etcresolvconf) | Configured DNS resolvers and search domains              |
-| [`nmcli`](#networkmanager-nmcli)     | NetworkManager CLI — manage connections and devices      |
+| Command                                        | Short Description                                        |
+| ---------------------------------------------- | -------------------------------------------------------- |
+| [`ip`](#ip)                                    | The modern Swiss-army tool for interfaces, addrs, routes |
+| [Network Interfaces](#network-interfaces)      | Physical & virtual NICs, naming, and state               |
+| [`ifconfig`](#ifconfig)                        | Legacy interface tool (still common in older distros)    |
+| [`route`](#route)                              | Legacy tool for viewing and editing the routing table    |
+| [`hostname`](#hostname)                        | Show or set the system hostname                          |
+| [`/etc/hosts`](#etchosts)                      | Static hostname → IP overrides, queried before DNS       |
+| [`/etc/resolv.conf`](#etcresolvconf)           | Configured DNS resolvers and search domains              |
+| [`nmcli`](#networkmanager-nmcli)               | NetworkManager CLI — manage connections and devices      |
+| [`dhclient`](#dhclient)                        | Request, renew, or release a DHCP lease                  |
+| [`arp`](#arp)                                  | Inspect and manage the ARP cache (IP ↔ MAC mappings)     |
 
 ### ip
 
 _To be filled in._
 
+### Network Interfaces
+
+_To be filled in._
+
 ### ifconfig
+
+_To be filled in._
+
+### route
 
 _To be filled in._
 
@@ -1911,6 +1927,14 @@ _To be filled in._
 _To be filled in._
 
 ### NetworkManager (nmcli)
+
+_To be filled in._
+
+### dhclient
+
+_To be filled in._
+
+### arp
 
 _To be filled in._
 
