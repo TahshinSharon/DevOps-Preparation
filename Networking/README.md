@@ -98,21 +98,27 @@
   - [arp](#arp)
 - [Connectivity & Diagnostics](#connectivity--diagnostics)
   - [One Shot Revision](#one-shot-revision-5)
+  - [ICMP](#icmp)
   - [ping](#ping)
   - [traceroute](#traceroute)
+  - [netstat](#netstat)
   - [mtr](#mtr)
   - [telnet](#telnet)
   - [nc (netcat)](#nc-netcat)
 - [DNS Tools](#dns-tools)
   - [One Shot Revision](#one-shot-revision-6)
-  - [DNS Concepts](#dns-concepts)
+  - [What is DNS](#what-is-dns)
+  - [DNS Components](#dns-components)
+  - [DNS Process](#dns-process)
+  - [/etc/hosts](#etchosts-1)
+  - [DNS Setup](#dns-setup)
+  - [DNS Tools](#dns-tools-1)
   - [dig](#dig)
   - [nslookup](#nslookup)
   - [host](#host)
 - [Sockets & Ports](#sockets--ports)
   - [One Shot Revision](#one-shot-revision-7)
   - [ss](#ss)
-  - [netstat](#netstat)
   - [lsof](#lsof)
 - [HTTP & Transfer Tools](#http--transfer-tools)
   - [One Shot Revision](#one-shot-revision-8)
@@ -1948,17 +1954,27 @@ First-line tools for answering "can I reach that host, and if not, where does it
 
 | Command                     | Short Description                                                |
 | --------------------------- | ---------------------------------------------------------------- |
+| [ICMP](#icmp)               | Internet Control Message Protocol — the signalling `ping` rides on |
 | [`ping`](#ping)             | Send ICMP echoes to test reachability and round-trip time        |
 | [`traceroute`](#traceroute) | Show the hops packets take to reach a destination                |
+| [`netstat`](#netstat)       | Legacy socket/port lister (still common in old runbooks)         |
 | [`mtr`](#mtr)               | Combined `ping` + `traceroute` with continuous per-hop stats     |
 | [`telnet`](#telnet)         | Open a raw TCP connection to a host:port (handy for port checks) |
 | [`nc`](#nc-netcat)          | Netcat — read/write TCP & UDP, simple servers, port scans        |
+
+### ICMP
+
+_To be filled in._
 
 ### ping
 
 _To be filled in._
 
 ### traceroute
+
+_To be filled in._
+
+### netstat
 
 _To be filled in._
 
@@ -1982,14 +1998,39 @@ Resolve names to addresses and inspect every layer of the lookup chain.
 
 ### One Shot Revision
 
-| Command                       | Short Description                                     |
-| ----------------------------- | ----------------------------------------------------- |
-| [DNS Concepts](#dns-concepts) | Records (A, AAAA, CNAME, MX, TXT, NS), TTL, recursion |
-| [`dig`](#dig)                 | The go-to DNS lookup tool — detailed, scriptable      |
-| [`nslookup`](#nslookup)       | Interactive DNS lookup, still widely used             |
-| [`host`](#host)               | Simple, quick name → address lookups                  |
+| Command                             | Short Description                                             |
+| ----------------------------------- | ------------------------------------------------------------- |
+| [What is DNS](#what-is-dns)         | The phonebook of the internet — name → IP resolution          |
+| [DNS Components](#dns-components)   | Resolvers, root/TLD/authoritative servers, zones, records     |
+| [DNS Process](#dns-process)         | End-to-end lookup flow: recursive + iterative queries         |
+| [`/etc/hosts`](#etchosts-1)         | Static local overrides — queried before hitting DNS           |
+| [DNS Setup](#dns-setup)             | Configuring resolvers (`/etc/resolv.conf`, `systemd-resolved`) |
+| [DNS Tools](#dns-tools-1)           | Overview of CLI tools used to query and debug DNS             |
+| [`dig`](#dig)                       | The go-to DNS lookup tool — detailed, scriptable              |
+| [`nslookup`](#nslookup)             | Interactive DNS lookup, still widely used                     |
+| [`host`](#host)                     | Simple, quick name → address lookups                          |
 
-### DNS Concepts
+### What is DNS
+
+_To be filled in._
+
+### DNS Components
+
+_To be filled in._
+
+### DNS Process
+
+_To be filled in._
+
+### /etc/hosts
+
+_To be filled in._
+
+### DNS Setup
+
+_To be filled in._
+
+### DNS Tools
 
 _To be filled in._
 
@@ -2016,14 +2057,9 @@ See which processes are listening, which connections are open, and which ports a
 | Command               | Short Description                                        |
 | --------------------- | -------------------------------------------------------- |
 | [`ss`](#ss)           | Modern replacement for `netstat` — fast and detailed     |
-| [`netstat`](#netstat) | Legacy socket/port lister (still common in old runbooks) |
 | [`lsof`](#lsof)       | List open files & sockets, mapped to processes           |
 
 ### ss
-
-_To be filled in._
-
-### netstat
 
 _To be filled in._
 
