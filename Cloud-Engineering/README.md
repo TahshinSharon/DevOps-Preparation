@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-1-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-2-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -39,6 +39,9 @@
 - [Elastic Compute Cloud](#elastic-compute-cloud)
   - [One Shot Revision](#one-shot-revision)
   - [EC2 Overview](#ec2-overview)
+- [AWS Lambda](#aws-lambda)
+  - [One Shot Revision](#one-shot-revision-1)
+  - [Lambda Overview](#lambda-overview)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -115,6 +118,30 @@ Amazon EC2 (Elastic Compute Cloud) provides resizable virtual servers — called
 
 ---
 
+## AWS Lambda
+
+AWS Lambda is a **serverless compute service** that runs your code in response to events — HTTP requests, queue messages, file uploads, schedules, and more — without you provisioning or managing servers. You upload a function, Lambda handles the runtime, scaling, and availability, and you pay only for the compute time actually consumed.
+
+### One Shot Revision
+
+| Topic                                 | Short Description                                                       |
+| ------------------------------------- | ----------------------------------------------------------------------- |
+| [Lambda Overview](#lambda-overview)   | Core Lambda concepts — functions, event sources, runtimes, triggers, execution model |
+
+### Lambda Overview
+
+**Description:** A primer on the building blocks of AWS Lambda — what a function is, how event sources and triggers invoke it, supported runtimes, execution environment, concurrency, and how Lambda fits into serverless architectures.
+
+**Learn from the official source:**
+
+→ [AWS Lambda — Official AWS Documentation](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html)
+
+**Notes:**
+
+- _To be filled in after reading the official documentation._
+
+---
+
 ## Useful Tips & Tricks
 
 - _To be filled in._
@@ -124,6 +151,7 @@ Amazon EC2 (Elastic Compute Cloud) provides resizable virtual servers — called
 ## References
 
 - [AWS EC2 User Guide — Concepts](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/concepts.html)
+- [AWS Lambda Developer Guide — Welcome](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html)
 - [AWS Documentation Home](https://docs.aws.amazon.com/)
 - [BongoDev](https://www.bongodev.com/)
 - [BongoDev on GitHub](https://github.com/bongodev)
