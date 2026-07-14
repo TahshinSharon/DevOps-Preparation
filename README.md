@@ -14,7 +14,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/Topics-4-blue?style=flat-square" alt="Topics">
+  <img src="https://img.shields.io/badge/Topics-5-blue?style=flat-square" alt="Topics">
   <img src="https://img.shields.io/badge/Made%20For-DevOps%20Prep-orange?style=flat-square" alt="Made For">
 </p>
 
@@ -28,6 +28,8 @@
   <a href="./Networking/README.md"><b>Networking Notes</b></a>
   &nbsp;·&nbsp;
   <a href="./Cloud-Engineering/README.md"><b>Cloud Engineering Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="./Docker/README.md"><b>Docker Notes</b></a>
 </p>
 
 ---
@@ -42,6 +44,7 @@
   - [Git & GitHub](#git--github)
   - [Networking](#networking)
   - [Cloud Engineering](#cloud-engineering)
+  - [Docker](#docker)
 - [Conventions](#conventions)
 - [Contributing / Personal Use](#contributing--personal-use)
 - [References](#references)
@@ -71,11 +74,13 @@ DevOps-Preparation/
 │   └── README.md            ← Git workflows, branching, GitHub & gh CLI, Actions, ...
 ├── Networking/
 │   └── README.md            ← OSI/TCP-IP, ip/ss/dig/curl/ssh, firewalls, packet capture, ...
-└── Cloud-Engineering/
-    └── README.md            ← AWS EC2 and other cloud services, concepts, and notes
+├── Cloud-Engineering/
+│   └── README.md            ← AWS EC2 and other cloud services, concepts, and notes
+└── Docker/
+    └── README.md            ← Containers, images, Dockerfile, volumes, networks, Compose, ...
 ```
 
-Every topic folder holds a single `README.md` that acts as the full reference for that subject. New topics (Docker, Kubernetes, CI/CD, Networking, Cloud, etc.) will be added the same way — one folder, one self-contained `README.md`.
+Every topic folder holds a single `README.md` that acts as the full reference for that subject. New topics (Kubernetes, CI/CD, Terraform, etc.) will be added the same way — one folder, one self-contained `README.md`.
 
 ---
 
@@ -161,6 +166,14 @@ Cloud-native services on AWS (and equivalents on other providers) used to build,
 - **AWS Lambda** — serverless compute — functions, event sources, runtimes, triggers, and pay-per-execution model.
 
 → [Open the Cloud Engineering notes](./Cloud-Engineering/README.md)
+
+### Docker
+
+The container platform for packaging applications with their dependencies into portable, isolated runtimes.
+
+- **Docker Fundamentals** — images, containers, volumes, networks, Dockerfile, Docker Compose, and registries.
+
+→ [Open the Docker notes](./Docker/README.md)
 
 ---
 
