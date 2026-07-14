@@ -21,9 +21,9 @@
 <p align="center">
   <a href="https://tahshinsharon.github.io/"><b>Visit My Portfolio</b></a>
   &nbsp;·&nbsp;
-  <a href="./Linux/README.md"><b>Linux Notes</b></a>
-  &nbsp;·&nbsp;
   <a href="./Git-Github/README.md"><b>Git &amp; GitHub Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="./Linux/README.md"><b>Linux Notes</b></a>
   &nbsp;·&nbsp;
   <a href="./Networking/README.md"><b>Networking Notes</b></a>
   &nbsp;·&nbsp;
@@ -40,8 +40,8 @@
 - [Repository Structure](#repository-structure)
 - [How to Read This Repo](#how-to-read-this-repo)
 - [Sections](#sections)
-  - [Linux](#linux)
   - [Git & GitHub](#git--github)
+  - [Linux](#linux)
   - [Networking](#networking)
   - [Cloud Engineering](#cloud-engineering)
   - [Docker](#docker)
@@ -67,18 +67,20 @@ This repo is my **DevOps learning journal** — a growing collection of focused 
 
 ```
 DevOps-Preparation/
-├── README.md                ← you are here
-├── Linux/
-│   └── README.md            ← Linux commands, text formating, user management, ...
-├── Git-Github/
-│   └── README.md            ← Git workflows, branching, GitHub & gh CLI, Actions, ...
-├── Networking/
-│   └── README.md            ← OSI/TCP-IP, ip/ss/dig/curl/ssh, firewalls, packet capture, ...
-├── Cloud-Engineering/
-│   └── README.md            ← AWS EC2 and other cloud services, concepts, and notes
-└── Docker/
-    └── README.md            ← Containers, images, Dockerfile, volumes, networks, Compose, ...
+├── README.md                   ← you are here
+├── 1. Git-Github/
+│   └── README.md               ← Git workflows, branching, GitHub & gh CLI, Actions, ...
+├── 2. Linux/
+│   └── README.md               ← Linux commands, text formating, user management, ...
+├── 3. Networking/
+│   └── README.md               ← OSI/TCP-IP, ip/ss/dig/curl/ssh, firewalls, packet capture, ...
+├── 4. Cloud-Engineering/
+│   └── README.md               ← AWS EC2 and other cloud services, concepts, and notes
+└── 5. Docker/
+    └── README.md               ← Containers, images, Dockerfile, volumes, networks, Compose, ...
 ```
+
+> **Note:** the numbers above indicate the recommended reading order; the actual folders on disk are named without the `N. ` prefix (`Git-Github/`, `Linux/`, `Networking/`, `Cloud-Engineering/`, `Docker/`).
 
 Every topic folder holds a single `README.md` that acts as the full reference for that subject. New topics (Kubernetes, CI/CD, Terraform, etc.) will be added the same way — one folder, one self-contained `README.md`.
 
@@ -112,18 +114,6 @@ Inside every command entry you'll find:
 
 ## Sections
 
-### Linux
-
-Foundational shell skills — the bread and butter of any DevOps role.
-
-- **Basic Commands** — `pwd`, `cd`, `ls`, `cp`, `mv`, `rm`, `find`, `man`, ...
-- **Text-Formating** — pipes, redirection, `cut`, `sort`, `uniq`, `grep`, `wc`, ...
-- **Advanced Text-Formating** — regular expressions and the `vim` editor.
-- **User Management** — `/etc/passwd`, `/etc/shadow`, `useradd`, `usermod`, `sudo`, root.
-- **Permissions** — file permission bits (`rwx`), user/group/other classes, symbolic vs octal notation.
-
-→ [Open the Linux notes](./Linux/README.md)
-
 ### Git & GitHub
 
 Distributed version control plus the collaboration layer on top.
@@ -138,6 +128,18 @@ Distributed version control plus the collaboration layer on top.
 - **GitHub & Collaboration** — SSH keys, PR workflow, `gh` CLI, GitHub Actions.
 
 → [Open the Git & GitHub notes](./Git-Github/README.md)
+
+### Linux
+
+Foundational shell skills — the bread and butter of any DevOps role.
+
+- **Basic Commands** — `pwd`, `cd`, `ls`, `cp`, `mv`, `rm`, `find`, `man`, ...
+- **Text-Formating** — pipes, redirection, `cut`, `sort`, `uniq`, `grep`, `wc`, ...
+- **Advanced Text-Formating** — regular expressions and the `vim` editor.
+- **User Management** — `/etc/passwd`, `/etc/shadow`, `useradd`, `usermod`, `sudo`, root.
+- **Permissions** — file permission bits (`rwx`), user/group/other classes, symbolic vs octal notation.
+
+→ [Open the Linux notes](./Linux/README.md)
 
 ### Networking
 
