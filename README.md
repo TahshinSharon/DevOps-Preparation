@@ -173,7 +173,13 @@ Cloud-native services on AWS (and equivalents on other providers) used to build,
 
 The container platform for packaging applications with their dependencies into portable, isolated runtimes.
 
-- **Docker Fundamentals** — images, containers, volumes, networks, Dockerfile, Docker Compose, and registries.
+- **Docker Fundamentals** — what Docker is, containers vs virtual machines, Docker architecture (client / daemon / registry), images, containers, and registries.
+- **Container Basics** — `docker run`, `docker ps`, `docker stop`/`docker kill`, `docker start`/`docker restart`, `docker exec`, `docker rm`/`docker prune`.
+- **Image Basics** — `docker pull`, `docker image ls`, `docker image build`, `docker image tag`, `docker push`, `docker image rm`/`prune`.
+- **Dockerfile Instructions** — `FROM`, `WORKDIR`, `COPY`/`ADD`, `RUN`, `ENV`/`ARG`, `EXPOSE`, `CMD`/`ENTRYPOINT`, `VOLUME`, `USER`, `LABEL`, layer caching, and multi-stage builds.
+- **Volumes & Bind Mounts** — persistent storage with bind mounts, named volumes, and anonymous volumes.
+- **Docker Networking** — network drivers (`bridge`, `host`, `none`, `overlay`), `docker network` commands, and container-to-container DNS.
+- **Docker Compose** — `compose.yaml` structure and the core `docker compose` workflow for multi-container apps.
 
 → [Open the Docker notes](./Docker/README.md)
 
