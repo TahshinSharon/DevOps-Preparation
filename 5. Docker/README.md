@@ -143,7 +143,7 @@ Before touching any command, it helps to build a clear mental picture of what Do
 | --------------------------------------------------------- | ------------------------------------------------------------------ |
 | [What is Docker?](#what-is-docker)                        | Containerization platform that packages apps with their dependencies |
 | [Containers vs VMs](#containers-vs-virtual-machines)      | Containers share the host kernel; VMs ship a full guest OS         |
-| [Docker Architecture](#docker-architecture)               | Client → REST API → Daemon; talks to registries for images         |
+| [Docker Architecture](#docker-architecture)               | CLI → daemon → containerd → runc; daemon also talks to registries  |
 | [Images, Containers & Registries](#images-containers--registries) | Image = blueprint, container = running instance, registry = image store |
 
 ### What is Docker?
@@ -155,6 +155,18 @@ Before touching any command, it helps to build a clear mental picture of what Do
 - Fixes the classic **"it works on my machine"** problem — the container carries its own environment, so it behaves the same on your laptop, a colleague's laptop, a CI runner, and a production server.
 - Removes painful setup steps like "install Python 3.10, then install Node 18, then install these five system libraries, then set these three env vars."
 - Starts in **milliseconds**, uses far less RAM/disk than a virtual machine, and can be shipped as a single file (an image).
+
+**How it works under the hood:** Docker is built on two Linux kernel features:
+
+- **Namespaces** — give each container its own private view of the system (processes, network, mounts, hostname, users).
+- **Control groups (cgroups)** — limit and account for how much CPU, memory, and I/O each container can use.
+
+Together they create the illusion of a separate machine without ever leaving the host kernel.
+
+**Docker Engine vs Docker Desktop:**
+
+- **Docker Engine** runs natively on Linux (containers use the host kernel directly).
+- **Docker Desktop** (macOS/Windows) ships a lightweight Linux VM under the hood, because containers need a Linux kernel — you're actually running containers inside that VM.
 
 **Real-world mental model:** Think of a container like a shipping container. The dock (your OS) doesn't care what's inside — as long as the container follows the standard shape, any crane (Docker Engine) on any port (host OS) can lift and run it.
 
@@ -173,6 +185,27 @@ Both give you isolation, but they achieve it very differently.
 
 **Easy way to remember:** A **VM is a whole house** with its own foundation, plumbing, and roof. A **container is an apartment** in a shared building — it has its own locked door and furniture, but the walls, wiring, and heating are shared with everyone else.
 
+**Stack diagram — same host, very different layers:**
+
+```
+       Virtual Machines                        Containers
+   ┌──────┐ ┌──────┐ ┌──────┐            ┌──────┐ ┌──────┐ ┌──────┐
+   │ App  │ │ App  │ │ App  │            │ App  │ │ App  │ │ App  │
+   │ +Deps│ │ +Deps│ │ +Deps│            │ +Deps│ │ +Deps│ │ +Deps│
+   ├──────┤ ├──────┤ ├──────┤            └──────┘ └──────┘ └──────┘
+   │Guest │ │Guest │ │Guest │            ┌────────────────────────┐
+   │  OS  │ │  OS  │ │  OS  │            │     Docker Engine      │
+   ├──────┴─┴──────┴─┴──────┤            ├────────────────────────┤
+   │      Hypervisor        │            │        Host OS         │
+   ├────────────────────────┤            ├────────────────────────┤
+   │        Host OS         │            │       Hardware         │
+   ├────────────────────────┤            └────────────────────────┘
+   │       Hardware         │
+   └────────────────────────┘
+```
+
+Each VM drags its own guest OS along. Containers skip that entire layer and share the host kernel — that's why one is measured in gigabytes and the other in megabytes.
+
 **Proof containers share the kernel:**
 
 ```bash
@@ -182,24 +215,28 @@ docker run --rm alpine uname -a
 
 ### Docker Architecture
 
-Docker uses a **client-server model**. When you type `docker ...` on the terminal, three components cooperate:
+Docker uses a **client-server model**. When you type `docker ...` on the terminal, the CLI talks to a daemon, which delegates the actual container work to two lower-level runtimes:
 
 ```
-┌─────────────┐   REST API   ┌──────────────┐
-│ docker CLI  │ ───────────► │ Docker daemon │ ──► containers, images,
-│  (client)   │              │  (dockerd)    │      volumes, networks
-└─────────────┘              └──────┬───────┘
+┌─────────────┐  REST API   ┌───────────────┐   gRPC   ┌───────────┐   exec    ┌──────┐
+│ docker CLI  │ ──────────► │ Docker daemon │ ───────► │ containerd│ ────────► │ runc │──► container
+│  (client)   │             │   (dockerd)   │          │           │           │      │    process
+└─────────────┘             └───────┬───────┘          └───────────┘           └──────┘
                                     │
                                     ▼
                              ┌──────────────┐
-                             │  Registry    │  (Docker Hub, GHCR, ECR, ...)
+                             │   Registry   │  (Docker Hub, GHCR, ECR, ...)
                              └──────────────┘
 ```
 
 - **Docker client (`docker`)** — the CLI you type commands into. It doesn't do the heavy lifting itself.
-- **Docker daemon (`dockerd`)** — a long-running background service that actually builds images, starts containers, wires up networks, mounts volumes, etc.
-- **REST API** — the bridge the client uses to talk to the daemon (locally over a socket or remotely over TCP).
-- **Registry** — a remote image store. **Docker Hub** is the default public registry; others include GitHub Container Registry (GHCR), Amazon ECR, and self-hosted options.
+- **Docker daemon (`dockerd`)** — a long-running background service that exposes the REST API, builds images (via **BuildKit**), and manages higher-level objects like networks, volumes, and image storage.
+- **containerd** — the container runtime the daemon delegates to. It handles the container lifecycle: pulling images, unpacking them, and running containers.
+- **runc** — the low-level OCI runtime that actually creates the container process using Linux namespaces and cgroups. This is where a container becomes real.
+- **REST API** — the bridge the client uses to talk to the daemon (locally over a Unix socket at `/var/run/docker.sock`, or remotely over TCP).
+- **Registry** — a remote image store. **Docker Hub** is the default public registry; others include GitHub Container Registry (GHCR), Amazon ECR, Google Artifact Registry, and self-hosted options like Harbor.
+
+**Why the split matters:** Because container work lives in `containerd` + `runc` (both OCI-standard), Kubernetes and other tools can run containers **without** Docker — they just talk to `containerd` (or another OCI runtime) directly. Docker is the friendly all-in-one wrapper on top.
 
 ### Images, Containers & Registries
 
@@ -214,6 +251,23 @@ The three nouns you'll see over and over:
 - Image = a class (or a recipe, or a class blueprint).
 - Container = an object created from that class (or the cooked meal made from the recipe).
 - Registry = the cookbook everyone shares.
+
+**How image layers work (and why images stay small):**
+
+Every instruction in a `Dockerfile` produces a **read-only layer**. When a container starts, Docker stacks a thin **writable layer** on top using a **union filesystem** (OverlayFS on modern Linux). Writes go to that top layer via **copy-on-write** — unchanged files are never duplicated.
+
+```
+   ┌────────────────────────────┐  ← writable layer  (per container)
+   ├────────────────────────────┤
+   │      CMD ["node", ...]     │  ← image layers    (shared, read-only)
+   │      COPY . .              │
+   │      RUN npm ci            │
+   │      COPY package*.json    │
+   │      FROM node:20-alpine   │
+   └────────────────────────────┘
+```
+
+**Practical payoff:** ten containers from the same image share one set of layers on disk. Only their tiny writable layers differ.
 
 ---
 
