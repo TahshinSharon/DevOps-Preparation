@@ -55,6 +55,9 @@
   - [How to Restart a Container](#how-to-restart-a-container)
   - [How to Create a Container Without Running](#how-to-create-a-container-without-running)
   - [How to Remove Dangling Containers](#how-to-remove-dangling-containers)
+  - [How to Run a Container in Interactive Mode](#how-to-run-a-container-in-interactive-mode)
+  - [How to Execute Commands Inside a Container](#how-to-execute-commands-inside-a-container)
+  - [How to Work With Executable Images](#how-to-work-with-executable-images)
 - [Image Basics](#image-basics)
   - [One Shot Revision](#one-shot-revision-2)
   - [`docker pull`](#docker-pull)
@@ -262,6 +265,9 @@ The commands you use every single day to run, inspect, and clean up containers.
 | [How to Restart a Container](#how-to-restart-a-container)              | Bounce a container with `docker restart`       |
 | [How to Create a Container Without Running](#how-to-create-a-container-without-running) | Stage a container with `docker create` |
 | [How to Remove Dangling Containers](#how-to-remove-dangling-containers) | Clean up stopped and leftover containers      |
+| [How to Run a Container in Interactive Mode](#how-to-run-a-container-in-interactive-mode) | Open a shell inside a new container with `-it` |
+| [How to Execute Commands Inside a Container](#how-to-execute-commands-inside-a-container) | Run commands in a running container with `docker exec` |
+| [How to Work With Executable Images](#how-to-work-with-executable-images) | Use `ENTRYPOINT` images as CLI tools         |
 
 ### How to Run a Container
 
@@ -752,6 +758,175 @@ docker container prune -f && docker volume prune -f
 - `docker rm -v` removes only **anonymous** volumes — named volumes (`-v my-vol:/data`) are always kept unless you explicitly run `docker volume rm my-vol`.
 - `--rm` on `docker run` is the cleanest approach: the container deletes itself the moment it exits, so there's nothing to clean up later.
 - `docker system prune` is the broadest cleanup — it removes stopped containers, dangling images, unused networks, and (with `-a --volumes`) everything unused in one command.
+
+### How to Run a Container in Interactive Mode
+
+**Description:** By default a container runs non-interactively — its stdin is closed and there is no terminal. The `-it` flag pair opens an interactive session: `-i` keeps stdin open so you can type, and `-t` allocates a pseudo-TTY so prompts, colours, and cursor movement render correctly. Together they let you open a shell or REPL directly inside a fresh container.
+
+**Syntax:**
+
+```bash
+docker run -it [options] <image> [shell]
+```
+
+**Flags explained:**
+
+| Flag          | Full name         | What it does                                              |
+| ------------- | ----------------- | --------------------------------------------------------- |
+| `-i`          | `--interactive`   | Keep stdin open even when not attached                    |
+| `-t`          | `--tty`           | Allocate a pseudo-TTY (terminal emulator)                 |
+| `-it`         | Both together     | The standard combo for any interactive shell session      |
+
+**Examples:**
+
+```bash
+# Open a bash shell inside Ubuntu — feel free to explore
+docker run -it ubuntu bash
+
+# Alpine ships sh, not bash
+docker run -it alpine sh
+
+# Start interactive, auto-remove on exit
+docker run --rm -it node:20-alpine sh
+
+# Interactive with a working directory set
+docker run --rm -it -w /app node:20-alpine sh
+
+# Interactive with an env var passed in
+docker run --rm -it -e APP_ENV=dev python:3.12-slim bash
+
+# Mount the current folder and open a shell for live dev work
+docker run --rm -it -v $(pwd):/app -w /app node:20-alpine sh
+```
+
+**Notes:**
+
+- Always pair `-i` and `-t` together — `-i` alone gives you input but no formatted output; `-t` alone gives you a TTY but stdin is closed so you can't type.
+- To exit the shell without stopping the container, use `Ctrl-P Ctrl-Q` (detach). Typing `exit` or pressing `Ctrl-D` terminates the shell process and stops the container.
+- On minimal images like `alpine`, `busybox`, or `distroless`, `bash` may not be installed — use `sh` instead.
+- `-it` is incompatible with `-d` (detached mode) — you can't have an interactive foreground session and run in the background at the same time.
+
+### How to Execute Commands Inside a Container
+
+**Description:** `docker exec` runs a new command inside an **already-running** container. Unlike `docker run` (which creates a new container), `exec` reaches into an existing one without disturbing the main process. It's the go-to tool for debugging, inspecting state, and running one-off admin tasks inside a live container.
+
+**Syntax:**
+
+```bash
+docker exec [options] <container> <command> [args...]
+```
+
+**Common Options:**
+
+| Option          | Description                                                    |
+| --------------- | -------------------------------------------------------------- |
+| `-it`           | Interactive + TTY — required for opening a shell               |
+| `-d, --detach`  | Run the command in the background inside the container         |
+| `-e, --env`     | Set an env var for this command only: `-e DEBUG=true`          |
+| `-u, --user`    | Run as a specific user: `-u root` or `-u 1000`                 |
+| `-w, --workdir` | Set the working directory for the command                      |
+
+**Examples:**
+
+```bash
+# Open an interactive shell inside a running container
+docker exec -it web bash
+
+# Alpine/minimal images — use sh instead of bash
+docker exec -it web sh
+
+# Run a one-off command without opening a shell
+docker exec web ls /etc/nginx/conf.d
+
+# Check running processes inside the container
+docker exec web ps aux
+
+# Run a psql query inside a Postgres container
+docker exec -it db psql -U postgres -c '\l'
+
+# Run a command as root even if the container uses a non-root user
+docker exec -u root -it web bash
+
+# Set an env var just for this exec session
+docker exec -e DEBUG=true -it web node debug.js
+
+# Check an env variable inside the container
+docker exec web env | grep NODE_ENV
+```
+
+**`docker exec` vs `docker run`:**
+
+| Aspect           | `docker exec`                            | `docker run`                              |
+| ---------------- | ---------------------------------------- | ----------------------------------------- |
+| Target           | An **existing, running** container       | Creates a **brand-new** container         |
+| Main process     | Untouched — runs alongside it            | The command you pass becomes the main process |
+| Stops container? | No — exec exits, container keeps running | Container stops when the command exits    |
+| Use case         | Debug, inspect, admin tasks              | Start a fresh container from an image     |
+
+**Notes:**
+
+- If the container has no `bash`, try `sh` — Alpine and other minimal images skip bash to save space.
+- `docker exec` only works on **running** containers. If the container is stopped, start it first with `docker start`.
+- Exit the exec shell with `exit` or `Ctrl-D` — this closes the exec session only; the main container process keeps running.
+- Avoid using `docker exec` to make permanent changes inside a container — those changes live only in the writable layer and are lost when the container is removed. Put changes in the Dockerfile instead.
+
+### How to Work With Executable Images
+
+**Description:** Some images are designed to behave like a standalone CLI tool rather than a long-running service. They achieve this by setting `ENTRYPOINT` to the binary in their Dockerfile — so the image name effectively becomes the command, and anything you pass after `docker run <image>` becomes arguments to that binary. Common examples include `alpine`, `busybox`, `curl`, compiler images, and custom tooling images.
+
+**Syntax:**
+
+```bash
+# Arguments after the image name are passed to the ENTRYPOINT
+docker run [options] <image> [arguments]
+
+# Override the entrypoint entirely
+docker run --entrypoint <binary> <image> [arguments]
+```
+
+**Examples:**
+
+```bash
+# Run a one-off curl request using the curlimages/curl image
+docker run --rm curlimages/curl curl https://example.com
+
+# Use alpine as a throwaway shell environment
+docker run --rm -it alpine sh
+
+# Run a Python script without installing Python locally
+docker run --rm -v $(pwd):/app -w /app python:3.12-slim python script.py
+
+# Compile a Go binary using the official Go image
+docker run --rm -v $(pwd):/src -w /src golang:1.22-alpine go build -o app .
+
+# Use Node as a REPL without a local installation
+docker run --rm -it node:20-alpine node
+
+# Pass arguments directly to the entrypoint (e.g. ping image)
+docker run --rm alpine ping -c 3 google.com
+
+# Override the entrypoint to get a shell instead of the default command
+docker run --rm --entrypoint sh alpine
+
+# Check what entrypoint an image defines
+docker inspect --format '{{.Config.Entrypoint}}' nginx
+```
+
+**How `ENTRYPOINT` and `CMD` combine:**
+
+| Dockerfile             | `docker run` invocation        | Command that runs          |
+| ---------------------- | ------------------------------ | -------------------------- |
+| `ENTRYPOINT ["curl"]`  | `docker run img https://x.com` | `curl https://x.com`       |
+| `ENTRYPOINT ["node"]` `CMD ["server.js"]` | `docker run img` | `node server.js` |
+| `ENTRYPOINT ["node"]` `CMD ["server.js"]` | `docker run img worker.js` | `node worker.js` |
+| `CMD ["nginx", "-g", "daemon off;"]` | `docker run img` | `nginx -g "daemon off;"` |
+
+**Notes:**
+
+- `CMD` sets default arguments that can be replaced by anything you type after the image name. `ENTRYPOINT` sets the fixed binary; only `--entrypoint` can override it.
+- Always add `--rm` for one-shot tool containers — there's no reason to keep them around after the command finishes.
+- Executable images pair naturally with shell aliases. For example, `alias curl='docker run --rm curlimages/curl curl'` gives you a containerised `curl` that works like the system one.
+- `docker inspect --format '{{.Config.Entrypoint}}' <image>` reveals what the image runs by default before you commit to a `docker run` invocation.
 
 ---
 
