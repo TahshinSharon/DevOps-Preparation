@@ -174,7 +174,7 @@ Cloud-native services on AWS (and equivalents on other providers) used to build,
 The container platform for packaging applications with their dependencies into portable, isolated runtimes.
 
 - **Docker Fundamentals** — what Docker is, containers vs virtual machines, Docker architecture (client / daemon / registry), images, containers, and registries.
-- **Container Basics** — `docker run`, port publishing (`-p`), detached mode (`-d`), `docker ps`, `docker logs`, `docker stop`/`docker start`, `docker exec`, `docker rm`/`docker prune`.
+- **Container Basics** — `docker run`, port publishing (`-p`), detached mode (`-d`), listing containers (`docker ps`/`docker ps -a`), naming and renaming (`--name`, `docker rename`), stopping and killing (`docker stop`/`docker kill`), restarting (`docker restart`), staging without running (`docker create`), removing dangling containers (`docker rm`, `docker container prune`), `docker logs`, `docker start`, `docker exec`.
 - **Image Basics** — `docker pull`, `docker image ls`, `docker image build`, `docker image tag`, `docker push`, `docker image rm`/`prune`.
 - **Dockerfile Instructions** — `FROM`, `WORKDIR`, `COPY`/`ADD`, `RUN`, `ENV`/`ARG`, `EXPOSE`, `CMD`/`ENTRYPOINT`, `VOLUME`, `USER`, `LABEL`, layer caching, and multi-stage builds.
 - **Volumes & Bind Mounts** — persistent storage with bind mounts, named volumes, and anonymous volumes.

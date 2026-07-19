@@ -49,6 +49,12 @@
   - [How to Run a Container](#how-to-run-a-container)
   - [How to Publish a Port](#how-to-publish-a-port)
   - [How to Use Detached Mode](#how-to-use-detached-mode)
+  - [How to List Containers](#how-to-list-containers)
+  - [How to Name or Rename a Container](#how-to-name-or-rename-a-container)
+  - [How to Stop or Kill a Running Container](#how-to-stop-or-kill-a-running-container)
+  - [How to Restart a Container](#how-to-restart-a-container)
+  - [How to Create a Container Without Running](#how-to-create-a-container-without-running)
+  - [How to Remove Dangling Containers](#how-to-remove-dangling-containers)
 - [Image Basics](#image-basics)
   - [One Shot Revision](#one-shot-revision-2)
   - [`docker pull`](#docker-pull)
@@ -250,6 +256,12 @@ The commands you use every single day to run, inspect, and clean up containers.
 | [How to Run a Container](#how-to-run-a-container)                      | Create + start a container from an image       |
 | [How to Publish a Port](#how-to-publish-a-port)                        | Map host ports to container ports              |
 | [How to Use Detached Mode](#how-to-use-detached-mode)                  | Run containers in the background with `-d`     |
+| [How to List Containers](#how-to-list-containers)                      | Inspect running and stopped containers         |
+| [How to Name or Rename a Container](#how-to-name-or-rename-a-container) | Set a name at creation or rename with `docker rename` |
+| [How to Stop or Kill a Running Container](#how-to-stop-or-kill-a-running-container) | Graceful stop vs immediate kill |
+| [How to Restart a Container](#how-to-restart-a-container)              | Bounce a container with `docker restart`       |
+| [How to Create a Container Without Running](#how-to-create-a-container-without-running) | Stage a container with `docker create` |
+| [How to Remove Dangling Containers](#how-to-remove-dangling-containers) | Clean up stopped and leftover containers      |
 
 ### How to Run a Container
 
@@ -392,6 +404,354 @@ docker stop web
 - `docker attach` connects you to the main process's stdin/stdout; press `Ctrl-P Ctrl-Q` to detach again without stopping the container.
 - Combine `-d` with `--rm` for ephemeral background jobs: the container is deleted automatically once it finishes.
 - Always give long-running detached containers a `--name` so you don't have to look up the container ID later.
+
+### How to List Containers
+
+**Description:** `docker ps` shows you what containers exist on the host — by default only running ones, but with `-a` you see everything including stopped containers. It's the first command to reach for when something isn't behaving as expected.
+
+**Syntax:**
+
+```bash
+docker ps [options]
+# Modern alias:
+docker container ls [options]
+```
+
+**Common Options:**
+
+| Option              | Description                                                     |
+| ------------------- | --------------------------------------------------------------- |
+| `-a, --all`         | Show all containers — running **and** stopped                   |
+| `-q, --quiet`       | Print only container IDs (useful for scripting)                 |
+| `--filter`          | Filter by field: `--filter status=exited`, `--filter name=web`  |
+| `--format`          | Custom output with Go templates: `--format "table {{.Names}}\t{{.Status}}"` |
+| `-n <count>`        | Show the last N containers created                              |
+| `-s, --size`        | Display the container's disk usage                              |
+
+**Examples:**
+
+```bash
+# What's currently running?
+docker ps
+
+# Show everything, including stopped containers
+docker ps -a
+
+# Just IDs — useful for piping into other commands
+docker ps -aq
+
+# Show only exited containers
+docker ps -a --filter status=exited
+
+# Show only containers matching a name
+docker ps --filter name=web
+
+# Custom table: name, image, and status columns
+docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+
+# Remove every stopped container in one shot
+docker rm $(docker ps -aq --filter status=exited)
+```
+
+**Output Columns:**
+
+| Column       | What it shows                                          |
+| ------------ | ------------------------------------------------------ |
+| `CONTAINER ID` | Short ID of the container                            |
+| `IMAGE`      | The image the container was created from               |
+| `COMMAND`    | The command running inside the container               |
+| `CREATED`    | How long ago the container was created                 |
+| `STATUS`     | `Up X minutes`, `Exited (0) X minutes ago`, etc.       |
+| `PORTS`      | Port mappings (e.g. `0.0.0.0:8080->80/tcp`)            |
+| `NAMES`      | The container's name (auto-generated or `--name`)      |
+
+**Notes:**
+
+- `docker container ls` is the modern form — identical to `docker ps`.
+- `docker ps -aq` is one of the most useful combos: quiet + all gives you a plain list of every container ID on the host, perfect for bulk operations like `docker rm $(docker ps -aq)`.
+- The `STATUS` field is your first debugging clue — `Exited (1)` means the process crashed; `Exited (0)` means it finished cleanly.
+- `docker inspect <container>` gives the full JSON config when `ps` doesn't show enough detail.
+
+### How to Name or Rename a Container
+
+**Description:** Every container gets a name — either one you choose with `--name` at creation, or a random two-word name Docker generates (e.g. `pensive_euler`). A meaningful name lets you reference the container by name in every subsequent command instead of hunting for its ID. If you forgot to set a name, `docker rename` fixes that without stopping the container.
+
+**Syntax:**
+
+```bash
+# Set a name at creation
+docker run --name <name> [options] <image>
+
+# Rename an existing container (running or stopped)
+docker rename <old-name> <new-name>
+```
+
+**Examples:**
+
+```bash
+# Give the container a clear name up front
+docker run -d -p 8080:80 --name web nginx
+
+# Rename a container that was created without --name
+docker rename pensive_euler web
+
+# Rename a running container — no restart needed
+docker run -d --name temp-db postgres:16-alpine
+docker rename temp-db primary-db
+
+# Confirm the new name
+docker ps --filter name=primary-db
+```
+
+**Naming Rules:**
+
+| Rule                        | Detail                                                      |
+| --------------------------- | ----------------------------------------------------------- |
+| Characters allowed          | Letters, digits, underscores `_`, hyphens `-`, dots `.`     |
+| Case sensitive              | `Web` and `web` are different names                         |
+| Must be unique              | Two containers on the same host cannot share a name         |
+| No spaces                   | Use `-` or `_` as word separators                           |
+
+**Notes:**
+
+- Names must be unique per Docker host — trying to reuse a name raises an error. Remove or rename the old container first.
+- `docker rename` works on running containers; the process inside is not interrupted.
+- If you omit `--name`, Docker picks a random adjective-noun pair. These are memorable but meaningless — always name containers you plan to reference again.
+- You can reference a container by its full ID, short ID (first 12 chars), or name interchangeably in any Docker command.
+
+### How to Stop or Kill a Running Container
+
+**Description:** Docker gives you two ways to shut a container down. `docker stop` is the polite option — it sends **SIGTERM** to the main process, waits up to 10 seconds for it to exit cleanly, then sends **SIGKILL** if it hasn't stopped. `docker kill` skips the waiting and sends **SIGKILL** (or any signal you choose) immediately. Use `stop` by default; reach for `kill` only when a container is unresponsive.
+
+**Syntax:**
+
+```bash
+docker stop [options] <container> [<container>...]
+docker kill [options] <container> [<container>...]
+```
+
+**Common Options:**
+
+| Option           | Command        | Description                                              |
+| ---------------- | -------------- | -------------------------------------------------------- |
+| `-t, --time <n>` | `docker stop`  | Seconds to wait before sending SIGKILL (default: 10)     |
+| `-s, --signal`   | `docker kill`  | Signal to send instead of SIGKILL (e.g. `-s SIGINT`)    |
+
+**Examples:**
+
+```bash
+# Graceful stop — gives the app time to flush state and close connections
+docker stop web
+
+# Shorten the grace period to 3 seconds
+docker stop -t 3 web
+
+# Stop multiple containers at once
+docker stop web db cache
+
+# Stop every running container on the host
+docker stop $(docker ps -q)
+
+# Immediately kill an unresponsive container
+docker kill web
+
+# Send a specific signal instead of SIGKILL
+docker kill -s SIGINT web
+
+# Verify the container is stopped
+docker ps -a --filter name=web
+```
+
+**`stop` vs `kill` — when to use which:**
+
+| Scenario                                     | Use          |
+| -------------------------------------------- | ------------ |
+| Normal shutdown — app should clean up        | `docker stop` |
+| Container is frozen / not responding to stop | `docker kill` |
+| Database or message broker (needs flush)     | `docker stop` |
+| Quick teardown in a dev/test script          | `docker kill` |
+| Sending a custom signal (e.g. SIGHUP)        | `docker kill -s` |
+
+**Notes:**
+
+- A stopped container still exists on disk — its filesystem and config are preserved. Use `docker start` to bring it back, or `docker rm` to delete it.
+- `docker stop` waits **10 seconds** by default. If your app needs more time (e.g. a database with a large write buffer), increase the timeout: `docker stop -t 30 db`.
+- `docker kill` does **not** guarantee data integrity — avoid it for databases or any process that writes to disk.
+- Stopping a container created with `--rm` automatically removes it — there's nothing left to inspect or restart.
+
+### How to Restart a Container
+
+**Description:** `docker restart` stops a container and starts it again in a single command — equivalent to `docker stop` followed by `docker start`. It's useful for picking up config changes, recovering from a stuck process, or bouncing a service after updating an env var. The container keeps its name, port bindings, volumes, and all original `docker run` options.
+
+**Syntax:**
+
+```bash
+docker restart [options] <container> [<container>...]
+```
+
+**Common Options:**
+
+| Option           | Description                                                  |
+| ---------------- | ------------------------------------------------------------ |
+| `-t, --time <n>` | Seconds to wait for graceful stop before forcing (default: 10) |
+
+**Examples:**
+
+```bash
+# Restart a single container
+docker restart web
+
+# Restart with a shorter grace period
+docker restart -t 5 web
+
+# Restart multiple containers at once
+docker restart web db cache
+
+# Restart every running container on the host
+docker restart $(docker ps -q)
+
+# Start a stopped container (first time after docker stop)
+docker start web
+
+# Confirm the container came back up
+docker ps --filter name=web
+```
+
+**`docker restart` vs `docker start`:**
+
+| Command          | Use when                                                        |
+| ---------------- | --------------------------------------------------------------- |
+| `docker restart` | Container is **running** and you want to bounce it              |
+| `docker start`   | Container is **stopped** and you want to bring it back          |
+
+**Notes:**
+
+- `docker restart` re-reads nothing from the image — it restarts the same container with the same config. To pick up image changes, you need `docker run` (or `docker compose up --build`).
+- The `-t` timeout controls the stop phase only; start is always immediate.
+- Restart policies (`--restart always`, `--restart unless-stopped`, etc.) set on `docker run` control **automatic** restarts — `docker restart` is the manual equivalent.
+- After a restart the container gets a new start time but keeps the same ID, name, and volumes.
+
+### How to Create a Container Without Running
+
+**Description:** `docker create` builds a container from an image and configures it — allocating a writable layer, setting up networking and volumes — but does **not** start the process. The container sits in `Created` state until you explicitly call `docker start`. This is useful when you want to stage a container, pre-pull its image, or inspect it before it ever runs.
+
+**Syntax:**
+
+```bash
+docker create [options] <image> [command]
+```
+
+`docker create` accepts the same options as `docker run` (except `-d`, since the container doesn't start).
+
+**Examples:**
+
+```bash
+# Create a container without starting it
+docker create --name web -p 8080:80 nginx
+
+# Verify it exists in "Created" state
+docker ps -a --filter name=web
+
+# Start it when you're ready
+docker start web
+
+# Create and immediately inspect before starting
+docker create --name db \
+  -e POSTGRES_PASSWORD=secret \
+  -v db-data:/var/lib/postgresql/data \
+  postgres:16-alpine
+docker inspect db
+
+# Start the database
+docker start db
+
+# Stream its logs once it's running
+docker logs -f db
+```
+
+**`docker create` vs `docker run`:**
+
+| Aspect          | `docker create`                        | `docker run`                          |
+| --------------- | -------------------------------------- | ------------------------------------- |
+| Starts process? | No — stays in `Created` state          | Yes — container starts immediately    |
+| Start manually? | Yes — `docker start <name>`            | Not needed                            |
+| Use case        | Stage, inspect, or pre-pull before run | Default for all everyday container work |
+
+**Notes:**
+
+- `docker create` is effectively the first half of `docker run` — under the hood `docker run` calls `docker create` then `docker start`.
+- The container ID returned by `docker create` is the same ID you'll see in `docker ps -a` and use with `docker start`.
+- All volume mounts and port bindings are configured at create time; you cannot change them without removing and recreating the container.
+- Rarely needed in day-to-day work — `docker run -d` covers most use cases. It shines in scripted pipelines where you want to set up a container ahead of time.
+
+### How to Remove Dangling Containers
+
+**Description:** Every time you run or create a container without `--rm`, it lingers on disk after it stops — occupying space and cluttering `docker ps -a`. These leftover stopped containers are sometimes called **dangling containers**. `docker rm` removes one or more by name or ID; `docker container prune` sweeps away all stopped containers at once.
+
+**Syntax:**
+
+```bash
+# Remove one or more specific containers
+docker rm <container> [<container>...]
+
+# Remove all stopped containers
+docker container prune
+```
+
+**Common Options:**
+
+| Option       | Command              | Description                                            |
+| ------------ | -------------------- | ------------------------------------------------------ |
+| `-f, --force` | `docker rm`         | Force-remove a **running** container (stop + remove)   |
+| `-v, --volumes` | `docker rm`       | Also remove anonymous volumes attached to the container |
+| `-f, --force` | `docker container prune` | Skip the confirmation prompt                    |
+| `--filter`   | `docker container prune` | Prune only containers matching a condition      |
+
+**Examples:**
+
+```bash
+# Remove a single stopped container
+docker rm web
+
+# Remove multiple containers at once
+docker rm web db cache
+
+# Force-remove a running container without stopping it first
+docker rm -f web
+
+# Remove a container and its anonymous volumes
+docker rm -v web
+
+# Remove every stopped container (interactive confirmation)
+docker container prune
+
+# Prune without confirmation — safe for scripts
+docker container prune -f
+
+# Prune only containers that exited more than 24 hours ago
+docker container prune --filter "until=24h"
+
+# One-liner: remove all exited containers using docker ps
+docker rm $(docker ps -aq --filter status=exited)
+
+# Nuclear option: remove everything not currently running
+docker container prune -f && docker volume prune -f
+```
+
+**`docker rm` vs `docker container prune`:**
+
+| Command                  | Removes                                         | Requires name/ID? |
+| ------------------------ | ----------------------------------------------- | ----------------- |
+| `docker rm <name>`       | The specific container(s) you name              | Yes               |
+| `docker rm $(docker ps -aq --filter ...)` | Containers matching a filter  | No (scripted)     |
+| `docker container prune` | **All** stopped containers on the host          | No                |
+
+**Notes:**
+
+- A running container cannot be removed without `-f`. Stop it first with `docker stop`, or use `docker rm -f` for a combined stop-and-remove.
+- `docker rm -v` removes only **anonymous** volumes — named volumes (`-v my-vol:/data`) are always kept unless you explicitly run `docker volume rm my-vol`.
+- `--rm` on `docker run` is the cleanest approach: the container deletes itself the moment it exits, so there's nothing to clean up later.
+- `docker system prune` is the broadest cleanup — it removes stopped containers, dangling images, unused networks, and (with `-a --volumes`) everything unused in one command.
 
 ---
 
