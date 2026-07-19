@@ -47,11 +47,8 @@
 - [Container Basics](#container-basics)
   - [One Shot Revision](#one-shot-revision-1)
   - [How to Run a Container](#how-to-run-a-container)
-  - [`docker ps`](#docker-ps)
-  - [`docker stop` / `docker kill`](#docker-stop--docker-kill)
-  - [`docker start` / `docker restart`](#docker-start--docker-restart)
-  - [`docker exec`](#docker-exec)
-  - [`docker rm` / `docker prune`](#docker-rm--docker-prune)
+  - [How to Publish a Port](#how-to-publish-a-port)
+  - [How to Use Detached Mode](#how-to-use-detached-mode)
 - [Image Basics](#image-basics)
   - [One Shot Revision](#one-shot-revision-2)
   - [`docker pull`](#docker-pull)
@@ -251,11 +248,8 @@ The commands you use every single day to run, inspect, and clean up containers.
 | Topic                                                                  | Short Description                              |
 | ---------------------------------------------------------------------- | ---------------------------------------------- |
 | [How to Run a Container](#how-to-run-a-container)                      | Create + start a container from an image       |
-| [`docker ps`](#docker-ps)                                              | List running (or all) containers               |
-| [`docker stop` / `docker kill`](#docker-stop--docker-kill)             | Graceful stop vs immediate kill                |
-| [`docker start` / `docker restart`](#docker-start--docker-restart)     | Restart existing containers                    |
-| [`docker exec`](#docker-exec)                                          | Run a command inside a **running** container   |
-| [`docker rm` / `docker prune`](#docker-rm--docker-prune)               | Remove stopped containers                      |
+| [How to Publish a Port](#how-to-publish-a-port)                        | Map host ports to container ports              |
+| [How to Use Detached Mode](#how-to-use-detached-mode)                  | Run containers in the background with `-d`     |
 
 ### How to Run a Container
 
@@ -302,166 +296,102 @@ docker run --rm -it -v $(pwd):/app -w /app node:20-alpine sh
 - `-it` combines two flags: `-i` keeps STDIN open, `-t` allocates a TTY so prompts render correctly.
 - If a container was created with `--rm`, it's gone once stopped — there's nothing to `docker start` later.
 
-### `docker ps`
+### How to Publish a Port
 
-**Description:** Lists containers. By default it shows only running ones.
+**Description:** By default a container's ports are not reachable from the host. The `-p` flag maps a port on the host to a port inside the container, making the service accessible.
 
 **Syntax:**
 
 ```bash
-docker ps [options]
+docker run -p <host-port>:<container-port> <image>
 ```
 
-**Common Options:**
+**Port Mapping Formats:**
 
-| Option           | Description                                       |
-| ---------------- | ------------------------------------------------- |
-| `-a, --all`      | Show all containers (running + stopped)           |
-| `-q, --quiet`    | Show only container IDs (great for scripting)     |
-| `--filter`       | Filter output: `--filter status=exited`           |
-| `--format`       | Custom output using Go templates                  |
+| Format                  | Description                                        |
+| ----------------------- | -------------------------------------------------- |
+| `-p 8080:80`            | Map host port 8080 → container port 80             |
+| `-p 127.0.0.1:8080:80`  | Bind only on loopback — not exposed to the network |
+| `-p 80`                 | Docker picks a random host port                    |
+| `-p 8080:80/udp`        | Map a UDP port instead of TCP                      |
 
 **Examples:**
 
 ```bash
-# What's currently running?
+# Serve nginx on host port 8080
+docker run -d -p 8080:80 --name web nginx
+
+# Bind to localhost only — not reachable from other machines
+docker run -d -p 127.0.0.1:5432:5432 postgres:16-alpine
+
+# Map multiple ports at once
+docker run -d -p 80:80 -p 443:443 --name proxy nginx
+
+# See which host port was assigned to a running container
+docker port web
+```
+
+**Notes:**
+
+- Port mapping is always `<host>:<container>` — left side is your machine, right side is the container.
+- `-P` (uppercase) publishes every port declared with `EXPOSE` in the Dockerfile to random host ports.
+- `docker port <container>` lists all active port mappings for a running container.
+
+### How to Use Detached Mode
+
+**Description:** By default `docker run` attaches your terminal to the container's output — when you close the terminal, the container stops. The `-d` (or `--detach`) flag runs the container in the background and immediately returns the container ID, leaving your terminal free.
+
+**Syntax:**
+
+```bash
+docker run -d [options] <image>
+```
+
+**Examples:**
+
+```bash
+# Run nginx in the background
+docker run -d -p 8080:80 --name web nginx
+
+# Run a database in the background with a named volume
+docker run -d \
+  --name db \
+  -e POSTGRES_PASSWORD=secret \
+  -v db-data:/var/lib/postgresql/data \
+  postgres:16-alpine
+
+# Confirm it's running
 docker ps
 
-# Show everything, including stopped containers
-docker ps -a
+# Follow the logs of a detached container
+docker logs -f web
 
-# Just the IDs — handy for piping into other commands
-docker ps -aq
+# Attach back to a detached container's output stream
+docker attach web
 
-# Remove every stopped container in one line
-docker rm $(docker ps -aq --filter status=exited)
-```
-
-**Notes:**
-
-- `docker container ls` is the newer, longer form of `docker ps` — they do the same thing.
-
-### `docker stop` / `docker kill`
-
-**Description:** Two ways to shut a container down — one polite, one abrupt.
-
-**Syntax:**
-
-```bash
-docker stop <container>   # Sends SIGTERM, waits ~10s, then SIGKILL
-docker kill <container>   # Sends SIGKILL immediately
-```
-
-**Examples:**
-
-```bash
-# Graceful stop (default; lets the app clean up)
+# Stop a detached container
 docker stop web
-
-# Force-kill when the container is unresponsive
-docker kill web
-
-# Stop everything running at once
-docker stop $(docker ps -q)
 ```
+
+**Managing Detached Containers:**
+
+| Command                     | What it does                                      |
+| --------------------------- | ------------------------------------------------- |
+| `docker ps`                 | List all running containers                       |
+| `docker ps -a`              | List all containers, including stopped ones       |
+| `docker logs <name>`        | Print the container's stdout/stderr               |
+| `docker logs -f <name>`     | Follow (tail) live log output                     |
+| `docker stop <name>`        | Gracefully stop the container (sends SIGTERM)     |
+| `docker start <name>`       | Restart a stopped container in detached mode      |
+| `docker attach <name>`      | Re-attach your terminal to the container's output |
+| `docker stats`              | Live CPU / memory usage for all running containers|
 
 **Notes:**
 
-- Prefer `stop` for production apps so databases and services can flush state cleanly.
-- `kill` is fine for stuck containers or when you don't care about clean shutdown.
-
-### `docker start` / `docker restart`
-
-**Description:** Bring a **previously created** container back to life.
-
-**Syntax:**
-
-```bash
-docker start <container>     # Start a stopped container
-docker restart <container>   # Stop then start again
-```
-
-**Examples:**
-
-```bash
-# Resume a container you stopped earlier — keeps its name, ports, volumes
-docker start web
-
-# Bounce it (useful after config changes)
-docker restart web
-```
-
-**Notes:**
-
-- `start` reuses the original `docker run` options — you don't need to repeat `-p`, `-e`, etc.
-- If a container was created with `--rm`, it's already gone once it stops. There's nothing to `start`.
-
-### `docker exec`
-
-**Description:** Runs a new command inside an **already-running** container. Perfect for debugging.
-
-**Syntax:**
-
-```bash
-docker exec [options] <container> <command>
-```
-
-**Common Options:**
-
-| Option | Description                             |
-| ------ | --------------------------------------- |
-| `-it`  | Interactive terminal (for shells)       |
-| `-e`   | Add an env var just for this command    |
-| `-u`   | Run as a specific user: `-u root`       |
-| `-w`   | Change working directory for the command|
-
-**Examples:**
-
-```bash
-# Open a shell inside a running container
-docker exec -it web bash        # or `sh` for tiny images like alpine
-
-# Peek at the process list
-docker exec web ps aux
-
-# Run a psql query inside a postgres container
-docker exec -it db psql -U postgres -c '\l'
-```
-
-**Notes:**
-
-- `exec` is not the same as `run`: `run` starts a **new** container from an image; `exec` reaches **into an existing** one.
-- If a container has no `bash`, try `sh` — Alpine and other minimal images don't ship bash.
-
-### `docker rm` / `docker prune`
-
-**Description:** Remove stopped containers to free disk space.
-
-**Syntax:**
-
-```bash
-docker rm <container> [<container>...]
-docker container prune
-```
-
-**Examples:**
-
-```bash
-# Remove one specific container
-docker rm web
-
-# Force-remove a running container (stop + remove in one shot)
-docker rm -f web
-
-# Sweep away every stopped container
-docker container prune
-```
-
-**Notes:**
-
-- A running container can't be removed without `-f`.
-- `prune` will prompt for confirmation unless you add `-f`.
-- Use `--rm` on `docker run` to skip the cleanup step altogether.
+- A detached container keeps running until it exits on its own or you explicitly `docker stop` it — closing the terminal has no effect.
+- `docker attach` connects you to the main process's stdin/stdout; press `Ctrl-P Ctrl-Q` to detach again without stopping the container.
+- Combine `-d` with `--rm` for ephemeral background jobs: the container is deleted automatically once it finishes.
+- Always give long-running detached containers a `--name` so you don't have to look up the container ID later.
 
 ---
 
