@@ -37,7 +37,7 @@
 ## Table of Contents
 
 - [Introduction](#introduction)
-- [Command Note Template](#command-note-template)
+- [Docker Commands](#docker-commands)
 - [Docker Fundamentals](#docker-fundamentals)
   - [One Shot Revision](#one-shot-revision)
   - [What is Docker?](#what-is-docker)
@@ -46,7 +46,7 @@
   - [Images, Containers & Registries](#images-containers--registries)
 - [Container Basics](#container-basics)
   - [One Shot Revision](#one-shot-revision-1)
-  - [`docker run`](#docker-run)
+  - [How to Run a Container](#how-to-run-a-container)
   - [`docker ps`](#docker-ps)
   - [`docker stop` / `docker kill`](#docker-stop--docker-kill)
   - [`docker start` / `docker restart`](#docker-start--docker-restart)
@@ -96,40 +96,11 @@ Brief notes about Docker — the container platform that packages an application
 
 ---
 
-## Command Note Template
+## Docker Commands
 
-Use this format whenever a new command or concept is added.
+Docker's CLI is the primary way you interact with Docker — building images, running containers, managing networks, and more. Every command follows the pattern `docker <command> [options] [arguments]`. Most commands have both a legacy short form (e.g. `docker ps`) and a modern management form (e.g. `docker container ls`) — they do the same thing. Commands are grouped by object: `container`, `image`, `network`, `volume`, and `compose`.
 
-### `command-name`
-
-**Description:** What the command does in one or two lines.
-
-**Syntax:**
-
-```bash
-command-name [options] [arguments]
-```
-
-**Common Options:**
-
-| Option | Description                |
-| ------ | -------------------------- |
-| `-a`   | Example option description |
-| `-l`   | Example option description |
-
-**Examples:**
-
-```bash
-# Example 1 — short description
-command-name -a
-
-# Example 2 — short description
-command-name -l target
-```
-
-**Notes:**
-
-- Any edge cases, gotchas, or related commands.
+For the full list of commands and flags, see the **[Docker CLI Reference →](https://docs.docker.com/reference/cli/docker/)**
 
 ---
 
@@ -277,18 +248,18 @@ The commands you use every single day to run, inspect, and clean up containers.
 
 ### One Shot Revision
 
-| Command                                              | Short Description                              |
-| ---------------------------------------------------- | ---------------------------------------------- |
-| [`docker run`](#docker-run)                          | Create + start a container from an image       |
-| [`docker ps`](#docker-ps)                            | List running (or all) containers               |
-| [`docker stop` / `docker kill`](#docker-stop--docker-kill) | Graceful stop vs immediate kill          |
-| [`docker start` / `docker restart`](#docker-start--docker-restart) | Restart existing containers          |
-| [`docker exec`](#docker-exec)                        | Run a command inside a **running** container   |
-| [`docker rm` / `docker prune`](#docker-rm--docker-prune) | Remove stopped containers                  |
+| Topic                                                                  | Short Description                              |
+| ---------------------------------------------------------------------- | ---------------------------------------------- |
+| [How to Run a Container](#how-to-run-a-container)                      | Create + start a container from an image       |
+| [`docker ps`](#docker-ps)                                              | List running (or all) containers               |
+| [`docker stop` / `docker kill`](#docker-stop--docker-kill)             | Graceful stop vs immediate kill                |
+| [`docker start` / `docker restart`](#docker-start--docker-restart)     | Restart existing containers                    |
+| [`docker exec`](#docker-exec)                                          | Run a command inside a **running** container   |
+| [`docker rm` / `docker prune`](#docker-rm--docker-prune)               | Remove stopped containers                      |
 
-### `docker run`
+### How to Run a Container
 
-**Description:** Creates a new container from an image and starts it in one step. This is the single most-used Docker command.
+**Description:** `docker run` creates a new container from an image and starts it in one step. This is the single most-used Docker command — under the hood it combines `docker create` and `docker start`.
 
 **Syntax:**
 
@@ -298,38 +269,38 @@ docker run [options] <image> [command]
 
 **Common Options:**
 
-| Option              | Description                                                          |
-| ------------------- | -------------------------------------------------------------------- |
-| `-p, --publish`     | Map a host port to a container port: `-p 8080:80`                    |
-| `-d, --detach`      | Run in the background; return the container ID                       |
-| `-it`               | `-i` (interactive) + `-t` (tty) — for shells and REPLs               |
-| `--name`            | Give the container a friendly, memorable name                        |
-| `--rm`              | Auto-remove the container when it exits (great for one-off commands) |
-| `-e, --env`         | Set an environment variable: `-e NODE_ENV=production`                |
-| `-v, --volume`      | Attach a volume or bind mount: `-v $(pwd):/app`                      |
-| `--network`         | Attach the container to a specific network                           |
+| Option          | Description                                                          |
+| --------------- | -------------------------------------------------------------------- |
+| `-p, --publish` | Map a host port to a container port: `-p 8080:80`                    |
+| `-d, --detach`  | Run in the background; return the container ID                       |
+| `-it`           | Interactive + TTY — for shells and REPLs                             |
+| `--name`        | Give the container a friendly name                                   |
+| `--rm`          | Auto-remove the container when it exits                              |
+| `-e, --env`     | Set an environment variable: `-e NODE_ENV=production`                |
+| `-v, --volume`  | Attach a volume or bind mount: `-v $(pwd):/app`                      |
+| `--network`     | Attach the container to a specific network                           |
 
 **Examples:**
 
 ```bash
-# Run nginx and publish port 80 in the container as 8080 on the host
+# Run nginx in the background and expose it on port 8080
 docker run -d -p 8080:80 --name web nginx
 
-# Open an interactive Ubuntu shell that cleans itself up on exit
+# Open an interactive shell that cleans itself up on exit
 docker run --rm -it ubuntu bash
 
 # Run a one-off command with an env var
 docker run --rm -e GREETING=hello alpine sh -c 'echo $GREETING world'
 
-# Mount the current folder into /app for live development
+# Mount the current folder for live development
 docker run --rm -it -v $(pwd):/app -w /app node:20-alpine sh
 ```
 
 **Notes:**
 
-- `docker run` = `docker create` + `docker start`. Use `docker create` when you want to configure a container without starting it yet.
-- Without `-p`, the container is unreachable from the host — publishing ports is opt-in.
-- `-it` combines two flags: `-i` keeps STDIN open, `-t` allocates a TTY so prompts render nicely.
+- Without `-p`, the container is unreachable from the host — port publishing is opt-in.
+- `-it` combines two flags: `-i` keeps STDIN open, `-t` allocates a TTY so prompts render correctly.
+- If a container was created with `--rm`, it's gone once stopped — there's nothing to `docker start` later.
 
 ### `docker ps`
 
