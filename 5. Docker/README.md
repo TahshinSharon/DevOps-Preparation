@@ -60,12 +60,9 @@
   - [How to Work With Executable Images](#how-to-work-with-executable-images)
 - [Image Basics](#image-basics)
   - [One Shot Revision](#one-shot-revision-2)
-  - [`docker pull`](#docker-pull)
-  - [`docker image ls`](#docker-image-ls)
-  - [`docker image build`](#docker-image-build)
-  - [`docker image tag`](#docker-image-tag)
-  - [`docker push`](#docker-push)
-  - [`docker image rm` / `docker image prune`](#docker-image-rm--docker-image-prune)
+  - [How to Create a Docker Image](#how-to-create-a-docker-image)
+  - [How to Tag Docker Images](#how-to-tag-docker-images)
+  - [How to List and Remove Docker Images](#how-to-list-and-remove-docker-images)
 - [Dockerfile Instructions](#dockerfile-instructions)
   - [One Shot Revision](#one-shot-revision-3)
   - [Instruction Reference](#instruction-reference)
@@ -936,192 +933,275 @@ Everything you do with the images themselves — pulling from a registry, listin
 
 ### One Shot Revision
 
-| Command                                              | Short Description                                    |
-| ---------------------------------------------------- | ---------------------------------------------------- |
-| [`docker pull`](#docker-pull)                        | Download an image from a registry                    |
-| [`docker image ls`](#docker-image-ls)                | List local images                                    |
-| [`docker image build`](#docker-image-build)          | Build an image from a Dockerfile                     |
-| [`docker image tag`](#docker-image-tag)              | Give an image an additional name/tag                 |
-| [`docker push`](#docker-push)                        | Upload an image to a registry                        |
-| [`docker image rm` / `prune`](#docker-image-rm--docker-image-prune) | Delete images                          |
+| Command                                                                              | Short Description                    |
+| ------------------------------------------------------------------------------------ | ------------------------------------ |
+| `docker pull`                                                                        | Download an image from a registry    |
+| [`docker image ls`](#how-to-list-and-remove-docker-images)                           | List local images                    |
+| `docker image build`                                                                 | Build an image from a Dockerfile     |
+| [`docker image tag`](#how-to-tag-docker-images)                                      | Give an image an additional name/tag |
+| `docker push`                                                                        | Upload an image to a registry        |
+| [`docker image rm` / `prune`](#how-to-list-and-remove-docker-images)                 | Delete images                        |
 
-### `docker pull`
+### How to Create a Docker Image
 
-**Description:** Downloads an image from a registry (Docker Hub by default) so it's available locally.
+Creating and publishing a Docker image follows a four-step workflow: **write a Dockerfile → build → tag → push**. Pulling and cleanup are covered at the end.
 
-**Syntax:**
+#### Step 1 — Write a Dockerfile
 
-```bash
-docker pull <image>[:<tag>]
+A `Dockerfile` is the plain-text recipe Docker reads to assemble the image. At minimum it needs a base image, your app files, and a start command.
+
+```dockerfile
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy manifests first — keeps npm install cached between builds
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY . .
+
+EXPOSE 3000
+CMD ["node", "server.js"]
 ```
 
-**Examples:**
+See [Dockerfile Instructions](#dockerfile-instructions) for the full instruction reference.
+
+#### Step 2 — Build the image
 
 ```bash
-# Pull the "latest" tag of nginx
-docker pull nginx
-
-# Pull a specific version — always safer for reproducibility
-docker pull nginx:1.27-alpine
-
-# Pull from GitHub Container Registry
-docker pull ghcr.io/tahshinsharon/my-app:v1.0
-```
-
-**Notes:**
-
-- If you skip the tag, Docker assumes `:latest` — which is a moving target. Pin versions in production.
-- `docker run` will automatically pull the image if it's not already local.
-
-### `docker image ls`
-
-**Description:** Lists images that live on your machine.
-
-**Syntax:**
-
-```bash
-docker image ls [options]
-```
-
-**Examples:**
-
-```bash
-# All local images
-docker image ls
-
-# Just image IDs (great for scripting cleanups)
-docker image ls -q
-
-# Show dangling (untagged) images
-docker image ls --filter dangling=true
-```
-
-**Notes:**
-
-- `docker images` is the shorter alias — same thing.
-- Dangling images are old layers that no longer have a tag. Clean them with `docker image prune`.
-
-### `docker image build`
-
-**Description:** Reads a `Dockerfile` and produces a new image.
-
-**Syntax:**
-
-```bash
-docker image build [-t <name>:<tag>] <build-context>
-# Modern shorthand:
-docker build -t <name>:<tag> .
-```
-
-**Common Options:**
-
-| Option        | Description                                                     |
-| ------------- | --------------------------------------------------------------- |
-| `-t, --tag`   | Name the resulting image: `-t my-app:1.0`                       |
-| `-f, --file`  | Use a Dockerfile with a non-standard name/location              |
-| `--no-cache`  | Ignore the build cache and rebuild from scratch                 |
-| `--build-arg` | Pass an `ARG` value: `--build-arg VERSION=1.2.3`                |
-
-**Examples:**
-
-```bash
-# Build from the Dockerfile in the current folder, tag it as my-app:1.0
 docker build -t my-app:1.0 .
-
-# Build using a differently named Dockerfile
-docker build -f Dockerfile.prod -t my-app:prod .
-
-# Force a fresh build, no cache
-docker build --no-cache -t my-app:1.0 .
 ```
 
-**Notes:**
+| Option | What it does |
+| ------ | ------------ |
+| `-t my-app:1.0` | Name and tag the resulting image |
+| `.` | Build context — the folder Docker packages and sends to the daemon |
+| `-f Dockerfile.prod` | Use a differently named Dockerfile |
+| `--no-cache` | Ignore all cached layers and rebuild from scratch |
+| `--build-arg KEY=val` | Pass a value for an `ARG` declared in the Dockerfile |
 
-- The **build context** is the directory Docker sends to the daemon. Keep it small — add a `.dockerignore` to skip `node_modules`, `.git`, etc.
-- Every instruction in the Dockerfile creates a **layer** that gets cached. Order instructions so the ones that change least come first.
-
-### `docker image tag`
-
-**Description:** Adds an extra name (or version) to an existing image. It doesn't copy the image — it just labels it.
-
-**Syntax:**
+Verify the image appeared locally:
 
 ```bash
-docker image tag <source>:<tag> <target>:<tag>
+docker image ls
+# docker images          ← shorter alias, same output
+
+docker image ls -q                          # just IDs, useful for scripting
+docker image ls --filter dangling=true      # show untagged (dangling) layers
 ```
 
-**Examples:**
+> Add a `.dockerignore` beside your Dockerfile to exclude `node_modules`, `.git`, `.env`, etc. from the build context — it keeps builds fast and avoids leaking secrets.
+
+#### Step 3 — Tag for a registry
+
+A tag is just a label; it never copies data. Before pushing, the image name must match the registry path:
+
+- **Docker Hub:** `<username>/<repo>:<tag>`
+- **GHCR:** `ghcr.io/<owner>/<repo>:<tag>`
 
 ```bash
-# Tag a local image for pushing to Docker Hub
+# Prepare for Docker Hub
 docker image tag my-app:1.0 tahshinsharon/my-app:1.0
 
-# Add a "latest" alias
+# Prepare for GitHub Container Registry
+docker image tag my-app:1.0 ghcr.io/tahshinsharon/my-app:1.0
+
+# Add a floating "latest" alias
 docker image tag my-app:1.0 my-app:latest
 ```
 
-**Notes:**
-
-- The full form is `<registry>/<repository>:<tag>` — e.g. `ghcr.io/tahshinsharon/my-app:v1`.
-- No registry prefix ⇒ Docker Hub is assumed on push.
-
-### `docker push`
-
-**Description:** Uploads a local image to a registry so others (or your servers) can pull it.
-
-**Syntax:**
+#### Step 4 — Push to the registry
 
 ```bash
-docker push <registry>/<repository>:<tag>
-```
-
-**Examples:**
-
-```bash
-# 1) Log in first (interactive prompt)
-docker login
-
-# 2) Push a Docker Hub image
+docker login                                  # one-time interactive login
 docker push tahshinsharon/my-app:1.0
-
-# Push to GHCR
-docker push ghcr.io/tahshinsharon/my-app:1.0
 ```
 
-**Notes:**
-
-- You must `docker login` first — pushes to a registry require auth.
-- The image name **must** include the target registry/user, or Docker will reject the push.
-
-### `docker image rm` / `docker image prune`
-
-**Description:** Delete images you no longer need.
-
-**Syntax:**
+Anyone (or any server) can now pull it:
 
 ```bash
-docker image rm <image>[:<tag>]
-docker image prune           # remove dangling images
-docker image prune -a        # remove ALL unused images
+docker pull tahshinsharon/my-app:1.0
+
+# Pull from GHCR
+docker pull ghcr.io/tahshinsharon/my-app:1.0
+
+# If you omit the tag, Docker assumes :latest — pin versions in production
+docker pull nginx:1.27-alpine
 ```
 
-**Examples:**
+> `docker run` auto-pulls if the image isn't local, so an explicit `docker pull` is only needed when you want to pre-fetch or update.
+
+#### Clean up
 
 ```bash
-# Remove a specific image
+# Remove a specific image (container must be stopped/removed first)
 docker image rm my-app:1.0
 
-# Clean up dangling layers
+# Remove dangling (untagged) layers
 docker image prune
 
-# Nuke every image not used by a container
+# Remove every image not referenced by any container
 docker image prune -a
+
+# Nuclear option — images + stopped containers + unused networks + volumes
+docker system prune -a --volumes
 ```
 
-**Notes:**
+### How to Tag Docker Images
 
-- If an image is referenced by a container (even a stopped one), remove the container first or add `-f`.
-- Freeing space? `docker system prune -a --volumes` cleans images, containers, networks, and volumes in one shot.
+A **tag** is just a pointer — a human-readable label attached to an image ID. The same image can carry multiple tags simultaneously, and tagging never copies image data.
+
+#### Tag anatomy
+
+```
+[registry/][username/]repository:tag
+```
+
+| Part | Example | Default if omitted |
+| ---- | ------- | ------------------ |
+| `registry` | `ghcr.io`, `123456789.dkr.ecr.us-east-1.amazonaws.com` | Docker Hub |
+| `username` | `tahshinsharon` | — |
+| `repository` | `my-app` | — |
+| `tag` | `1.0`, `stable`, `latest` | `latest` |
+
+#### Syntax
+
+```bash
+docker image tag <source-image>[:<tag>] <target-image>[:<tag>]
+```
+
+If the source tag is omitted, Docker assumes `:latest`.
+
+#### Common patterns
+
+**Semantic versioning** — tag the same build at multiple levels of precision so consumers can pin as tightly or loosely as they like:
+
+```bash
+docker image tag my-app:1.2.3 my-app:1.2
+docker image tag my-app:1.2.3 my-app:1
+docker image tag my-app:1.2.3 my-app:latest
+```
+
+**Prepare for Docker Hub:**
+
+```bash
+docker image tag my-app:1.0 tahshinsharon/my-app:1.0
+docker image tag my-app:1.0 tahshinsharon/my-app:latest
+```
+
+**Prepare for GitHub Container Registry (GHCR):**
+
+```bash
+docker image tag my-app:1.0 ghcr.io/tahshinsharon/my-app:1.0
+```
+
+**Prepare for AWS ECR:**
+
+```bash
+docker image tag my-app:1.0 123456789.dkr.ecr.us-east-1.amazonaws.com/my-app:1.0
+```
+
+#### Remove a tag
+
+`docker image rm` on a specific `name:tag` removes only that label. The underlying layers are deleted only when the last tag pointing to them is removed.
+
+```bash
+docker image rm my-app:1.2      # removes tag; layers survive if other tags remain
+docker image rm my-app:1.2.3    # removes tag; layers deleted if this was the last reference
+```
+
+#### Notes
+
+- `:latest` is a convention, not a guarantee of freshness — always pin exact versions in production Dockerfiles and `docker run` commands.
+- Tags are mutable: pushing a new image under the same tag silently replaces it in the registry. Use immutable digest references (`image@sha256:…`) when you need a hard guarantee.
+
+### How to List and Remove Docker Images
+
+#### Listing images
+
+```bash
+docker image ls
+```
+
+This is the primary command for inspecting what images exist on your machine. It shows repository name, tag, image ID, creation date, and size.
+
+```bash
+# Show all images (default view)
+docker image ls
+
+# Shorter alias — identical output
+docker images
+
+# Only image IDs — useful for scripting bulk operations
+docker image ls -q
+
+# Filter to a specific repository
+docker image ls my-app
+
+# Show dangling images (untagged layers left over from rebuilds)
+docker image ls --filter dangling=true
+
+# Show images created before / since a reference image
+docker image ls --filter before=my-app:1.0
+docker image ls --filter since=my-app:1.0
+
+# Custom output columns
+docker image ls --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+```
+
+**What dangling images are:** when you rebuild an image with the same tag, the old layers lose their tag but remain on disk. They show up as `<none>:<none>` in `docker image ls`. They waste disk space and can be safely removed.
+
+#### Inspecting an image
+
+```bash
+# Full metadata (OS, architecture, layers, env vars, entrypoint …)
+docker image inspect my-app:1.0
+
+# Flatten to a single field with Go templates
+docker image inspect my-app:1.0 --format "{{.Os}}/{{.Architecture}}"
+
+# See the layer history and sizes
+docker image history my-app:1.0
+```
+
+#### Removing images
+
+```bash
+# Remove one image by name:tag
+docker image rm my-app:1.0
+
+# Remove using the image ID (first few chars are enough)
+docker image rm a1b2c3d4
+
+# Remove multiple images in one command
+docker image rm my-app:1.0 my-app:2.0 nginx:alpine
+
+# Force-remove even if a stopped container still references it
+docker image rm -f my-app:1.0
+```
+
+> If a **running** container uses the image, removal will always fail — stop and remove the container first.
+
+#### Bulk cleanup
+
+| Command | What it removes |
+| ------- | --------------- |
+| `docker image prune` | Dangling images only (`<none>:<none>`) |
+| `docker image prune -a` | Every image not used by at least one container |
+| `docker image prune -a --filter "until=24h"` | Unused images older than 24 hours |
+| `docker system prune -a --volumes` | Images + stopped containers + unused networks + volumes |
+
+```bash
+# Dry-run style: see what prune would delete before committing
+docker image ls --filter dangling=true
+
+# Then prune dangling only
+docker image prune
+
+# Or nuke all unused images
+docker image prune -a
+```
 
 ---
 
