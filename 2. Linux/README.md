@@ -132,6 +132,7 @@
   - [rpm and dpkg](#rpm-and-dpkg)
   - [yum and apt](#yum-and-apt)
   - [Compile Source Code](#compile-source-code)
+  - [How to Build NGINX from Source](#how-to-build-nginx-from-source)
 - [Devices](#devices)
   - [One Shot Revision](#one-shot-revision-7)
   - [/dev directory](#dev-directory)
@@ -3326,6 +3327,7 @@ Notes on Linux **packages** — how software is bundled, shipped, installed, upd
 | [rpm and dpkg](#rpm-and-dpkg)                   | **Low-level** package tools — install one file, query, list — **no** dependency resolution |
 | [yum and apt](#yum-and-apt)                     | **High-level** front-ends — resolve dependencies, talk to repos, upgrade the system |
 | [Compile Source Code](#compile-source-code)     | The classic `./configure && make && make install` workflow                   |
+| [How to Build NGINX from Source](#how-to-build-nginx-from-source) | Real-world source build: deps → configure → make → install → systemd |
 
 ### Software Distribution
 
@@ -3916,6 +3918,176 @@ For anything you'll deploy to more than one machine, wrap the build into an `.rp
 - **`sudo make install` is dangerous and untracked.** It scatters files across `/usr/local` with no record. Prefer building into a `--prefix` you can `rm -rf`, or using `checkinstall` / `fpm` to produce a real package.
 - **Reproducibility matters.** Save the exact source tarball, the `./configure` flags you used, and your distro version. Six months later you'll need to rebuild and the upstream may have moved on.
 - **For one-off binaries, language tooling often beats configure/make** — `cargo install <crate>`, `go install <module>@latest`, `pipx install <pkg>`. They build into per-user trees (`~/.cargo/bin`, `~/go/bin`, `~/.local/bin`) so `sudo` isn't needed.
+
+### How to Build NGINX from Source
+
+**Description:** Building NGINX from source lets you choose exactly which modules to compile in, use a version newer than your distro ships, or apply a patch before the upstream release. It follows the standard **autotools** workflow (`./configure → make → make install`) with NGINX-specific flags for modules and paths.
+
+**Step 1 — Install build dependencies:**
+
+```bash
+# Debian / Ubuntu
+sudo apt update
+sudo apt install -y build-essential libpcre2-dev zlib1g-dev libssl-dev libgd-dev
+
+# RHEL / Fedora / Rocky / Alma
+sudo dnf groupinstall -y "Development Tools"
+sudo dnf install -y pcre2-devel zlib-devel openssl-devel gd-devel
+```
+
+| Library | Why NGINX needs it |
+| ------- | ------------------ |
+| `libpcre2` / `pcre2-devel` | Regular expressions in `location` blocks and `rewrite` rules |
+| `zlib` / `zlib-devel` | `gzip` compression (`gzip on;`) |
+| `libssl` / `openssl-devel` | TLS/HTTPS (`ssl_certificate`, `ssl_certificate_key`) |
+| `libgd` / `gd-devel` | `ngx_http_image_filter_module` (optional) |
+
+**Step 2 — Download and verify the source tarball:**
+
+```bash
+# Check the latest stable version at nginx.org/en/download.html
+NGINX_VERSION=1.26.1
+
+curl -O https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz
+curl -O https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz.asc
+
+# Verify the GPG signature (optional but recommended)
+gpg --keyserver keyserver.ubuntu.com --recv-keys 520A9993A1C052F8
+gpg --verify nginx-${NGINX_VERSION}.tar.gz.asc nginx-${NGINX_VERSION}.tar.gz
+
+tar -xzvf nginx-${NGINX_VERSION}.tar.gz
+cd nginx-${NGINX_VERSION}
+```
+
+**Step 3 — Configure with modules and paths:**
+
+```bash
+./configure \
+  --prefix=/etc/nginx \
+  --sbin-path=/usr/sbin/nginx \
+  --modules-path=/usr/lib64/nginx/modules \
+  --conf-path=/etc/nginx/nginx.conf \
+  --error-log-path=/var/log/nginx/error.log \
+  --http-log-path=/var/log/nginx/access.log \
+  --pid-path=/var/run/nginx.pid \
+  --lock-path=/var/run/nginx.lock \
+  --with-http_ssl_module \
+  --with-http_v2_module \
+  --with-http_gzip_static_module \
+  --with-http_stub_status_module \
+  --with-stream \
+  --with-stream_ssl_module \
+  --with-pcre
+```
+
+**Key `./configure` flags:**
+
+| Flag | What it enables |
+| ---- | --------------- |
+| `--with-http_ssl_module` | HTTPS support — requires `libssl` |
+| `--with-http_v2_module` | HTTP/2 support |
+| `--with-http_gzip_static_module` | Serve pre-compressed `.gz` files |
+| `--with-http_stub_status_module` | `/nginx_status` endpoint for metrics |
+| `--with-stream` | TCP/UDP proxying (Layer 4 load balancing) |
+| `--with-stream_ssl_module` | TLS for stream proxy |
+| `--with-pcre` | Link PCRE statically (needed for regex in `location`) |
+| `--add-module=/path/to/module` | Compile a third-party module in statically |
+| `--add-dynamic-module=/path/to/module` | Build a third-party module as a `.so` loaded at runtime |
+
+See all available flags:
+
+```bash
+./configure --help | less
+```
+
+**Step 4 — Compile and install:**
+
+```bash
+make -j"$(nproc)"
+sudo make install
+```
+
+Verify the binary is in place and check the compiled-in modules:
+
+```bash
+nginx -v                  # version only
+nginx -V                  # version + full ./configure arguments used
+```
+
+**Step 5 — Create a systemd service unit:**
+
+NGINX built from source does not ship a `.service` file. Create one manually:
+
+```bash
+sudo tee /etc/systemd/system/nginx.service > /dev/null <<'EOF'
+[Unit]
+Description=NGINX HTTP Server
+After=network.target
+
+[Service]
+Type=forking
+PIDFile=/var/run/nginx.pid
+ExecStartPre=/usr/sbin/nginx -t
+ExecStart=/usr/sbin/nginx
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s QUIT $MAINPID
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now nginx
+sudo systemctl status nginx
+```
+
+**Step 6 — Test and manage the running process:**
+
+```bash
+# Test the configuration before applying it
+sudo nginx -t
+
+# Reload config without dropping connections (graceful)
+sudo systemctl reload nginx
+# or directly:
+sudo kill -HUP $(cat /var/run/nginx.pid)
+
+# Graceful shutdown (waits for in-flight requests to finish)
+sudo kill -QUIT $(cat /var/run/nginx.pid)
+
+# Fast shutdown
+sudo kill -TERM $(cat /var/run/nginx.pid)
+```
+
+**Upgrading NGINX in-place (zero downtime):**
+
+When a new version is released, you can swap the binary without any downtime using NGINX's hot-upgrade mechanism:
+
+```bash
+# 1. Build and install the new binary (old master is still running)
+make -j"$(nproc)" && sudo make install
+
+# 2. Send USR2 to the old master — it forks a new master with the new binary
+sudo kill -USR2 $(cat /var/run/nginx.pid)
+
+# 3. Tell the old master to gracefully shut down its workers
+sudo kill -WINCH $(cat /var/run/nginx.pid.oldbin)
+
+# 4. If the new master looks healthy, quit the old master
+sudo kill -QUIT $(cat /var/run/nginx.pid.oldbin)
+```
+
+**Notes:**
+
+- **Never install into `/usr/`** — use `--sbin-path=/usr/sbin/nginx` for the binary but keep config, logs, and modules under `/etc/nginx/`, `/var/log/nginx/`, and `/usr/lib64/nginx/modules/`. This mirrors what distro packages do and avoids conflicts if you ever switch to a package-managed NGINX.
+- **`nginx -V` is the source of truth** for what modules your binary has.  If a directive fails with "unknown directive", the required module was not compiled in — rebuild with the right `--with-*` flag.
+- **Dynamic modules** (`--add-dynamic-module`) produce `.so` files loaded with `load_module /path/to/module.so;` in `nginx.conf`. They let you add features without a full recompile.
+- **`ExecStartPre=/usr/sbin/nginx -t`** in the service unit makes systemd test the config before starting, so a bad config file never silently prevents NGINX from coming up after a reboot.
 
 ---
 
