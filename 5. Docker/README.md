@@ -63,6 +63,7 @@
   - [How to Create a Docker Image](#how-to-create-a-docker-image)
   - [How to Tag Docker Images](#how-to-tag-docker-images)
   - [How to List and Remove Docker Images](#how-to-list-and-remove-docker-images)
+  - [How to Understand the Many Layers of a Docker Image](#how-to-understand-the-many-layers-of-a-docker-image)
 - [Dockerfile Instructions](#dockerfile-instructions)
   - [One Shot Revision](#one-shot-revision-3)
   - [Instruction Reference](#instruction-reference)
@@ -941,6 +942,7 @@ Everything you do with the images themselves — pulling from a registry, listin
 | [`docker image tag`](#how-to-tag-docker-images)                                      | Give an image an additional name/tag |
 | `docker push`                                                                        | Upload an image to a registry        |
 | [`docker image rm` / `prune`](#how-to-list-and-remove-docker-images)                 | Delete images                        |
+| [`docker image history`](#how-to-understand-the-many-layers-of-a-docker-image)       | Show layer history of an image       |
 
 ### How to Create a Docker Image
 
@@ -1202,6 +1204,119 @@ docker image prune
 # Or nuke all unused images
 docker image prune -a
 ```
+
+### How to Understand the Many Layers of a Docker Image
+
+A Docker image is not a single flat file — it is a **stack of read-only layers**, each produced by one instruction in the Dockerfile. Understanding layers explains why builds are fast, why images share disk space, and what actually changes when a container runs.
+
+#### What a layer is
+
+Every `RUN`, `COPY`, and `ADD` instruction in a Dockerfile produces a new layer. Instructions that only set metadata (`ENV`, `EXPOSE`, `CMD`, `LABEL`, etc.) add zero-byte metadata layers that do not contribute to the image size in a meaningful way.
+
+```
+Image: my-app:1.0
+│
+├── Layer 4 — COPY . .                     (your source files)
+├── Layer 3 — RUN npm ci --omit=dev        (installed node_modules)
+├── Layer 2 — COPY package*.json ./        (package manifests)
+├── Layer 1 — WORKDIR /app                 (directory creation)
+└── Layer 0 — FROM node:20-alpine          (the base image, itself many layers)
+```
+
+Each layer stores only the **diff** — files that were added, changed, or deleted relative to the layer below. The final image is the union of all layers read from bottom to top.
+
+#### The writable container layer
+
+When Docker starts a container from an image, it adds a thin **writable layer** on top of the read-only image stack using a copy-on-write (CoW) strategy.
+
+| Layer type | Read/Write | Persists after container stops? |
+| ---------- | ---------- | ------------------------------- |
+| Image layers | Read-only | Yes — unchanged, shared |
+| Container layer | Read-write | No — deleted with the container |
+
+- Reading a file: served directly from whichever image layer owns it — zero copying.
+- Writing or modifying a file: Docker copies it up to the writable container layer first, then applies the modification. The image layer is untouched.
+- Deleting a file: a *whiteout* entry is written to the container layer, masking the file from lower layers.
+
+This is why a large image does not make each container large — many containers can share the same read-only image layers simultaneously.
+
+#### Inspecting layers
+
+**View layer history and sizes:**
+
+```bash
+docker image history my-app:1.0
+```
+
+```
+IMAGE          CREATED        CREATED BY                                      SIZE
+a1b2c3d4e5f6   2 hours ago    COPY . . # buildkit                             8.5MB
+<missing>      2 hours ago    RUN npm ci --omit=dev                           42MB
+<missing>      2 hours ago    COPY package*.json ./                            12kB
+<missing>      2 hours ago    WORKDIR /app                                     0B
+<missing>      3 weeks ago    /bin/sh -c #(nop)  CMD ["node"]                 0B
+```
+
+- `SIZE` shows how much each layer contributes on top of the ones below it.
+- `<missing>` in IMAGE ID is normal for intermediate layers — they are identified by digest internally.
+
+**View layer digests:**
+
+```bash
+docker image inspect my-app:1.0 --format '{{json .RootFS.Layers}}'
+```
+
+Each digest (`sha256:…`) uniquely identifies a layer. Two images that share the same digest for a layer share exactly the same bytes on disk.
+
+**See layers being fetched during a pull:**
+
+```bash
+docker pull node:20-alpine
+```
+
+```
+20-alpine: Pulling from library/node
+1a1b4b8f3c2d: Pull complete      # base OS layer
+7f8e2d6a9c1b: Pull complete      # Node.js runtime
+Digest: sha256:...
+Status: Downloaded newer image for node:20-alpine
+```
+
+Each line corresponds to one layer. Layers already present locally are skipped (`Already exists`), which is why pulling a second Node-based image is almost instant.
+
+#### Layer caching in builds
+
+Docker caches each layer. On a subsequent `docker build`, every layer whose instruction **and its inputs** are unchanged is reused from cache — that instruction is skipped entirely.
+
+**Cache is invalidated from the changed layer downward.** This is why the order of instructions matters:
+
+```dockerfile
+# Good — dependencies cached separately from source code
+COPY package*.json ./
+RUN npm ci --omit=dev      # ← cached unless package.json changed
+COPY . .                   # ← only this layer and below rebuild on code change
+```
+
+```dockerfile
+# Bad — any code change busts the npm install cache
+COPY . .
+RUN npm ci --omit=dev      # ← always reruns, even for a one-line README change
+```
+
+**Force a full rebuild (bypass cache):**
+
+```bash
+docker build --no-cache -t my-app:1.0 .
+```
+
+#### Practical implications
+
+| Goal | What to do |
+| ---- | ---------- |
+| Smaller images | Chain related `RUN` commands with `&&` — one layer instead of many |
+| Faster builds | Put rarely-changing instructions (install deps) before frequently-changing ones (copy source) |
+| Smaller images | Use a `.dockerignore` file to exclude large or secret files from the build context |
+| Production safety | Avoid writing secrets in `RUN` layers — they persist in the layer even if deleted later |
 
 ---
 
