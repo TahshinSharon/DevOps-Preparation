@@ -66,6 +66,8 @@
   - [How to Understand the Many Layers of a Docker Image](#how-to-understand-the-many-layers-of-a-docker-image)
   - [How to Build NGINX from Source](#how-to-build-nginx-from-source)
   - [How to Optimize Docker Images](#how-to-optimize-docker-images)
+  - [Embracing Alpine Linux](#embracing-alpine-linux)
+  - [How to Create Executable Docker Images](#how-to-create-executable-docker-images)
 - [Dockerfile Instructions](#dockerfile-instructions)
   - [One Shot Revision](#one-shot-revision-3)
   - [Instruction Reference](#instruction-reference)
@@ -947,6 +949,8 @@ Everything you do with the images themselves — pulling from a registry, listin
 | [`docker image history`](#how-to-understand-the-many-layers-of-a-docker-image)       | Show layer history of an image       |
 | [Build NGINX from Source](#how-to-build-nginx-from-source)                           | Compile NGINX from source inside a Dockerfile |
 | [Optimize Docker Images](#how-to-optimize-docker-images)                              | Techniques to shrink image size and speed up builds |
+| [Embracing Alpine Linux](#embracing-alpine-linux)                                     | Why Alpine is the default small base and how to use it |
+| [How to Create Executable Docker Images](#how-to-create-executable-docker-images)    | Build images that behave like standalone CLI tools via `ENTRYPOINT` |
 
 ### How to Create a Docker Image
 
@@ -1529,6 +1533,236 @@ docker image ls my-app
 - `distroless` and `scratch` images have no shell, which means `docker exec -it ... sh` won't work. Plan for debugging with `docker cp` or a debug sidecar instead.
 - Pinning tags (`node:20.14.0-alpine3.20` instead of `node:20-alpine`) locks the exact layer digest, making builds fully reproducible and immune to upstream surprises.
 - `docker system df` shows total disk usage by images, containers, and volumes — run it before and after to confirm your optimizations actually reduced footprint.
+
+### Embracing Alpine Linux
+
+**Description:** Alpine Linux is a security-oriented, minimal Linux distribution built on **musl libc** and **BusyBox**. It is the most popular Docker base image for a reason — a bare `alpine` image is around **7 MB**, compared to ~80 MB for Ubuntu. Most official images ship an `-alpine` variant (`node:20-alpine`, `python:3.12-alpine`, `golang:1.22-alpine`), making Alpine the default choice whenever image size matters.
+
+#### What makes Alpine different
+
+| Aspect | Alpine | Debian / Ubuntu |
+| ------ | ------ | --------------- |
+| C library | musl libc | glibc |
+| Shell | `sh` (BusyBox ash) | `bash` |
+| Package manager | `apk` | `apt-get` |
+| Base image size | ~7 MB | ~75–80 MB |
+| Default user tools | Minimal (BusyBox) | Full GNU coreutils |
+
+#### Using Alpine as a base
+
+```dockerfile
+FROM alpine:3.20
+
+# Install packages with apk
+RUN apk add --no-cache curl bash
+
+CMD ["sh"]
+```
+
+The `--no-cache` flag tells `apk` not to store the index locally — you get the same effect as `apt-get clean && rm -rf /var/lib/apt/lists/*` in a single flag, with no extra cleanup step.
+
+#### Common `apk` commands
+
+| Command | What it does |
+| ------- | ------------ |
+| `apk add --no-cache <pkg>` | Install a package without caching the index |
+| `apk add --no-cache --virtual .build-deps <pkgs>` | Install packages under a named group |
+| `apk del .build-deps` | Remove every package in that named group at once |
+| `apk update && apk upgrade` | Refresh index and upgrade installed packages |
+| `apk search <term>` | Search the package index |
+| `apk info <pkg>` | Show details about an installed package |
+
+#### The virtual package pattern
+
+Alpine's virtual packages are the idiomatic way to install build-time dependencies and remove them in the same layer:
+
+```dockerfile
+FROM alpine:3.20
+
+# Install build tools under a named group, compile, then delete the group
+RUN apk add --no-cache --virtual .build-deps \
+        gcc musl-dev make && \
+    # ... compile something ... && \
+    apk del .build-deps
+```
+
+A single `apk del .build-deps` removes every package in the group without listing them individually. The compiled output stays; the compilers do not.
+
+#### Alpine-tagged official images
+
+```bash
+# Pull the Alpine variant of popular images
+docker pull node:20-alpine
+docker pull python:3.12-alpine
+docker pull golang:1.22-alpine
+docker pull nginx:1.27-alpine
+docker pull postgres:16-alpine
+
+# Verify the size difference
+docker image ls | grep alpine
+```
+
+#### Practical Dockerfile using Alpine
+
+```dockerfile
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY . .
+
+EXPOSE 3000
+CMD ["node", "server.js"]
+```
+
+This is the standard production Node.js pattern — Alpine base, dependency layer cached separately, source copied last.
+
+**Notes:**
+
+- **No `bash` by default.** Alpine ships `sh` (BusyBox ash). If your scripts require `bash`, either add `apk add --no-cache bash` or rewrite them for POSIX `sh`.
+- **musl vs glibc.** A small number of native Node addons and Python C extensions are compiled against glibc and will fail on Alpine. If you hit this, switch to the `-slim` (Debian) variant instead.
+- **`docker exec` into Alpine containers** uses `sh`, not `bash`: `docker exec -it <container> sh`.
+- **`--no-cache` vs `apk update`:** running `apk update` without `--no-cache` leaves the package index on disk. Always use `--no-cache` (or delete `/var/cache/apk/*` in the same layer) to keep the image lean.
+- Alpine versions are stable; pin the minor version (`alpine:3.20`) rather than `alpine:latest` to avoid silent OS upgrades breaking your build.
+
+### How to Create Executable Docker Images
+
+**Description:** An executable image behaves like a standalone CLI tool — the image name acts as the command, and anything you pass after `docker run <image>` becomes arguments to it. This is achieved by setting `ENTRYPOINT` to the binary in the Dockerfile. The pattern is common for custom tooling, script wrappers, and one-shot task runners where you want a repeatable, dependency-free execution environment.
+
+#### How `ENTRYPOINT` makes an image executable
+
+Without `ENTRYPOINT`, everything you pass to `docker run <image> <args>` replaces `CMD` entirely. With `ENTRYPOINT` set, the fixed binary always runs — your args are appended to it instead.
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│  docker run my-tool --flag value                                  │
+│                                                                   │
+│  ENTRYPOINT ["my-tool"]   ← fixed; cannot be replaced by args    │
+│  CMD        ["--default"] ← default args; replaced if you pass any│
+│                                                                   │
+│  Result: my-tool --flag value                                     │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+#### Building a simple executable image
+
+Here is a custom `greet` tool as a worked example:
+
+**`greet.sh`** — the script the image will run:
+
+```bash
+#!/bin/sh
+NAME="${1:-World}"
+echo "Hello, ${NAME}!"
+```
+
+**`Dockerfile`:**
+
+```dockerfile
+FROM alpine:3.20
+
+COPY greet.sh /usr/local/bin/greet
+RUN chmod +x /usr/local/bin/greet
+
+ENTRYPOINT ["greet"]
+CMD ["World"]
+```
+
+**Build and use it:**
+
+```bash
+docker build -t greet:1.0 .
+
+# Uses the CMD default
+docker run --rm greet:1.0
+# → Hello, World!
+
+# Replaces CMD with your own argument
+docker run --rm greet:1.0 Alice
+# → Hello, Alice!
+
+# Override the ENTRYPOINT entirely
+docker run --rm --entrypoint sh greet:1.0
+```
+
+#### Real-world executable image patterns
+
+**Wrap a CLI tool (e.g. `curl`):**
+
+```dockerfile
+FROM alpine:3.20
+RUN apk add --no-cache curl
+ENTRYPOINT ["curl"]
+CMD ["--help"]
+```
+
+```bash
+docker build -t my-curl .
+docker run --rm my-curl https://example.com
+# equivalent to: curl https://example.com
+```
+
+**Shell alias shortcut — use any containerised tool as if it were installed locally:**
+
+```bash
+alias curl='docker run --rm my-curl'
+curl https://example.com
+```
+
+**Wrap a Python script:**
+
+```dockerfile
+FROM python:3.12-alpine
+
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY report.py ./
+
+ENTRYPOINT ["python", "report.py"]
+CMD ["--help"]
+```
+
+```bash
+docker build -t report-tool:1.0 .
+
+# Run with default --help
+docker run --rm report-tool:1.0
+
+# Pass real arguments
+docker run --rm -v $(pwd)/data:/app/data report-tool:1.0 --input data/sales.csv
+```
+
+#### `ENTRYPOINT` forms — exec vs shell
+
+Always prefer the **exec form** (`["binary", "arg"]`) for `ENTRYPOINT`. The shell form wraps the command in `sh -c`, which means signals like `SIGTERM` never reach your process — the shell absorbs them and the container hangs on `docker stop`.
+
+| Form | Syntax | Signal handling |
+| ---- | ------ | --------------- |
+| Exec (preferred) | `ENTRYPOINT ["binary", "arg"]` | PID 1 = your binary, signals delivered directly |
+| Shell (avoid) | `ENTRYPOINT binary arg` | PID 1 = `sh`, signals swallowed |
+
+#### Discover what an image's entrypoint is
+
+```bash
+# Show the entrypoint and default command of any image
+docker inspect --format '{{.Config.Entrypoint}}' nginx
+docker inspect --format '{{.Config.Cmd}}' nginx
+
+# Or pull both in one shot
+docker inspect --format 'ENTRYPOINT={{.Config.Entrypoint}} CMD={{.Config.Cmd}}' nginx
+```
+
+**Notes:**
+
+- `CMD` sets the default arguments. If the user passes anything after the image name, `CMD` is **completely replaced** — `ENTRYPOINT` is not.
+- Use `--entrypoint` to bypass the fixed binary when you need to debug: `docker run --rm --entrypoint sh my-tool`.
+- Executable images pair naturally with `--rm` — they run once and exit, leaving nothing behind.
+- Mount volumes with `-v` to pass files in and get results out without baking data into the image: `docker run --rm -v $(pwd):/data my-tool /data/input.txt`.
+- When the tool needs network access, omit `--network none` (the default `bridge` network is fine for outbound requests).
 
 ---
 
