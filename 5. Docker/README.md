@@ -64,6 +64,8 @@
   - [How to Tag Docker Images](#how-to-tag-docker-images)
   - [How to List and Remove Docker Images](#how-to-list-and-remove-docker-images)
   - [How to Understand the Many Layers of a Docker Image](#how-to-understand-the-many-layers-of-a-docker-image)
+  - [How to Build NGINX from Source](#how-to-build-nginx-from-source)
+  - [How to Optimize Docker Images](#how-to-optimize-docker-images)
 - [Dockerfile Instructions](#dockerfile-instructions)
   - [One Shot Revision](#one-shot-revision-3)
   - [Instruction Reference](#instruction-reference)
@@ -943,6 +945,8 @@ Everything you do with the images themselves — pulling from a registry, listin
 | `docker push`                                                                        | Upload an image to a registry        |
 | [`docker image rm` / `prune`](#how-to-list-and-remove-docker-images)                 | Delete images                        |
 | [`docker image history`](#how-to-understand-the-many-layers-of-a-docker-image)       | Show layer history of an image       |
+| [Build NGINX from Source](#how-to-build-nginx-from-source)                           | Compile NGINX from source inside a Dockerfile |
+| [Optimize Docker Images](#how-to-optimize-docker-images)                              | Techniques to shrink image size and speed up builds |
 
 ### How to Create a Docker Image
 
@@ -1317,6 +1321,214 @@ docker build --no-cache -t my-app:1.0 .
 | Faster builds | Put rarely-changing instructions (install deps) before frequently-changing ones (copy source) |
 | Smaller images | Use a `.dockerignore` file to exclude large or secret files from the build context |
 | Production safety | Avoid writing secrets in `RUN` layers — they persist in the layer even if deleted later |
+
+### How to Build NGINX from Source
+
+**Description:** Compiling NGINX from source inside a Dockerfile is a hands-on exercise that ties together everything in Image Basics — writing a Dockerfile, managing layers, installing build dependencies, and producing a working custom binary. It is also a real production pattern: building from source lets you enable non-default modules, apply custom patches, or pin an exact upstream commit.
+
+#### The Dockerfile
+
+```dockerfile
+FROM ubuntu:22.04
+
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        libpcre3 \
+        libpcre3-dev \
+        zlib1g \
+        zlib1g-dev \
+        libssl-dev \
+        wget && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Download, compile, and install NGINX — all in one layer
+ARG NGINX_VERSION=1.26.1
+RUN wget http://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz && \
+    tar -xzf nginx-${NGINX_VERSION}.tar.gz && \
+    cd nginx-${NGINX_VERSION} && \
+    ./configure \
+        --sbin-path=/usr/bin/nginx \
+        --conf-path=/etc/nginx/nginx.conf \
+        --error-log-path=/var/log/nginx/error.log \
+        --http-log-path=/var/log/nginx/access.log \
+        --pid-path=/var/run/nginx.pid \
+        --with-http_ssl_module && \
+    make && make install && \
+    cd .. && rm -rf nginx-${NGINX_VERSION} nginx-${NGINX_VERSION}.tar.gz
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+**What `./configure` flags do:**
+
+| Flag | Purpose |
+| ---- | ------- |
+| `--sbin-path` | Where the compiled `nginx` binary lands |
+| `--conf-path` | Path to the main configuration file |
+| `--error-log-path` / `--http-log-path` | Log file locations |
+| `--pid-path` | Where NGINX writes its process ID |
+| `--with-http_ssl_module` | Enable TLS support (not compiled in by default) |
+
+#### Build and run
+
+```bash
+# Build with the default version baked into ARG
+docker build -t nginx-from-source:1.0 .
+
+# Override the NGINX version at build time — no Dockerfile edit needed
+docker build --build-arg NGINX_VERSION=1.27.0 -t nginx-from-source:1.27 .
+
+# Run and verify
+docker run -d -p 8080:80 --name web nginx-from-source:1.0
+curl http://localhost:8080
+
+# Check the compiled version
+docker exec web nginx -v
+```
+
+**Notes:**
+
+- Chaining the download, compile, and cleanup into **one `RUN` instruction** is critical. Splitting them across multiple `RUN` commands would leave the tarball and extracted source tree baked into separate layers, permanently inflating the image size.
+- `apt-get clean && rm -rf /var/lib/apt/lists/*` must run in the **same** `RUN` as the `apt-get install` — deleting files in a later layer only adds a whiteout entry; the bytes from the install layer are never reclaimed.
+- `ARG NGINX_VERSION=1.26.1` provides a build-time variable with a sensible default. Pass a different version at build time with `--build-arg NGINX_VERSION=1.27.0` without touching the Dockerfile.
+- For production, pair this with a **multi-stage build**: compile in a builder stage with all the dev libraries, then `COPY` only the compiled binary into a minimal runtime image — compilers and headers never ship to production.
+
+### How to Optimize Docker Images
+
+**Description:** A bloated image is slower to pull, uses more disk, and has a larger attack surface. Optimization is not a single technique — it is a set of habits applied at every layer of the Dockerfile. Most gains come from five areas: choosing the right base image, ordering instructions wisely, keeping layers clean, excluding junk from the build context, and using multi-stage builds.
+
+#### 1. Choose a smaller base image
+
+The base image is the floor — everything else stacks on top. Switching from a general-purpose OS to a purpose-built variant can cut hundreds of megabytes instantly.
+
+| Base image | Approximate size | When to use |
+| ---------- | ---------------- | ----------- |
+| `ubuntu:22.04` | ~80 MB | Familiarity, apt packages |
+| `debian:bookworm-slim` | ~75 MB | Debian ecosystem, smaller than ubuntu |
+| `node:20-alpine` | ~50 MB | Alpine-based runtimes — most common choice |
+| `node:20-slim` | ~80 MB | Debian-slim, if Alpine causes compat issues |
+| `distroless/nodejs20` | ~50 MB | No shell, no package manager — production hardening |
+| `scratch` | 0 MB | Statically compiled binaries only (Go, Rust) |
+
+```dockerfile
+# Before — full Ubuntu base
+FROM ubuntu:22.04
+
+# After — Alpine-based Node, 5× smaller
+FROM node:20-alpine
+```
+
+#### 2. Use multi-stage builds
+
+Build tools (compilers, `make`, `gcc`, dev headers) belong in the build stage, not the runtime image. Multi-stage builds copy only the finished artifact.
+
+```dockerfile
+# Stage 1 — build
+FROM node:20 AS builder
+WORKDIR /build
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# Stage 2 — runtime (no dev dependencies, no source, no npm)
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=builder /build/dist ./dist
+COPY --from=builder /build/node_modules ./node_modules
+EXPOSE 3000
+CMD ["node", "dist/index.js"]
+```
+
+The final image contains only the compiled output and production `node_modules` — the builder stage is discarded entirely.
+
+#### 3. Chain `RUN` commands to minimize layers
+
+Each `RUN` instruction creates a layer. Files deleted in a later layer still occupy space in the earlier layer. Chain related steps with `&&` so cleanup happens in the same layer as creation.
+
+```dockerfile
+# Bad — three layers; the apt cache bloat survives in layer 1
+RUN apt-get update
+RUN apt-get install -y curl
+RUN rm -rf /var/lib/apt/lists/*
+
+# Good — one layer; the cache never persists
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+```
+
+Use `--no-install-recommends` with `apt-get` to skip optional packages you don't need.
+
+#### 4. Order instructions by change frequency
+
+Docker's build cache is invalidated **from the changed layer downward**. Instructions that rarely change belong at the top; instructions that change on every build belong at the bottom.
+
+```dockerfile
+# Good — dependency install is cached unless package.json changes
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./        # changes rarely
+RUN npm ci --omit=dev        # cached after first build
+COPY . .                     # changes on every code edit
+CMD ["node", "server.js"]
+
+# Bad — any code change forces a fresh npm install
+FROM node:20-alpine
+WORKDIR /app
+COPY . .                     # changes on every edit → cache busted here
+RUN npm ci --omit=dev        # always reruns, even for a typo fix
+CMD ["node", "server.js"]
+```
+
+#### 5. Use a `.dockerignore` file
+
+The build context is everything Docker sends to the daemon before the build starts. Large or secret files in the context bloat the transfer and can leak into the image via `COPY . .`.
+
+```
+# .dockerignore
+node_modules
+.git
+.env
+*.log
+dist
+coverage
+.vscode
+Dockerfile
+.dockerignore
+```
+
+Every file matched here is excluded from the context — it can never be `COPY`'d into the image, even accidentally.
+
+#### Quick-reference optimization checklist
+
+| Technique | Impact |
+| --------- | ------ |
+| Switch to Alpine or slim base | Large size reduction |
+| Multi-stage build | Eliminates build tools and dev deps |
+| Chain `RUN` with `&&` + cleanup in same layer | Removes layer bloat from installs |
+| `--no-install-recommends` on `apt-get install` | Skips optional packages |
+| Order: stable deps → volatile source | Keeps cache warm on rebuilds |
+| `.dockerignore` | Shrinks build context; prevents accidental leaks |
+| Pin exact image tags | Reproducible builds |
+
+```bash
+# See where the size is coming from
+docker image history my-app:1.0
+
+# Compare before and after optimization
+docker image ls my-app
+```
+
+**Notes:**
+
+- Run `docker image history <image>` to identify which layer is the biggest offender before optimizing — don't guess.
+- `distroless` and `scratch` images have no shell, which means `docker exec -it ... sh` won't work. Plan for debugging with `docker cp` or a debug sidecar instead.
+- Pinning tags (`node:20.14.0-alpine3.20` instead of `node:20-alpine`) locks the exact layer digest, making builds fully reproducible and immune to upstream surprises.
+- `docker system df` shows total disk usage by images, containers, and volumes — run it before and after to confirm your optimizations actually reduced footprint.
 
 ---
 
