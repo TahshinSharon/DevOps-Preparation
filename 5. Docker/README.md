@@ -68,6 +68,7 @@
   - [How to Optimize Docker Images](#how-to-optimize-docker-images)
   - [Embracing Alpine Linux](#embracing-alpine-linux)
   - [How to Create Executable Docker Images](#how-to-create-executable-docker-images)
+  - [How to Share Your Docker Images Online](#how-to-share-your-docker-images-online)
 - [Dockerfile Instructions](#dockerfile-instructions)
   - [One Shot Revision](#one-shot-revision-3)
   - [Instruction Reference](#instruction-reference)
@@ -951,6 +952,7 @@ Everything you do with the images themselves — pulling from a registry, listin
 | [Optimize Docker Images](#how-to-optimize-docker-images)                              | Techniques to shrink image size and speed up builds |
 | [Embracing Alpine Linux](#embracing-alpine-linux)                                     | Why Alpine is the default small base and how to use it |
 | [How to Create Executable Docker Images](#how-to-create-executable-docker-images)    | Build images that behave like standalone CLI tools via `ENTRYPOINT` |
+| [How to Share Your Docker Images Online](#how-to-share-your-docker-images-online)    | Push images to Docker Hub and other registries for sharing |
 
 ### How to Create a Docker Image
 
@@ -1763,6 +1765,120 @@ docker inspect --format 'ENTRYPOINT={{.Config.Entrypoint}} CMD={{.Config.Cmd}}' 
 - Executable images pair naturally with `--rm` — they run once and exit, leaving nothing behind.
 - Mount volumes with `-v` to pass files in and get results out without baking data into the image: `docker run --rm -v $(pwd):/data my-tool /data/input.txt`.
 - When the tool needs network access, omit `--network none` (the default `bridge` network is fine for outbound requests).
+
+### How to Share Your Docker Images Online
+
+**Description:** Once an image is built locally, sharing it means pushing it to a **container registry** — a hosted store where images live, versioned by tag. Docker Hub is the default public registry; others (GHCR, AWS ECR, Google Artifact Registry) are common in production. The workflow is always the same: **login → tag → push → pull**.
+
+#### Registries at a glance
+
+| Registry | Host prefix | Free tier |
+| -------- | ----------- | --------- |
+| Docker Hub | *(none — default)* | 1 private repo, unlimited public |
+| GitHub Container Registry (GHCR) | `ghcr.io` | Free for public repos |
+| Amazon ECR | `<account>.dkr.ecr.<region>.amazonaws.com` | 500 MB free tier |
+| Google Artifact Registry | `<region>-docker.pkg.dev/<project>/<repo>` | 0.5 GB free |
+| Self-hosted (Harbor, Gitea) | your own domain | Unlimited |
+
+#### Step 1 — Log in
+
+```bash
+# Docker Hub (prompts for username + password / access token)
+docker login
+
+# Docker Hub with explicit credentials
+docker login -u tahshinsharon
+
+# GitHub Container Registry
+docker login ghcr.io -u tahshinsharon
+
+# AWS ECR (uses AWS CLI to generate a temporary token)
+aws ecr get-login-password --region us-east-1 \
+  | docker login --username AWS --password-stdin \
+    123456789.dkr.ecr.us-east-1.amazonaws.com
+```
+
+Use a **personal access token** instead of your account password — tokens can be scoped and revoked individually.
+
+#### Step 2 — Tag the image for the registry
+
+The image name must match the registry path before it can be pushed. Tagging never copies data — it only adds a new label to the existing image ID.
+
+```bash
+# Docker Hub — format: <username>/<repo>:<tag>
+docker image tag my-app:1.0 tahshinsharon/my-app:1.0
+docker image tag my-app:1.0 tahshinsharon/my-app:latest
+
+# GitHub Container Registry — format: ghcr.io/<owner>/<repo>:<tag>
+docker image tag my-app:1.0 ghcr.io/tahshinsharon/my-app:1.0
+
+# AWS ECR — format: <account>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>
+docker image tag my-app:1.0 123456789.dkr.ecr.us-east-1.amazonaws.com/my-app:1.0
+```
+
+#### Step 3 — Push
+
+```bash
+# Push to Docker Hub
+docker push tahshinsharon/my-app:1.0
+docker push tahshinsharon/my-app:latest
+
+# Push to GHCR
+docker push ghcr.io/tahshinsharon/my-app:1.0
+
+# Push all tags for a repository at once
+docker push --all-tags tahshinsharon/my-app
+```
+
+Docker uploads only the layers that don't already exist in the registry — layers shared with other images are skipped.
+
+#### Step 4 — Pull from anywhere
+
+```bash
+# Pull from Docker Hub (short form — username/repo resolves to hub.docker.com)
+docker pull tahshinsharon/my-app:1.0
+
+# Pull from GHCR
+docker pull ghcr.io/tahshinsharon/my-app:1.0
+
+# Pull by digest instead of tag (immutable — never silently updated)
+docker pull tahshinsharon/my-app@sha256:a1b2c3d4...
+
+# docker run auto-pulls if the image isn't cached locally
+docker run -d -p 3000:3000 tahshinsharon/my-app:1.0
+```
+
+#### Full end-to-end example
+
+```bash
+# 1. Build
+docker build -t my-app:1.0 .
+
+# 2. Tag for Docker Hub
+docker image tag my-app:1.0 tahshinsharon/my-app:1.0
+
+# 3. Login and push
+docker login
+docker push tahshinsharon/my-app:1.0
+
+# 4. On any other machine — pull and run
+docker run -d -p 3000:3000 tahshinsharon/my-app:1.0
+```
+
+#### Logging out
+
+```bash
+docker logout            # Docker Hub
+docker logout ghcr.io    # GHCR
+```
+
+**Notes:**
+
+- **Never push an image that contains secrets.** If a secret was written in a `RUN` layer it is baked in permanently — even if deleted in a later layer. Audit with `docker image history <image>` and rebuild cleanly.
+- **`:latest` is mutable.** Pushing a new image under the same tag silently overwrites it in the registry. Pin exact versions (`1.0`, `1.2.3`) in production; use `:latest` only as a convenience alias.
+- **Public images are public.** Any image pushed to a public Docker Hub repository is downloadable by anyone. Use private repositories or GHCR with package visibility set to private for proprietary code.
+- **Digest-based pulls are immutable:** `docker pull image@sha256:…` always fetches the exact same bytes, regardless of what tag currently points to. Use them in production Kubernetes manifests for reproducibility.
+- Log in with a **read-only access token** in CI pipelines — it limits blast radius if the token is ever leaked.
 
 ---
 
