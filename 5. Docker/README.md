@@ -69,9 +69,13 @@
   - [Embracing Alpine Linux](#embracing-alpine-linux)
   - [How to Create Executable Docker Images](#how-to-create-executable-docker-images)
   - [How to Share Your Docker Images Online](#how-to-share-your-docker-images-online)
-- [How to Containerize a Application](#how-to-containerize-a-application)
+- [How to Containerize a JavaScript Application](#how-to-containerize-a-javascript-application)
   - [One Shot Revision](#one-shot-revision-3)
   - [How to Write the Development Dockerfile](#how-to-write-the-development-dockerfile)
+  - [How to Work With Bind Mounts in Docker](#how-to-work-with-bind-mounts-in-docker)
+  - [How to Work With Anonymous Volumes in Docker](#how-to-work-with-anonymous-volumes-in-docker)
+  - [How to Perform Multi-Staged Builds in Docker](#how-to-perform-multi-staged-builds-in-docker)
+  - [How to Ignore Unnecessary Files](#how-to-ignore-unnecessary-files)
 - [Docker Networking](#docker-networking)
   - [Network Types](#network-types)
   - [`docker network` Commands](#docker-network-commands)
@@ -1875,9 +1879,9 @@ docker logout ghcr.io    # GHCR
 
 ---
 
-## How to Containerize a Application
+## How to Containerize a JavaScript Application
 
-Containerizing an application means packaging it — along with its runtime, dependencies, and configuration — into a Docker image so it runs identically on any host. The process follows a repeatable four-step loop: **choose a base image → write a Dockerfile → build the image → run and verify the container**.
+Containerizing a JavaScript application means packaging it — along with its Node.js runtime, dependencies, and configuration — into a Docker image so it runs identically on any host. The sections below cover the full workflow: from writing a development Dockerfile, through enabling hot reload with bind mounts, to shipping a lean production image with multi-stage builds.
 
 ### One Shot Revision
 
@@ -1887,8 +1891,10 @@ Containerizing an application means packaging it — along with its runtime, dep
 | 2 | Run as non-root | `USER node` — the official `node` image ships a built-in non-root user |
 | 3 | Copy `package.json` first | Keeps `npm install` layer cached until deps change |
 | 4 | Start the dev server | `CMD ["npm", "run", "dev"]` |
-| 5 | Enable hot reload | Bind-mount project root: `--volume $(pwd):/home/node/app` |
-| 6 | Protect `node_modules` | Add anonymous volume: `--volume /home/node/app/node_modules` |
+| 5 | Enable hot reload with a bind mount | `--volume $(pwd):/home/node/app` syncs local source into the container |
+| 6 | Protect `node_modules` with an anonymous volume | `--volume /home/node/app/node_modules` prevents the bind mount from overwriting it |
+| 7 | Build for production with multi-stage builds | Stage 1: `node` builds the app; Stage 2: `nginx` serves the static output |
+| 8 | Exclude unnecessary files | `.dockerignore` prevents `.git`, `node_modules`, secrets from entering the build context |
 
 ### How to Write the Development Dockerfile
 
@@ -1973,6 +1979,152 @@ docker container run \
 ```
 
 The second `--volume` flag mounts an **anonymous volume** at `/home/node/app/node_modules`. Without it the bind mount would overwrite the `node_modules` installed during the build, breaking the dev server. Docker keeps the anonymous volume's content separate, so installed packages survive the bind mount.
+
+### How to Work With Bind Mounts in Docker
+
+A **bind mount** links a directory on your host machine directly into the container filesystem. Any edit you make locally is immediately visible inside the container — enabling the hot reload feature of your dev server.
+
+**The problem without a bind mount:** the container runs a snapshot of your code baked in at build time. Local edits don't reach it, so the dev server never reloads.
+
+**Syntax:**
+
+```
+--volume <host-absolute-path>:<container-absolute-path>[:<access>]
+```
+
+Add `:ro` at the end to make the mount read-only.
+
+**Start the container with a bind mount:**
+
+```bash
+docker container run \
+    --rm \
+    --publish 3000:3000 \
+    --name hello-dock-dev \
+    --volume $(pwd):/home/node/app \
+    hello-dock:dev
+```
+
+With this flag, every file save on your host is instantly reflected inside `/home/node/app`, triggering the Vite dev server's hot reload. Changes made inside the container also write back to your local filesystem.
+
+> **Note:** Running this command as-is will fail — see [How to Work With Anonymous Volumes in Docker](#how-to-work-with-anonymous-volumes-in-docker) for why and how to fix it.
+
+### How to Work With Anonymous Volumes in Docker
+
+When you bind-mount the project root, Docker replaces the container's entire `/home/node/app` directory — including the `node_modules` folder that was installed during the build. The dev server can't find `vite` and crashes:
+
+```
+sh: 1: vite: not found
+npm ERR! Failed at the hello-dock@0.0.0 dev script.
+npm WARN Local package.json exists, but node_modules missing, did you mean to install?
+```
+
+An **anonymous volume** solves this. It tells Docker to "carve out" a specific path inside the container and manage its contents separately, so the bind mount can't overwrite it.
+
+**Syntax:**
+
+```
+--volume <container-absolute-path>[:<access>]
+```
+
+No source path — Docker assigns a random ID and manages the directory on the host.
+
+**Start the container with both volumes:**
+
+```bash
+docker container run \
+    --rm \
+    --detach \
+    --publish 3000:3000 \
+    --name hello-dock-dev \
+    --volume $(pwd):/home/node/app \
+    --volume /home/node/app/node_modules \
+    hello-dock:dev
+```
+
+Docker takes the `node_modules` content built into the image, stores it in a daemon-managed location, then mounts it back at `/home/node/app/node_modules`. The bind mount covers everything else in `/home/node/app`, but `node_modules` is shadowed by the anonymous volume — so your installed packages are untouched and hot reload works correctly.
+
+### How to Perform Multi-Staged Builds in Docker
+
+In development the `npm run dev` command starts a Node.js server. In production, `npm run build` compiles the app into static HTML, CSS, and JavaScript files — and Node is no longer needed to serve them. A lightweight web server like **nginx** is enough, and it produces a much smaller image.
+
+**Multi-stage builds** let you use a heavy build image in the first stage and copy only the output into a minimal runtime image in the second stage. The build tools never reach the shipped image.
+
+**`Dockerfile` (production):**
+
+```dockerfile
+# ── Stage 1: build ──────────────────────────────
+FROM node:lts-alpine as builder
+
+WORKDIR /app
+
+COPY ./package.json ./
+RUN npm install
+
+COPY . .
+RUN npm run build
+
+# ── Stage 2: runtime ────────────────────────────
+FROM nginx:stable-alpine
+
+EXPOSE 80
+
+COPY --from=builder /app/dist /usr/share/nginx/html
+```
+
+**How it works:**
+
+| Line | What it does |
+| ---- | ------------ |
+| `FROM node:lts-alpine as builder` | Names the first stage `builder` so Stage 2 can reference it |
+| `RUN npm run build` | Compiles the app; output lands in `/app/dist` |
+| `FROM nginx:stable-alpine` | Starts a fresh, tiny nginx image — no Node runtime included |
+| `COPY --from=builder /app/dist …` | Pulls only the compiled files from the `builder` stage |
+| `EXPOSE 80` | nginx listens on port 80 by default |
+
+**Build and run:**
+
+```bash
+docker image build --tag hello-dock:prod .
+
+docker container run \
+    --rm \
+    --detach \
+    --name hello-dock-prod \
+    --publish 8080:80 \
+    hello-dock:prod
+```
+
+Visit `http://127.0.0.1:8080` to see the production build served by nginx.
+
+**Why it matters:** compilers, dev dependencies, and build tooling never touch the shipped image — the result is a smaller, faster, and more secure production container.
+
+### How to Ignore Unnecessary Files
+
+Just like `.gitignore` tells Git which files to exclude from a repository, a **`.dockerignore`** file tells Docker which files and directories to exclude from the **build context** — the set of files sent to the daemon when you run `docker build`.
+
+Place the `.dockerignore` file in the same directory as your `Dockerfile`. A typical example for a JavaScript project:
+
+```
+.git
+*Dockerfile*
+*docker-compose*
+node_modules
+```
+
+**What each entry does:**
+
+| Entry | Why exclude it |
+| ----- | -------------- |
+| `.git` | Git history is irrelevant inside the image and adds significant size |
+| `*Dockerfile*` | The build recipe itself doesn't belong in the image |
+| `*docker-compose*` | Compose files are orchestration config, not app code |
+| `node_modules` | Dependencies are installed fresh during the build via `RUN npm install` |
+
+**Two important rules:**
+
+1. The `.dockerignore` file must be in the **build context directory** — Docker reads it before sending files to the daemon, so it can't be placed elsewhere.
+2. `.dockerignore` only affects `COPY` and `ADD` instructions. It has **no effect on bind mounts** — files excluded here are still visible to a running container if you mount the host directory with `--volume`.
 
 ---
 
