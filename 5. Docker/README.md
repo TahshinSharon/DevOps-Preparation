@@ -69,12 +69,15 @@
   - [Embracing Alpine Linux](#embracing-alpine-linux)
   - [How to Create Executable Docker Images](#how-to-create-executable-docker-images)
   - [How to Share Your Docker Images Online](#how-to-share-your-docker-images-online)
-- [Dockerfile Instructions](#dockerfile-instructions)
+- [How to Containerize a Application](#how-to-containerize-a-application)
   - [One Shot Revision](#one-shot-revision-3)
-  - [Instruction Reference](#instruction-reference)
-  - [Example Dockerfiles](#example-dockerfiles)
-  - [Image Layers & Caching](#image-layers--caching)
-  - [Multi-Stage Builds](#multi-stage-builds)
+  - [How to Choose a Base Image](#how-to-choose-a-base-image)
+  - [How to Write a Dockerfile](#how-to-write-a-dockerfile)
+  - [How to Build the Image](#how-to-build-the-image)
+  - [How to Run and Test the Container](#how-to-run-and-test-the-container)
+  - [How to Use a .dockerignore File](#how-to-use-a-dockerignore-file)
+  - [A Full Example: Containerizing a Node.js App](#a-full-example-containerizing-a-nodejs-app)
+  - [How to Write the Development Dockerfile](#how-to-write-the-development-dockerfile)
 - [Volumes & Bind Mounts](#volumes--bind-mounts)
   - [Bind Mounts](#bind-mounts)
   - [Named Volumes](#named-volumes)
@@ -1882,190 +1885,295 @@ docker logout ghcr.io    # GHCR
 
 ---
 
-## Dockerfile Instructions
+## How to Containerize a Application
 
-A **Dockerfile** is a plain-text recipe that tells Docker how to build an image, step by step. Each line is an instruction; each instruction becomes a layer.
+Containerizing an application means packaging it — along with its runtime, dependencies, and configuration — into a Docker image so it runs identically on any host. The process follows a repeatable four-step loop: **choose a base image → write a Dockerfile → build the image → run and verify the container**.
 
 ### One Shot Revision
 
-| Instruction  | Purpose                                             |
-| ------------ | --------------------------------------------------- |
-| `FROM`       | Set the base image (must be the first instruction)  |
-| `WORKDIR`    | Set the working directory for the rest of the build |
-| `COPY`       | Copy local files/folders into the image             |
-| `ADD`        | Like `COPY`, but also handles URLs and tar extraction |
-| `RUN`        | Execute a command at **build time**                 |
-| `ENV`        | Set an environment variable (build + run time)      |
-| `ARG`        | Set a build-time-only variable                      |
-| `EXPOSE`     | Document the port the app listens on                |
-| `CMD`        | Default command executed when a container starts    |
-| `ENTRYPOINT` | Fixed executable of the container                   |
-| `VOLUME`     | Declare a mount point for external volumes          |
-| `USER`       | Set the user for subsequent instructions            |
-| `LABEL`      | Attach metadata (maintainer, version, description)  |
+| Step | Action | Key command / file |
+| ---- | ------ | ------------------ |
+| 1 | Choose a base image | Pick the smallest official image that has your runtime |
+| 2 | Write a Dockerfile | `FROM`, `WORKDIR`, `COPY`, `RUN`, `EXPOSE`, `CMD` |
+| 3 | Add a `.dockerignore` | Exclude `node_modules`, `.git`, `.env`, build artefacts |
+| 4 | Build the image | `docker build -t <name>:<tag> .` |
+| 5 | Run & test locally | `docker run -p <host>:<container> <name>:<tag>` |
+| 6 | Inspect & debug | `docker logs`, `docker exec -it … sh`, `docker inspect` |
+| 7 | Tag & push | `docker image tag` → `docker push` |
+| 8 | Write a dev Dockerfile | Use `Dockerfile.dev` with non-root user + hot-reload bind mount |
 
-### Instruction Reference
+### How to Choose a Base Image
 
-**`FROM`** — the starting layer.
+The base image is the foundation of everything above it. A poor choice blooms into a large, slow, insecure image.
 
-```dockerfile
-FROM node:20-alpine    # small, secure, production-friendly
-```
+| Goal | Recommended base |
+| ---- | ---------------- |
+| Minimal size | `alpine` or a language-specific `-alpine` tag (e.g. `node:20-alpine`) |
+| Broad compatibility (glibc) | `debian`-based slim tags (e.g. `python:3.12-slim`) |
+| Specific runtime | Official language images: `node`, `python`, `golang`, `openjdk` |
+| Maximum security | `scratch` (for fully static binaries) or `distroless` |
 
-**`WORKDIR`** — like `cd` for the build; also becomes the container's default directory.
+Prefer **official, versioned, minimal** images — never `latest` in production.
 
 ```dockerfile
-WORKDIR /app
-```
-
-**`COPY`** vs **`ADD`** — both copy files, but `ADD` also unpacks tarballs and can download URLs. Prefer `COPY`; use `ADD` only when you actually need those extras.
-
-```dockerfile
-COPY package*.json ./         # copy only manifests first (cache-friendly)
-COPY . .                      # copy the rest of the app
-ADD https://example.com/x.tar.gz /opt/    # ADD-specific: download + extract
-```
-
-**`RUN`** — executes at build time. Chain related commands with `&&` to keep layers small.
-
-```dockerfile
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-```
-
-**`ENV`** vs **`ARG`** — `ENV` sticks around at runtime; `ARG` only exists during the build.
-
-```dockerfile
-ARG APP_VERSION=1.0.0            # only visible while building
-ENV NODE_ENV=production PORT=3000 # visible to the running container
-```
-
-**`EXPOSE`** — documentation only. It does **not** publish the port; you still need `-p` at runtime.
-
-```dockerfile
-EXPOSE 3000
-```
-
-**`CMD`** vs **`ENTRYPOINT`** — both define what runs when the container starts.
-
-- `CMD` sets a **default** that can be overridden by arguments to `docker run`.
-- `ENTRYPOINT` sets a **fixed** command; anything after the image name becomes arguments to it.
-- Combine them for the "app with default args" pattern.
-
-```dockerfile
-ENTRYPOINT ["node"]
-CMD ["server.js"]
-# `docker run my-app`             → node server.js
-# `docker run my-app worker.js`   → node worker.js
-```
-
-**`VOLUME`** — declares that a path should be a mount point.
-
-```dockerfile
-VOLUME /var/lib/postgresql/data
-```
-
-**`USER`** — drop privileges after installing things as root.
-
-```dockerfile
-RUN adduser -D appuser
-USER appuser
-```
-
-**`LABEL`** — freeform metadata.
-
-```dockerfile
-LABEL maintainer="tahshinsharon@example.com" \
-      version="1.0" \
-      description="Sample Node.js app"
-```
-
-### Example Dockerfiles
-
-**A minimal NGINX image:**
-
-```dockerfile
-FROM ubuntu:22.04
-
-RUN apt-get update && \
-    apt-get install -y nginx && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
-```
-
-Build and run it:
-
-```bash
-docker build -t custom-nginx:1.0 .
-docker run -d -p 8080:80 --name web custom-nginx:1.0
-```
-
-**A Node.js app:**
-
-```dockerfile
+# Good — pinned, slim
 FROM node:20-alpine
 
+# Avoid — unpinned, fat
+FROM ubuntu
+```
+
+### How to Write a Dockerfile
+
+A Dockerfile is a plain-text recipe. Instructions execute top-to-bottom; each produces a cached layer.
+
+```dockerfile
+# 1. Start from the right base image
+FROM node:20-alpine
+
+# 2. Set a working directory inside the container
 WORKDIR /app
 
-# Copy manifests first so `npm install` is cached
+# 3. Copy dependency manifests first (maximises cache reuse)
 COPY package*.json ./
+
+# 4. Install dependencies
 RUN npm ci --omit=dev
 
-# Copy the rest
+# 5. Copy the rest of the source
 COPY . .
 
+# 6. Document the port your app listens on
 EXPOSE 3000
+
+# 7. Default start command
 CMD ["node", "server.js"]
 ```
 
-Add a `.dockerignore` next to it:
+**Key instructions at a glance:**
+
+| Instruction | Purpose |
+| ----------- | ------- |
+| `FROM` | Sets the base image (must be first) |
+| `WORKDIR` | Like `cd` — also creates the directory if absent |
+| `COPY` | Copies files from build context into the image |
+| `RUN` | Executes a shell command at **build time** |
+| `ENV` | Sets environment variables (persist into runtime) |
+| `ARG` | Build-time-only variable (not visible at runtime) |
+| `EXPOSE` | Documents the port — does **not** publish it |
+| `CMD` | Default command when the container starts |
+| `ENTRYPOINT` | Fixed executable; `CMD` becomes its default args |
+| `USER` | Switches to a non-root user before `CMD`/`ENTRYPOINT` |
+
+### How to Build the Image
+
+Run `docker build` from the directory that holds your `Dockerfile`:
+
+```bash
+docker build -t myapp:1.0 .
+```
+
+| Flag | Purpose |
+| ---- | ------- |
+| `-t <name>:<tag>` | Name and tag the image |
+| `-f <path>` | Use a Dockerfile at a non-default location |
+| `--no-cache` | Ignore cached layers and rebuild from scratch |
+| `--build-arg KEY=val` | Pass an `ARG` value at build time |
+| `--platform linux/amd64` | Cross-compile for a target platform |
+
+Verify the build:
+
+```bash
+docker image ls myapp
+docker image history myapp:1.0   # inspect layers and sizes
+```
+
+### How to Run and Test the Container
+
+```bash
+docker run -d -p 3000:3000 --name myapp-container myapp:1.0
+```
+
+| Flag | Purpose |
+| ---- | ------- |
+| `-d` | Run in detached (background) mode |
+| `-p host:container` | Publish a container port to the host |
+| `--name` | Give the container a human-readable name |
+| `-e KEY=value` | Inject an environment variable |
+| `--rm` | Automatically remove the container when it stops |
+
+**Debugging a running container:**
+
+```bash
+docker logs myapp-container          # stream stdout/stderr
+docker logs -f myapp-container       # follow logs live
+docker exec -it myapp-container sh   # open a shell inside
+docker inspect myapp-container       # dump full JSON metadata
+```
+
+### How to Use a `.dockerignore` File
+
+A `.dockerignore` file (placed next to your Dockerfile) tells Docker which files to exclude from the **build context**. Excluding junk cuts image size and prevents secrets from leaking into layers.
 
 ```
+# .dockerignore
 node_modules
 npm-debug.log
 .git
 .env
 .vscode
+*.test.js
 Dockerfile
+.dockerignore
+dist
 ```
 
-### Image Layers & Caching
+**Effect:** Docker only sends files not listed here to the daemon — smaller context equals faster builds and leaner images.
 
-- Every Dockerfile instruction produces a **read-only layer**. Containers add one thin writable layer on top.
-- If an earlier layer changes, all layers after it are **invalidated** and rebuilt.
-- **Put stable instructions first, volatile ones last.** Copy `package.json` and run `npm install` **before** copying the rest of your source.
-- Peek at the layers of any image:
+### A Full Example: Containerizing a Node.js App
 
-```bash
-docker image history my-app:1.0
+**Project layout:**
+
+```
+my-api/
+├── server.js
+├── package.json
+├── package-lock.json
+├── Dockerfile
+└── .dockerignore
 ```
 
-### Multi-Stage Builds
-
-Multi-stage builds let you use a big, tool-heavy image for the build, then copy only the final artifacts into a tiny runtime image. Result: much smaller and safer production images.
+**`Dockerfile`:**
 
 ```dockerfile
-# ── Stage 1: build ─────────────────────────────
-FROM node:20 AS builder
-WORKDIR /build
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-
-# ── Stage 2: runtime ───────────────────────────
 FROM node:20-alpine
+
 WORKDIR /app
-COPY --from=builder /build/dist ./dist
-COPY --from=builder /build/node_modules ./node_modules
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY . .
+
 EXPOSE 3000
-CMD ["node", "dist/index.js"]
+
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
+CMD ["node", "server.js"]
 ```
 
-**Why it matters:** compilers, dev dependencies, and build tools never touch the shipped image.
+**`.dockerignore`:**
+
+```
+node_modules
+.env
+.git
+npm-debug.log
+```
+
+**Build, run, and verify:**
+
+```bash
+# Build the image
+docker build -t my-api:1.0 .
+
+# Run it
+docker run -d -p 3000:3000 --name my-api my-api:1.0
+
+# Hit the API
+curl http://localhost:3000
+
+# Check logs
+docker logs my-api
+
+# Stop and remove
+docker stop my-api && docker rm my-api
+```
+
+### How to Write the Development Dockerfile
+
+When containerizing a JavaScript application for development you need a Dockerfile that starts a hot-reload dev server rather than serving static production files. The example below is based on a [Vite](https://vitejs.dev/) project, but the pattern applies to any Node.js app that runs a dev server.
+
+**Plan before you write:**
+
+1. Pick a Node.js base image.
+2. Set a non-root user for security.
+3. Establish a working directory.
+4. Copy `package.json` and install dependencies.
+5. Copy the rest of the source.
+6. Start the dev server with `npm run dev`.
+
+**`Dockerfile.dev`:**
+
+```dockerfile
+FROM node:lts-alpine
+
+EXPOSE 3000
+
+USER node
+
+RUN mkdir -p /home/node/app
+
+WORKDIR /home/node/app
+
+COPY ./package.json .
+RUN npm install
+
+COPY . .
+
+CMD [ "npm", "run", "dev" ]
+```
+
+**Why each instruction is here:**
+
+| Instruction | Reason |
+| ----------- | ------ |
+| `FROM node:lts-alpine` | Smallest official Node.js image with long-term support |
+| `USER node` | Runs as non-root — the `node` image ships a built-in `node` user |
+| `RUN mkdir -p /home/node/app` | Creates the app directory under the node user's home |
+| `WORKDIR /home/node/app` | All subsequent `COPY`, `RUN`, and `CMD` resolve relative to here |
+| `COPY ./package.json .` | Copied alone so `npm install` is cached until deps change |
+| `RUN npm install` | Installs dependencies at build time |
+| `COPY . .` | Copies the rest of the source after the cached layer |
+| `CMD ["npm", "run", "dev"]` | Starts the dev server when the container launches |
+| `EXPOSE 3000` | Documents that the dev server listens on port 3000 |
+
+Because the filename is `Dockerfile.dev` (not the default `Dockerfile`), pass it explicitly with `--file`:
+
+```bash
+docker image build --file Dockerfile.dev --tag hello-dock:dev .
+```
+
+Run the container and publish the port:
+
+```bash
+docker container run \
+    --rm \
+    --detach \
+    --publish 3000:3000 \
+    --name hello-dock-dev \
+    hello-dock:dev
+```
+
+Visit `http://127.0.0.1:3000` to see the app.
+
+**Enabling hot reload with bind mounts:**
+
+The container runs a copy of your code baked into the image, so editing local files won't trigger the dev server to reload. Fix this by mounting your project root as a volume:
+
+```bash
+docker container run \
+    --rm \
+    --detach \
+    --publish 3000:3000 \
+    --name hello-dock-dev \
+    --volume $(pwd):/home/node/app \
+    --volume /home/node/app/node_modules \
+    hello-dock:dev
+```
+
+The second `--volume` flag mounts an **anonymous volume** at `/home/node/app/node_modules`. Without it the bind mount would overwrite the `node_modules` installed during the build, breaking the dev server. Docker keeps the anonymous volume's content separate, so installed packages survive the bind mount.
 
 ---
 
