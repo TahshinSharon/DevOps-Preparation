@@ -77,9 +77,15 @@
   - [How to Perform Multi-Staged Builds in Docker](#how-to-perform-multi-staged-builds-in-docker)
   - [How to Ignore Unnecessary Files](#how-to-ignore-unnecessary-files)
 - [Docker Networking](#docker-networking)
+  - [One Shot Revision](#one-shot-revision-4)
+  - [Docker Network Basics](#docker-network-basics)
   - [Network Types](#network-types)
   - [`docker network` Commands](#docker-network-commands)
   - [Container-to-Container Communication](#container-to-container-communication)
+  - [How to Create a User-Defined Bridge in Docker](#how-to-create-a-user-defined-bridge-in-docker)
+  - [How to Attach a Container to a Network in Docker](#how-to-attach-a-container-to-a-network-in-docker)
+  - [How to Detach Containers from a Network in Docker](#how-to-detach-containers-from-a-network-in-docker)
+  - [How to Get Rid of Networks in Docker](#how-to-get-rid-of-networks-in-docker)
 - [Docker Compose](#docker-compose)
   - [`compose.yaml` Structure](#composeyaml-structure)
   - [Core Compose Commands](#core-compose-commands)
@@ -2132,6 +2138,64 @@ node_modules
 
 Containers talk to each other over Docker-managed networks. Docker creates a default network for you, but user-defined networks are usually a better choice.
 
+### One Shot Revision
+
+| Concept / Command | What it does |
+| ----------------- | ------------ |
+| Default `bridge` network | Every container joins this automatically; containers reach each other by IP only |
+| User-defined bridge network | Containers on the same network reach each other by **container name** (automatic DNS) |
+| `docker network create <name>` | Create a user-defined bridge network |
+| `docker network ls` | List all networks on the host |
+| `docker network inspect <name>` | Show connected containers and network config |
+| `docker network connect <net> <container>` | Attach a running container to a network |
+| `docker network disconnect <net> <container>` | Detach a running container from a network |
+| `docker network rm <name>` | Remove a network |
+| `docker network prune` | Remove all unused networks |
+| `-p host:container` | Publish a container port to the host (port mapping) |
+
+### Docker Network Basics
+
+Every container gets its own isolated **network namespace** — its own network interfaces, routing table, and DNS. Containers can't reach each other by default unless they share a network.
+
+**How the default bridge network works:**
+
+When you start a container without specifying a network, Docker attaches it to a built-in network called `bridge`. Containers on this network can communicate with each other, but only by **IP address** — hostnames don't resolve. That makes the default bridge fragile; if a container restarts, its IP can change.
+
+```bash
+# Both containers are on the default bridge, but can only reach each other by IP
+docker run -d --name db postgres:16-alpine
+docker run -d --name web my-app:1.0
+```
+
+**Why user-defined networks are better:**
+
+When you create your own network with `docker network create`, Docker sets up **automatic DNS** for every container on that network. Containers can reach each other by container name — no IP tracking needed.
+
+```bash
+docker network create app-net
+
+docker run -d --name db --network app-net postgres:16-alpine
+docker run -d --name web --network app-net my-app:1.0
+
+# Inside "web", "db" resolves to the database container's IP automatically
+```
+
+**Port publishing:**
+
+By default, a container's ports are not reachable from outside. Use `-p` to map a host port to a container port:
+
+```bash
+docker run -d -p 8080:3000 my-app:1.0
+# host:8080 → container:3000
+```
+
+**Key rules to remember:**
+
+- Containers on the **same user-defined network** talk to each other freely by name.
+- Containers on **different networks** are isolated from each other.
+- Use `-p` to expose a container port to the host (and therefore the outside world).
+- The default `bridge` network is for quick testing only — always use user-defined networks in real projects.
+
 ### Network Types
 
 | Driver    | When to use                                                        |
@@ -2179,6 +2243,196 @@ docker run -d --name web --network app-net -p 3000:3000 my-app:1.0
 ```
 
 On the **default** bridge network, containers can only reach each other by IP — which is fragile and painful.
+
+### How to Create a User-Defined Bridge in Docker
+
+The default `bridge` network lets containers communicate only by IP address. If a container restarts its IP can change, making references fragile. A **user-defined bridge** solves this with automatic DNS — containers reach each other by name.
+
+**Advantages of a user-defined bridge over the default bridge:**
+
+| Feature | Default bridge | User-defined bridge |
+| ------- | -------------- | ------------------- |
+| Container name DNS | No — IP only | Yes — automatic |
+| Isolation | All containers share it | Only containers you attach |
+| Attach/detach on the fly | No — must recreate container | Yes — `network connect` / `disconnect` |
+
+**Step 1 — Create the network:**
+
+```bash
+docker network create skynet
+
+# 7bd5f351aa892ac6ec15fed8619fc3bbb95a7dcdd58980c28304627c8f7eb070
+
+docker network ls
+# NETWORK ID     NAME     DRIVER    SCOPE
+# be0cab667c4b   bridge   bridge    local
+# 124dccee067f   host     host      local
+# 506e3822bf1f   none     null      local
+# 7bd5f351aa89   skynet   bridge    local
+```
+
+**Step 2 — Attach containers at run time using `--network`:**
+
+```bash
+docker container run --network skynet --rm --name hello-dock --detach --publish 8080:80 fhsinchy/hello-dock
+```
+
+**Step 3 — Attach an already-running container using `network connect`:**
+
+```bash
+# Generic syntax
+docker network connect <network> <container>
+
+# Example
+docker network connect skynet hello-dock
+```
+
+A container can be on multiple networks at the same time. `network inspect` shows which containers are attached:
+
+```bash
+docker network inspect --format='{{range .Containers}} {{.Name}} {{end}}' skynet
+#  hello-dock
+```
+
+**Step 4 — Verify automatic DNS:**
+
+Spin up a second container on the same network and ping the first by name:
+
+```bash
+docker container run --network skynet --rm --name alpine-box -it alpine sh
+
+/ # ping hello-dock
+# PING hello-dock (172.18.0.2): 56 data bytes
+# 64 bytes from 172.18.0.2: seq=0 ttl=64 time=0.191 ms
+# 64 bytes from 172.18.0.2: seq=1 ttl=64 time=0.103 ms
+```
+
+Containers on the same user-defined bridge resolve each other by container name automatically. This only works when you give containers explicit names with `--name` — randomly generated names don't participate in DNS.
+
+**Step 5 — Detach a container from the network:**
+
+```bash
+# Generic syntax
+docker network disconnect <network> <container>
+
+# Example
+docker network disconnect skynet hello-dock
+```
+
+**Step 6 — Remove the network:**
+
+```bash
+docker network rm skynet
+
+# Remove all unused networks at once
+docker network prune
+```
+
+### How to Attach a Container to a Network in Docker
+
+There are two ways to attach a container to a network.
+
+**Method 1 — `--network` flag at run time:**
+
+Pass `--network <network>` to `docker container run` or `docker container create`. The container joins the network from the moment it starts.
+
+```bash
+docker container run \
+    --network skynet \
+    --rm \
+    --detach \
+    --name hello-dock \
+    --publish 8080:80 \
+    fhsinchy/hello-dock
+```
+
+**Method 2 — `docker network connect` for a running container:**
+
+Use this when a container is already running and you want to add it to another network without restarting it.
+
+```bash
+# Generic syntax
+docker network connect <network> <container>
+
+# Example
+docker network connect skynet hello-dock
+```
+
+A container can belong to multiple networks simultaneously. Verify by inspecting each network:
+
+```bash
+docker network inspect --format='{{range .Containers}} {{.Name}} {{end}}' skynet
+#  hello-dock
+
+docker network inspect --format='{{range .Containers}} {{.Name}} {{end}}' bridge
+#  hello-dock
+```
+
+Both commands show `hello-dock`, confirming it is attached to both networks at the same time.
+
+**Verifying automatic DNS:**
+
+Once two containers share a user-defined network, they can reach each other by container name:
+
+```bash
+docker container run --network skynet --rm --name alpine-box -it alpine sh
+
+/ # ping hello-dock
+# PING hello-dock (172.18.0.2): 56 data bytes
+# 64 bytes from 172.18.0.2: seq=0 ttl=64 time=0.191 ms
+# 64 bytes from 172.18.0.2: seq=1 ttl=64 time=0.103 ms
+```
+
+> Automatic DNS only works with explicitly named containers. The `--name` flag is required — randomly generated names are not resolvable.
+
+### How to Detach Containers from a Network in Docker
+
+Use `docker network disconnect` to remove a container from a network without stopping or restarting it.
+
+```bash
+# Generic syntax
+docker network disconnect <network> <container>
+
+# Example
+docker network disconnect skynet hello-dock
+```
+
+The command produces no output on success. The container continues running but can no longer communicate with other containers on `skynet` by name.
+
+To confirm the container is gone from the network:
+
+```bash
+docker network inspect --format='{{range .Containers}} {{.Name}} {{end}}' skynet
+# (empty — hello-dock has been detached)
+```
+
+### How to Get Rid of Networks in Docker
+
+**Remove a specific network:**
+
+```bash
+# Generic syntax
+docker network rm <network>
+
+# Example
+docker network rm skynet
+```
+
+The network must have no active endpoints (connected containers) before it can be removed. Stop or disconnect all containers first.
+
+**Remove all unused networks at once:**
+
+```bash
+docker network prune
+```
+
+Docker will prompt for confirmation. Pass `-f` or `--force` to skip the prompt:
+
+```bash
+docker network prune -f
+```
+
+A network is considered unused if no running container is currently connected to it.
 
 ---
 
