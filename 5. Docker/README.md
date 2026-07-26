@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-7-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-8-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -76,8 +76,17 @@
   - [How to Work With Anonymous Volumes in Docker](#how-to-work-with-anonymous-volumes-in-docker)
   - [How to Perform Multi-Staged Builds in Docker](#how-to-perform-multi-staged-builds-in-docker)
   - [How to Ignore Unnecessary Files](#how-to-ignore-unnecessary-files)
-- [Docker Networking](#docker-networking)
+- [How to Containerize a Multi-Container JavaScript Application](#how-to-containerize-a-multi-container-javascript-application)
   - [One Shot Revision](#one-shot-revision-4)
+  - [How to Run the Database Server](#how-to-run-the-database-server)
+  - [How to Work with Named Volumes in Docker](#how-to-work-with-named-volumes-in-docker)
+  - [How to Access Logs from a Container in Docker](#how-to-access-logs-from-a-container-in-docker)
+  - [How to Create a Network and Attaching the Database Server in Docker](#how-to-create-a-network-and-attaching-the-database-server-in-docker)
+  - [How to Write the Dockerfile](#how-to-write-the-dockerfile)
+  - [How to Execute Commands in a Running Container](#how-to-execute-commands-in-a-running-container)
+  - [How to Write Management Scripts in Docker](#how-to-write-management-scripts-in-docker)
+- [Docker Networking](#docker-networking)
+  - [One Shot Revision](#one-shot-revision-5)
   - [Docker Network Basics](#docker-network-basics)
   - [Network Types](#network-types)
   - [`docker network` Commands](#docker-network-commands)
@@ -2131,6 +2140,437 @@ node_modules
 
 1. The `.dockerignore` file must be in the **build context directory** — Docker reads it before sending files to the daemon, so it can't be placed elsewhere.
 2. `.dockerignore` only affects `COPY` and `ADD` instructions. It has **no effect on bind mounts** — files excluded here are still visible to a running container if you mount the host directory with `--volume`.
+
+---
+
+## How to Containerize a Multi-Container JavaScript Application
+
+A real-world application almost always needs more than one service — an API, a database, a cache. This section walks through containerizing `notes-api`, a Node.js REST API backed by a PostgreSQL database, using only `docker run`, named volumes, and user-defined networks. Doing it manually first makes clear exactly what Docker Compose automates in the next section.
+
+**The stack:**
+
+- **notes-db** — a PostgreSQL 12 container that stores the data.
+- **notes-api** — a Node.js/Express API that reads and writes to the database.
+
+### One Shot Revision
+
+| Step | What you do | Key command / concept |
+| ---- | ----------- | --------------------- |
+| 1 | Run the database server | `docker container run --detach --name notes-db postgres:12` |
+| 2 | Persist data with a named volume | `docker volume create notes-db-data` then `--volume notes-db-data:/var/lib/postgresql/data` |
+| 3 | Check the database started correctly | `docker container logs notes-db` |
+| 4 | Create a network and attach the database | `docker network create notes-api-network` |
+| 5 | Write a multi-stage Dockerfile for the API | Stage 1: build deps; Stage 2: minimal runtime image |
+| 6 | Run migrations inside the container | `docker container exec notes-api npm run db:migrate` |
+| 7 | Write management scripts | Shell scripts that automate the full start/stop lifecycle |
+
+### How to Run the Database Server
+
+The API needs a PostgreSQL database. Rather than installing PostgreSQL on the host, run it as a Docker container using the official `postgres` image. The image accepts environment variables to configure the database name and credentials on first startup.
+
+**Run the database container:**
+
+```bash
+docker container run \
+    --detach \
+    --name=notes-db \
+    --env POSTGRES_DB=notesdb \
+    --env POSTGRES_PASSWORD=secret \
+    postgres:12
+```
+
+**What each flag does:**
+
+| Flag | Purpose |
+| ---- | ------- |
+| `--detach` | Run in the background |
+| `--name=notes-db` | Give it a stable name so the API can reference it |
+| `--env POSTGRES_DB=notesdb` | Create a database called `notesdb` on startup |
+| `--env POSTGRES_PASSWORD=secret` | Set the password for the `postgres` superuser |
+| `postgres:12` | Use the official PostgreSQL 12 image |
+
+**Verify it's running:**
+
+```bash
+docker container ls
+# CONTAINER ID   IMAGE         COMMAND                  CREATED          STATUS          NAMES
+# f5b01a8c22c2   postgres:12   "docker-entrypoint.s…"   10 seconds ago   Up 9 seconds    notes-db
+```
+
+**Problem — data is lost on restart:**
+
+Right now, PostgreSQL writes its data to `/var/lib/postgresql/data` inside the container. When the container is removed, that data vanishes. The fix is a named volume (see next section).
+
+### How to Work with Named Volumes in Docker
+
+A **named volume** is Docker-managed storage that persists beyond the lifecycle of any single container. Unlike an anonymous volume, you choose the name — which makes it easy to reuse across containers and inspect with `docker volume` commands.
+
+**Volume commands:**
+
+```bash
+# Create a named volume
+docker volume create notes-db-data
+
+# List all volumes
+docker volume ls
+
+# Inspect a volume (shows the host path Docker manages internally)
+docker volume inspect notes-db-data
+
+# Remove a volume (all data is permanently deleted)
+docker volume rm notes-db-data
+
+# Remove all unused volumes
+docker volume prune
+```
+
+**Named vs anonymous volumes:**
+
+| Aspect | Named volume | Anonymous volume |
+| ------ | ------------ | ---------------- |
+| Name | You choose it | Docker assigns a random hash |
+| Reuse | Easy — reference by name | Hard — must look up the hash |
+| Persistence | Survives `docker rm` | Removed when container is removed (with `--rm`) |
+| Use case | Databases, persistent state | Protecting a path from a bind mount |
+
+**Start the database with a named volume:**
+
+Stop and remove the old container first, then re-run with `--volume`:
+
+```bash
+docker container rm --force notes-db
+
+docker container run \
+    --detach \
+    --name=notes-db \
+    --env POSTGRES_DB=notesdb \
+    --env POSTGRES_PASSWORD=secret \
+    --volume notes-db-data:/var/lib/postgresql/data \
+    postgres:12
+```
+
+The flag `--volume notes-db-data:/var/lib/postgresql/data` mounts the named volume at the path PostgreSQL uses for its data files. Now you can stop, remove, and recreate the container — the data lives in the named volume and is automatically reattached on the next run.
+
+### How to Access Logs from a Container in Docker
+
+`docker container logs` prints the stdout and stderr output of a container's main process — the same output you'd see if you ran it without `--detach`.
+
+**Syntax:**
+
+```bash
+docker container logs [options] <container>
+```
+
+**Common options:**
+
+| Option | Description |
+| ------ | ----------- |
+| `--follow` / `-f` | Stream live output (Ctrl-C to stop) |
+| `--tail <n>` | Show only the last n lines |
+| `--timestamps` / `-t` | Prefix each line with a timestamp |
+| `--since <time>` | Show logs since a timestamp or relative duration (e.g. `1h`, `2023-01-01`) |
+
+**Examples:**
+
+```bash
+# Print all logs since the container started
+docker container logs notes-db
+
+# Stream live output
+docker container logs --follow notes-db
+
+# Show only the last 20 lines
+docker container logs --tail 20 notes-db
+
+# Show logs with timestamps
+docker container logs --timestamps notes-db
+
+# Logs from the last hour only
+docker container logs --since 1h notes-db
+```
+
+**What to look for in the PostgreSQL logs:**
+
+```
+LOG:  database system is ready to accept connections
+```
+
+That line confirms the database server started successfully and is listening for connections. If you see errors instead, check that the `POSTGRES_PASSWORD` environment variable is set correctly.
+
+### How to Create a Network and Attaching the Database Server in Docker
+
+The API container needs to reach the database container by name. For this to work, both containers must share the same **user-defined bridge network** — automatic DNS resolution only works on user-defined networks, not the default `bridge`.
+
+**Step 1 — Create the network:**
+
+```bash
+docker network create notes-api-network
+```
+
+**Step 2 — Remove the old database container and re-run it on the network:**
+
+The `--network` flag must be set at run time. You either specify it at `docker run`, or attach a running container afterward with `docker network connect`.
+
+```bash
+docker container rm --force notes-db
+
+docker container run \
+    --detach \
+    --name=notes-db \
+    --env POSTGRES_DB=notesdb \
+    --env POSTGRES_PASSWORD=secret \
+    --network=notes-api-network \
+    --volume notes-db-data:/var/lib/postgresql/data \
+    postgres:12
+```
+
+**Verify the container is on the network:**
+
+```bash
+docker network inspect notes-api-network
+# ...
+# "Containers": {
+#     "f5b01a8c22c2": {
+#         "Name": "notes-db",
+#         ...
+#     }
+# }
+```
+
+Once the API container joins the same network, it can reach the database at hostname `notes-db` (the container's `--name`) on port `5432` — no IP address needed.
+
+### How to Write the Dockerfile
+
+The `notes-api` image uses a **multi-stage build** — the first stage installs build dependencies, the second stage copies only the compiled production modules into a minimal runtime image.
+
+**Why multi-stage?** Native Node add-ons (like `bcrypt` or `pg`) require `python`, `make`, and `g++` to compile. Those tools are heavy and should never ship in the production image. Stage 1 does the compilation; Stage 2 takes only the output.
+
+**`Dockerfile`:**
+
+```dockerfile
+# ── Stage 1: build ──────────────────────────────────────────────────────────
+FROM node:lts-alpine as builder
+
+# python, make, and g++ are needed to compile native Node add-ons
+RUN apk add --no-cache python make g++
+
+WORKDIR /app
+
+COPY ./package.json .
+RUN npm install --only=prod
+
+# ── Stage 2: runtime ────────────────────────────────────────────────────────
+FROM node:lts-alpine
+
+EXPOSE 3000
+ENV NODE_ENV=production
+
+USER node
+RUN mkdir -p /home/node/app
+WORKDIR /home/node/app
+
+COPY --chown=node:node --from=builder /app/node_modules /home/node/app/node_modules
+COPY --chown=node:node . .
+
+CMD [ "node", "bin/www" ]
+```
+
+**What each instruction does:**
+
+| Instruction | Reason |
+| ----------- | ------ |
+| `FROM node:lts-alpine as builder` | Names the first stage so Stage 2 can reference it |
+| `RUN apk add --no-cache python make g++` | Adds native-module build tools (Alpine uses `apk`) |
+| `COPY ./package.json .` + `RUN npm install --only=prod` | Installs only production dependencies, cached until `package.json` changes |
+| `FROM node:lts-alpine` (Stage 2) | Starts a clean, minimal image — no build tools included |
+| `ENV NODE_ENV=production` | Tells Express and most Node libraries to use production mode |
+| `USER node` | Drops root privileges; the `node` image ships a built-in `node` user |
+| `COPY --from=builder /app/node_modules …` | Pulls only the compiled `node_modules` from Stage 1 |
+| `COPY --chown=node:node . .` | Copies the rest of the source with ownership set to `node` |
+| `CMD ["node", "bin/www"]` | Starts the API server |
+
+**Build and run the API container:**
+
+```bash
+# Build the image (run from the project root where Dockerfile lives)
+docker image build --tag notes-api .
+
+# Run the API and attach it to the same network as the database
+docker container run \
+    --detach \
+    --name=notes-api \
+    --env DB_HOST=notes-db \
+    --env DB_DATABASE=notesdb \
+    --env DB_PASSWORD=secret \
+    --publish=3000:3000 \
+    --network=notes-api-network \
+    notes-api
+```
+
+The `DB_HOST=notes-db` environment variable points the API at the database container by name. Because both containers are on `notes-api-network`, Docker resolves `notes-db` to the correct IP automatically.
+
+### How to Execute Commands in a Running Container
+
+After starting the API, the database schema needs to be set up. `docker container exec` runs an arbitrary command inside a running container without interrupting the main process.
+
+**Syntax:**
+
+```bash
+docker container exec [options] <container> <command> [args]
+```
+
+**Common options:**
+
+| Option | Description |
+| ------ | ----------- |
+| `-it` | Interactive + TTY — opens a shell session |
+| `-e KEY=VALUE` | Pass an extra environment variable for this command only |
+| `-u <user>` | Run as a specific user |
+| `-w <dir>` | Set the working directory |
+
+**Run database migrations:**
+
+```bash
+docker container exec notes-api npm run db:migrate
+
+# Expected output:
+# > notes-api@ db:migrate /home/node/app
+# > knex migrate:latest
+#
+# Using environment: production
+# Batch 1 run: 4 migrations
+```
+
+**Open an interactive shell:**
+
+```bash
+docker container exec -it notes-api sh
+
+# Once inside, you can inspect the filesystem, run commands, or debug:
+/home/node/app $ ls
+/home/node/app $ cat .env
+/home/node/app $ exit
+```
+
+**Seed the database:**
+
+```bash
+docker container exec notes-api npm run db:seed
+```
+
+**Key difference from `docker container run`:**
+
+| | `docker container run` | `docker container exec` |
+| - | ---------------------- | ----------------------- |
+| Target | Creates a **new** container | Runs inside an **existing** container |
+| Effect on main process | None (separate container) | None (main process keeps running) |
+| Use case | One-off jobs, debug shells | Migrations, seeds, admin tasks |
+
+### How to Write Management Scripts in Docker
+
+As the number of `docker run` flags grows, commands become hard to remember and error-prone to type. Shell scripts wrap the full workflow into a single repeatable command.
+
+**Project layout:**
+
+```
+notes-api/
+├── Dockerfile
+├── .dockerignore
+├── package.json
+├── bin/
+│   └── www
+└── shell/
+    ├── boot.sh       ← creates network/volume/containers from scratch
+    ├── stop.sh       ← stops containers without destroying them
+    └── nuke.sh       ← tears down and cleans up everything
+```
+
+**`shell/boot.sh` — start the full stack:**
+
+```bash
+#!/bin/bash
+
+set -e
+
+# Create the network (ignore error if it already exists)
+docker network create notes-api-network 2>/dev/null || true
+
+# Create the named volume (ignore error if it already exists)
+docker volume create notes-db-data 2>/dev/null || true
+
+# Run the database container
+docker container run \
+    --detach \
+    --name=notes-db \
+    --env POSTGRES_DB=notesdb \
+    --env POSTGRES_PASSWORD=secret \
+    --network=notes-api-network \
+    --volume notes-db-data:/var/lib/postgresql/data \
+    postgres:12
+
+# Build the API image
+docker image build --tag notes-api .
+
+# Run the API container
+docker container run \
+    --detach \
+    --name=notes-api \
+    --env DB_HOST=notes-db \
+    --env DB_DATABASE=notesdb \
+    --env DB_PASSWORD=secret \
+    --publish=3000:3000 \
+    --network=notes-api-network \
+    notes-api
+
+# Run migrations after the API is up
+docker container exec notes-api npm run db:migrate
+
+echo "Stack is up → http://localhost:3000"
+```
+
+**`shell/stop.sh` — pause the stack:**
+
+```bash
+#!/bin/bash
+
+docker container stop notes-api notes-db
+```
+
+**`shell/nuke.sh` — tear everything down:**
+
+```bash
+#!/bin/bash
+
+# Force-remove containers
+docker container rm --force notes-api notes-db
+
+# Remove the named volume (all data is lost)
+docker volume rm notes-db-data
+
+# Remove the network
+docker network rm notes-api-network
+
+echo "Stack torn down."
+```
+
+**Make the scripts executable and run:**
+
+```bash
+chmod +x shell/boot.sh shell/stop.sh shell/nuke.sh
+
+# Start the stack
+./shell/boot.sh
+
+# Stop the stack (containers preserved)
+./shell/stop.sh
+
+# Tear it all down
+./shell/nuke.sh
+```
+
+**Why write scripts instead of jumping straight to Docker Compose?**
+
+Writing the shell scripts manually first teaches you exactly what Compose does for you — networks, volumes, container ordering, env vars. Once you've done it by hand, the `compose.yaml` format makes intuitive sense.
 
 ---
 
