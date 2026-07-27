@@ -178,7 +178,12 @@ The container platform for packaging applications with their dependencies into p
 - **Container Basics** — `docker run`, port publishing (`-p`), detached mode (`-d`), listing containers (`docker ps`/`docker ps -a`), naming and renaming (`--name`, `docker rename`), stopping and killing (`docker stop`/`docker kill`), restarting (`docker restart`), staging without running (`docker create`), removing dangling containers (`docker rm`, `docker container prune`), interactive mode (`-it`), executing commands (`docker exec`), and working with executable images (`ENTRYPOINT`).
 - **Image Basics** — end-to-end image creation workflow: write a Dockerfile, build (`docker build`), verify locally (`docker image ls`), tag for a registry (`docker image tag`), push (`docker push`), pull on another machine (`docker pull`), and clean up (`docker image rm`/`prune`); tag anatomy, semantic versioning patterns, multi-registry tagging (Docker Hub, GHCR, ECR), mutable vs immutable tag references; listing images with filters and format templates, inspecting metadata and layer history, removing single/multiple images, and bulk cleanup with `docker image prune`; understanding image layers — read-only layer stack, copy-on-write container layer, `docker image history`, layer caching and instruction ordering for fast builds.
 - **How to Containerize a JavaScript Application** — writing a development Dockerfile with a non-root user; enabling hot reload with bind mounts; protecting `node_modules` with anonymous volumes; shipping a lean production image using multi-stage builds (`node` builder → `nginx` runtime); and excluding unnecessary files with `.dockerignore`.
+<<<<<<< HEAD
 - **Docker Networking** — network drivers (`bridge`, `host`, `none`, `overlay`), `docker network` commands, container-to-container DNS, and executing commands inside running containers with `docker container exec`.
+=======
+- **Docker Networking** — network drivers (`bridge`, `host`, `none`, `overlay`), `docker network` commands, and container-to-container DNS.
+- **How to Containerize a Multi-Container JavaScript Application** — running a PostgreSQL database container with a named volume; checking logs; creating a user-defined network; writing a multi-stage Dockerfile for a Node.js API; running migrations with `docker exec`; and automating the full lifecycle with shell scripts.
+>>>>>>> develop
 - **Docker Compose** — `compose.yaml` structure and the core `docker compose` workflow for multi-container apps.
 
 → [Open the Docker notes](./Docker/README.md)
