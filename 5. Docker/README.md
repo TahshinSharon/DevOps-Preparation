@@ -84,7 +84,6 @@
   - [How to Create a Network and Attaching the Database Server in Docker](#how-to-create-a-network-and-attaching-the-database-server-in-docker)
   - [How to Write the Dockerfile](#how-to-write-the-dockerfile)
   - [How to Execute Commands in a Running Container](#how-to-execute-commands-in-a-running-container)
-  - [How to Write Management Scripts in Docker](#how-to-write-management-scripts-in-docker)
 - [Docker Networking](#docker-networking)
   - [One Shot Revision](#one-shot-revision-5)
   - [Docker Network Basics](#docker-network-basics)
