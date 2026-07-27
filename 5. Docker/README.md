@@ -83,7 +83,6 @@
   - [How to Access Logs from a Container in Docker](#how-to-access-logs-from-a-container-in-docker)
   - [How to Create a Network and Attaching the Database Server in Docker](#how-to-create-a-network-and-attaching-the-database-server-in-docker)
   - [How to Write the Dockerfile](#how-to-write-the-dockerfile)
-  - [How to Execute Commands in a Running Container](#how-to-execute-commands-in-a-running-container)
 - [Docker Networking](#docker-networking)
   - [One Shot Revision](#one-shot-revision-5)
   - [Docker Network Basics](#docker-network-basics)
@@ -94,6 +93,7 @@
   - [How to Attach a Container to a Network in Docker](#how-to-attach-a-container-to-a-network-in-docker)
   - [How to Detach Containers from a Network in Docker](#how-to-detach-containers-from-a-network-in-docker)
   - [How to Get Rid of Networks in Docker](#how-to-get-rid-of-networks-in-docker)
+  - [How to Execute Commands in a Running Container](#how-to-execute-commands-in-a-running-container)
 - [Docker Compose](#docker-compose)
   - [`compose.yaml` Structure](#composeyaml-structure)
   - [Core Compose Commands](#core-compose-commands)
@@ -2160,8 +2160,7 @@ A real-world application almost always needs more than one service — an API, a
 | 3 | Check the database started correctly | `docker container logs notes-db` |
 | 4 | Create a network and attach the database | `docker network create notes-api-network` |
 | 5 | Write a multi-stage Dockerfile for the API | Stage 1: build deps; Stage 2: minimal runtime image |
-| 6 | Run migrations inside the container | `docker container exec notes-api npm run db:migrate` |
-| 7 | Write management scripts | Shell scripts that automate the full start/stop lifecycle |
+| 6 | Write management scripts | Shell scripts that automate the full start/stop lifecycle |
 
 ### How to Run the Database Server
 
@@ -2408,63 +2407,6 @@ docker container run \
 
 The `DB_HOST=notes-db` environment variable points the API at the database container by name. Because both containers are on `notes-api-network`, Docker resolves `notes-db` to the correct IP automatically.
 
-### How to Execute Commands in a Running Container
-
-After starting the API, the database schema needs to be set up. `docker container exec` runs an arbitrary command inside a running container without interrupting the main process.
-
-**Syntax:**
-
-```bash
-docker container exec [options] <container> <command> [args]
-```
-
-**Common options:**
-
-| Option | Description |
-| ------ | ----------- |
-| `-it` | Interactive + TTY — opens a shell session |
-| `-e KEY=VALUE` | Pass an extra environment variable for this command only |
-| `-u <user>` | Run as a specific user |
-| `-w <dir>` | Set the working directory |
-
-**Run database migrations:**
-
-```bash
-docker container exec notes-api npm run db:migrate
-
-# Expected output:
-# > notes-api@ db:migrate /home/node/app
-# > knex migrate:latest
-#
-# Using environment: production
-# Batch 1 run: 4 migrations
-```
-
-**Open an interactive shell:**
-
-```bash
-docker container exec -it notes-api sh
-
-# Once inside, you can inspect the filesystem, run commands, or debug:
-/home/node/app $ ls
-/home/node/app $ cat .env
-/home/node/app $ exit
-```
-
-**Seed the database:**
-
-```bash
-docker container exec notes-api npm run db:seed
-```
-
-**Key difference from `docker container run`:**
-
-| | `docker container run` | `docker container exec` |
-| - | ---------------------- | ----------------------- |
-| Target | Creates a **new** container | Runs inside an **existing** container |
-| Effect on main process | None (separate container) | None (main process keeps running) |
-| Use case | One-off jobs, debug shells | Migrations, seeds, admin tasks |
-
 ### How to Write Management Scripts in Docker
 
 As the number of `docker run` flags grows, commands become hard to remember and error-prone to type. Shell scripts wrap the full workflow into a single repeatable command.
@@ -2591,6 +2533,8 @@ Containers talk to each other over Docker-managed networks. Docker creates a def
 | `docker network rm <name>` | Remove a network |
 | `docker network prune` | Remove all unused networks |
 | `-p host:container` | Publish a container port to the host (port mapping) |
+| `docker container exec <container> <cmd>` | Run a command inside a running container |
+| `docker container exec -it <container> sh` | Open an interactive shell in a running container |
 
 ### Docker Network Basics
 
@@ -2872,6 +2816,63 @@ docker network prune -f
 ```
 
 A network is considered unused if no running container is currently connected to it.
+
+### How to Execute Commands in a Running Container
+
+`docker container exec` runs an arbitrary command inside a running container without interrupting the main process.
+
+**Syntax:**
+
+```bash
+docker container exec [options] <container> <command> [args]
+```
+
+**Common options:**
+
+| Option | Description |
+| ------ | ----------- |
+| `-it` | Interactive + TTY — opens a shell session |
+| `-e KEY=VALUE` | Pass an extra environment variable for this command only |
+| `-u <user>` | Run as a specific user |
+| `-w <dir>` | Set the working directory |
+
+**Run database migrations:**
+
+```bash
+docker container exec notes-api npm run db:migrate
+
+# Expected output:
+# > notes-api@ db:migrate /home/node/app
+# > knex migrate:latest
+#
+# Using environment: production
+# Batch 1 run: 4 migrations
+```
+
+**Open an interactive shell:**
+
+```bash
+docker container exec -it notes-api sh
+
+# Once inside, you can inspect the filesystem, run commands, or debug:
+/home/node/app $ ls
+/home/node/app $ cat .env
+/home/node/app $ exit
+```
+
+**Seed the database:**
+
+```bash
+docker container exec notes-api npm run db:seed
+```
+
+**Key difference from `docker container run`:**
+
+| | `docker container run` | `docker container exec` |
+| - | ---------------------- | ----------------------- |
+| Target | Creates a **new** container | Runs inside an **existing** container |
+| Effect on main process | None (separate container) | None (main process keeps running) |
+| Use case | One-off jobs, debug shells | Migrations, seeds, admin tasks |
 
 ---
 
