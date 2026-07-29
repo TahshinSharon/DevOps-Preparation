@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-8-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-9-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -102,10 +102,23 @@
   - [How to Write the Dockerfile](#how-to-write-the-dockerfile)
   - [How to Execute Commands in a Running Container](#how-to-execute-commands-in-a-running-container)
   - [How to Write Management Scripts in Docker](#how-to-write-management-scripts-in-docker)
+<<<<<<< HEAD
   - [How to Execute Commands in a Running Container](#how-to-execute-commands-in-a-running-container)
 - [Docker Compose](#docker-compose)
   - [`compose.yaml` Structure](#composeyaml-structure)
   - [Core Compose Commands](#core-compose-commands)
+=======
+- [How to Compose Projects Using Docker-Compose](#how-to-compose-projects-using-docker-compose)
+  - [One Shot Revision](#one-shot-revision-6)
+  - [Docker Compose Basics](#docker-compose-basics)
+  - [How to Start Services in Docker Compose](#how-to-start-services-in-docker-compose)
+  - [How to List Services in Docker Compose](#how-to-list-services-in-docker-compose)
+  - [How to Execute Commands Inside a Running Service in Docker Compose](#how-to-execute-commands-inside-a-running-service-in-docker-compose)
+  - [How to Access Logs from a Running Service in Docker Compose](#how-to-access-logs-from-a-running-service-in-docker-compose)
+  - [How to Stop Services in Docker Compose](#how-to-stop-services-in-docker-compose)
+  - [How to Compose a Full-stack Application in Docker Compose](#how-to-compose-a-full-stack-application-in-docker-compose)
+- [Conclusion](#conclusion)
+>>>>>>> develop
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -2826,6 +2839,7 @@ Writing the shell scripts manually first teaches you exactly what Compose does f
 
 ---
 
+<<<<<<< HEAD
 ## Docker Networking
 
 Containers talk to each other over Docker-managed networks. Docker creates a default network for you, but user-defined networks are usually a better choice.
@@ -3188,12 +3202,34 @@ docker container exec notes-api npm run db:seed
 ---
 
 ## Docker Compose
+=======
+## How to Compose Projects Using Docker-Compose
+>>>>>>> develop
 
-Docker Compose lets you describe a multi-container app in a single YAML file and start the whole stack with one command. Instead of long `docker run` commands, you commit `compose.yaml` to your repo.
+Docker Compose is the tool that replaces all those shell scripts. Instead of running long `docker run` commands one by one, you describe your entire multi-container application in a single `compose.yaml` file and start it with one command.
 
-### `compose.yaml` Structure
+### One Shot Revision
+
+| Topic | Short Description |
+| ----- | ----------------- |
+| [Docker Compose Basics](#docker-compose-basics) | What Compose is and how the `compose.yaml` file is structured |
+| [How to Start Services in Docker Compose](#how-to-start-services-in-docker-compose) | `docker compose up --detach` starts the whole stack |
+| [How to List Services in Docker Compose](#how-to-list-services-in-docker-compose) | `docker compose ps` shows running services and their ports |
+| [How to Execute Commands Inside a Running Service in Docker Compose](#how-to-execute-commands-inside-a-running-service-in-docker-compose) | `docker compose exec <service> <command>` runs a command in a service |
+| [How to Access Logs from a Running Service in Docker Compose](#how-to-access-logs-from-a-running-service-in-docker-compose) | `docker compose logs --follow <service>` streams live logs |
+| [How to Stop Services in Docker Compose](#how-to-stop-services-in-docker-compose) | `stop` pauses; `down` removes containers and network |
+| [How to Compose a Full-stack Application in Docker Compose](#how-to-compose-a-full-stack-application-in-docker-compose) | Apply Compose to the hello-dock Vite app for a complete dev setup |
+
+### Docker Compose Basics
+
+**Why Compose?** The shell scripts from the previous section work — but they are fragile, hard to read, and don't belong in version control alongside application code. Docker Compose fixes all of that. You describe your entire stack in a `compose.yaml` file (also accepted as `docker-compose.yaml`, `compose.yml`, or `docker-compose.yml`) and control it with a small set of commands.
+
+**The notes-api `compose.yaml`:**
+
+Taking the notes-api project from the previous section, a `compose.yaml` that replaces all three shell scripts looks like this:
 
 ```yaml
+<<<<<<< HEAD
 services:
   web:
     build: . # build the current folder's Dockerfile
@@ -3206,65 +3242,384 @@ services:
       - db
     networks:
       - app-net
+=======
+version: "3.8"
+>>>>>>> develop
 
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_PASSWORD: secret
-    volumes:
-      - db-data:/var/lib/postgresql/data
-    networks:
-      - app-net
+services:
+    db:
+        image: postgres:12
+        container_name: notes-db
+        volumes:
+            - notes-db-data:/var/lib/postgresql/data
+        environment:
+            POSTGRES_DB: notesdb
+            POSTGRES_PASSWORD: secret
+        networks:
+            - notes-api-network
+
+    api:
+        build:
+            context: ./api
+            dockerfile: Dockerfile.dev
+        image: notes-api:dev
+        container_name: notes-api
+        volumes:
+            - /home/node/app/node_modules
+            - ./api:/home/node/app
+        ports:
+            - 3000:3000
+        environment:
+            DB_HOST: db
+            DB_DATABASE: notesdb
+            DB_PASSWORD: secret
+        networks:
+            - notes-api-network
 
 volumes:
-  db-data:
+    notes-db-data:
+        name: notes-db-data
 
 networks:
-  app-net:
-    driver: bridge
+    notes-api-network:
+        name: notes-api-network
 ```
+
+**Key sections of `compose.yaml`:**
+
+| Key | What it configures |
+| --- | ------------------ |
+| `services` | Each container in your stack — name, image, build context, ports, env vars, volumes, networks |
+| `volumes` | Named volumes — declared here are created automatically by Compose |
+| `networks` | User-defined networks — Compose creates them on `up` and removes them on `down` |
+
+**Per-service keys:**
+
+| Key | Equivalent `docker run` flag | What it does |
+| --- | ---------------------------- | ------------ |
+| `image` | *(image name)* | Use this image (pulled if not local) |
+| `build` | *(from Dockerfile)* | Build the image from a Dockerfile before running |
+| `container_name` | `--name` | Give the container an explicit name |
+| `ports` | `-p host:container` | Publish ports to the host |
+| `volumes` | `-v` | Bind mounts and named volume mounts |
+| `environment` | `-e KEY=VALUE` | Set environment variables |
+| `networks` | `--network` | Attach to a named network |
+| `depends_on` | — | Wait for another service to start first |
 
 **What Compose gives you for free:**
 
-- A shared network — services can call each other by service name (`web` reaches the DB at `db`).
-- Named volumes so data survives container rebuilds.
-- Consistent, reviewable configuration in version control.
+- A shared network — services reach each other by service name (the `api` service reaches the database at hostname `db`).
+- Named volumes created and managed automatically on `up`.
+- All configuration in one file that lives in version control alongside your code.
 
-### Core Compose Commands
+### How to Start Services in Docker Compose
+
+**Description:** `docker compose up` reads your `compose.yaml`, creates any missing networks and volumes, builds images if needed, and starts all services. The `--detach` flag runs everything in the background.
+
+**Syntax:**
 
 ```bash
-# Start everything (foreground, streaming logs)
+docker compose up [options] [service...]
+```
+
+**Common Options:**
+
+| Option | Description |
+| ------ | ----------- |
+| `-d, --detach` | Run services in the background |
+| `--build` | Force a rebuild of images before starting |
+| `--no-deps` | Start only the specified service, not its dependencies |
+| `--scale <service>=<n>` | Start N replicas of a service |
+| `--remove-orphans` | Remove containers for services not defined in the compose file |
+
+**Examples:**
+
+```bash
+# Start all services (foreground — logs stream to terminal)
 docker compose up
 
-# Start in the background
-docker compose up -d
+# Start all services in the background
+docker compose up --detach
 
-# Rebuild images before starting
-docker compose up -d --build
+# Rebuild images then start
+docker compose up --detach --build
 
-# See what's running
-docker compose ps
+# Start only the db service
+docker compose up --detach db
 
-# Follow logs from one service
-docker compose logs -f web
-
-# Run a one-off command inside a service
-docker compose exec db psql -U postgres
-
-# Stop the stack but keep containers/volumes
-docker compose stop
-
-# Stop and remove containers + default network (keeps named volumes)
-docker compose down
-
-# Full clean including volumes
-docker compose down -v
+# Point to a non-default compose file
+docker compose --file path/to/compose.yaml up --detach
 ```
 
 **Notes:**
 
-- Modern Docker uses `docker compose` (space, plugin). The older standalone tool is `docker-compose` (hyphen) — same idea, different binary.
-- File name can be `compose.yaml`, `compose.yml`, `docker-compose.yaml`, or `docker-compose.yml`.
+- On first run, Compose creates the named networks and volumes defined in the file — they persist across `up`/`down` cycles unless you pass `-v` to `down`.
+- `depends_on` controls **start order**, not readiness. If your API needs the database to be accepting connections, add a health check.
+- Modern Docker uses `docker compose` (space, plugin). The older standalone binary is `docker-compose` (hyphen) — same concept, different binary.
+
+### How to List Services in Docker Compose
+
+**Description:** `docker compose ps` shows the services defined in your `compose.yaml` — their container name, running status, and published ports. It scopes output to the current project, not every container on the host.
+
+**Syntax:**
+
+```bash
+docker compose ps [options] [service...]
+```
+
+**Common Options:**
+
+| Option | Description |
+| ------ | ----------- |
+| `-a, --all` | Show stopped services alongside running ones |
+| `--services` | Print service names only |
+| `--filter` | Filter by status: `--filter status=running` |
+
+**Examples:**
+
+```bash
+# Show all running services in the current project
+docker compose ps
+
+# Sample output:
+# NAME          IMAGE           COMMAND                  SERVICE   CREATED       STATUS       PORTS
+# notes-api     notes-api:dev   "docker-entrypoint.s…"   api       2 hours ago   Up 2 hours   0.0.0.0:3000->3000/tcp
+# notes-db      postgres:12     "docker-entrypoint.s…"   db        2 hours ago   Up 2 hours   5432/tcp
+
+# Include stopped services
+docker compose ps --all
+
+# Print only service names
+docker compose ps --services
+```
+
+**Notes:**
+
+- `docker compose ps` only shows services in the current Compose project. Use `docker ps` to see every container on the host.
+- A service listed as `Exit 1` crashed — run `docker compose logs <service>` to investigate.
+
+### How to Execute Commands Inside a Running Service in Docker Compose
+
+**Description:** `docker compose exec` runs a one-off command inside an already-running service container. It is the Compose equivalent of `docker exec` — the service's main process keeps running uninterrupted.
+
+**Syntax:**
+
+```bash
+docker compose exec [options] <service> <command> [args...]
+```
+
+**Common Options:**
+
+| Option | Description |
+| ------ | ----------- |
+| `-it` | Interactive + TTY — opens a shell |
+| `-e KEY=VALUE` | Set an env var for this command only |
+| `-u <user>` | Run as a specific user |
+| `--workdir <dir>` | Set the working directory |
+
+**Examples:**
+
+```bash
+# Run database migrations inside the api service
+docker compose exec api npm run db:migrate
+
+# Seed the database
+docker compose exec api npm run db:seed
+
+# Open an interactive shell inside the api service
+docker compose exec api sh
+
+# Open a psql session inside the db service
+docker compose exec db psql --username=postgres
+
+# Check environment variables inside a service
+docker compose exec api env | grep DB_
+```
+
+**Notes:**
+
+- The service must be running before you can `exec` into it — start with `docker compose up` first.
+- Exit a shell started with `exec` using `exit` or `Ctrl-D` — the service container keeps running.
+
+### How to Access Logs from a Running Service in Docker Compose
+
+**Description:** `docker compose logs` prints the stdout/stderr of one or more services. Pass `--follow` to stream live output as it arrives.
+
+**Syntax:**
+
+```bash
+docker compose logs [options] [service...]
+```
+
+**Common Options:**
+
+| Option | Description |
+| ------ | ----------- |
+| `-f, --follow` | Stream live log output (like `tail -f`) |
+| `--tail <n>` | Show only the last N lines |
+| `--no-log-prefix` | Omit the service name prefix from each line |
+| `--timestamps` | Include timestamps on each line |
+
+**Examples:**
+
+```bash
+# Print all logs from every service (one-shot)
+docker compose logs
+
+# Stream live logs from every service
+docker compose logs --follow
+
+# Stream live logs from the api service only
+docker compose logs --follow api
+
+# Show only the last 50 lines from the db service
+docker compose logs --tail 50 db
+
+# Show logs with timestamps
+docker compose logs --timestamps api
+```
+
+**Notes:**
+
+- Without a service name, `docker compose logs` combines output from all services and prefixes each line with the service name.
+- Press `Ctrl-C` to stop following — the service keeps running.
+
+### How to Stop Services in Docker Compose
+
+**Description:** Compose gives you two levels of shutdown — `stop` (pause, keep everything) and `down` (stop and clean up). Choose based on whether you want to resume quickly or start fresh.
+
+**Syntax:**
+
+```bash
+docker compose stop [service...]
+docker compose down [options]
+```
+
+**`stop` vs `down`:**
+
+| Command | What it does | Data preserved? |
+| ------- | ------------ | --------------- |
+| `docker compose stop` | Sends SIGTERM to running containers — they stop but are not removed | Yes — volumes, networks, and containers kept |
+| `docker compose down` | Stops and removes containers and the default network | Named volumes kept (unless `-v` passed) |
+| `docker compose down --volumes` | Stops, removes containers, network, **and** named volumes | No — all data deleted |
+
+**Examples:**
+
+```bash
+# Gracefully stop all services (containers remain, can be restarted)
+docker compose stop
+
+# Stop a specific service
+docker compose stop db
+
+# Resume stopped services
+docker compose start
+
+# Stop and remove containers + network (volumes kept)
+docker compose down
+
+# Full teardown including named volumes (all data lost)
+docker compose down --volumes
+
+# Stop, remove, and also remove built images
+docker compose down --rmi all
+```
+
+**Notes:**
+
+- Use `docker compose stop` during development when you want to preserve your data and resume later.
+- Use `docker compose down` in CI or when you want a clean slate.
+- `docker compose down --volumes` is destructive — it permanently deletes named volumes and the data inside them.
+
+### How to Compose a Full-stack Application in Docker Compose
+
+The notes-api project showed how Compose handles a multi-container stack. Now let's apply Compose to the **hello-dock** Vite app from the JavaScript Application section — a simpler single-service example that demonstrates how Compose manages bind mounts and anonymous volumes.
+
+**Project structure:**
+
+```
+hello-dock/
+├── Dockerfile.dev
+├── .dockerignore
+├── compose.yaml
+├── package.json
+└── src/
+```
+
+**`compose.yaml` for development:**
+
+```yaml
+version: "3.8"
+
+services:
+    web:
+        build:
+            context: .
+            dockerfile: Dockerfile.dev
+        image: hello-dock:dev
+        container_name: hello-dock-dev
+        volumes:
+            - .:/home/node/app
+            - /home/node/app/node_modules
+        ports:
+            - 3000:3000
+```
+
+**What each key does:**
+
+| Key | Effect |
+| --- | ------ |
+| `build.context: .` | Build from the current directory |
+| `build.dockerfile: Dockerfile.dev` | Use the dev Dockerfile |
+| `volumes: - .:/home/node/app` | Bind-mount the project root for hot reload |
+| `volumes: - /home/node/app/node_modules` | Anonymous volume to protect installed packages |
+| `ports: - 3000:3000` | Expose the dev server on port 3000 |
+
+**Start the dev stack:**
+
+```bash
+# From the hello-dock directory
+docker compose up --detach
+
+# Verify it's running
+docker compose ps
+
+# Follow logs
+docker compose logs --follow web
+
+# Stop the stack
+docker compose down
+```
+
+Edit any file in your local `src/` folder — the Vite dev server inside the container picks up the change instantly via the bind mount.
+
+**Shell scripts vs Docker Compose:**
+
+| Concern | Shell scripts | Docker Compose |
+| ------- | ------------- | -------------- |
+| Start the stack | `./shell/boot.sh` | `docker compose up -d` |
+| Stop the stack | `./shell/stop.sh` | `docker compose stop` |
+| Tear down | `./shell/nuke.sh` | `docker compose down -v` |
+| View logs | `docker logs <container>` | `docker compose logs -f <service>` |
+| Exec into a service | `docker exec -it <container> sh` | `docker compose exec <service> sh` |
+| Stored in version control | Fragile shell scripts | Clean YAML alongside your code |
+
+---
+
+## Conclusion
+
+Docker is a foundational skill for any DevOps or backend engineering workflow. These notes covered the complete journey — from understanding what containers are and how they differ from VMs, through building images, managing containers, configuring networks, containerizing multi-container applications, and finally orchestrating everything with Docker Compose.
+
+**Key takeaways:**
+
+- **One process per container** — keep services (web server, database, worker) in separate containers.
+- **Prefer user-defined networks** — automatic DNS by container/service name makes multi-container wiring simple.
+- **Use named volumes** for persistent data; bind mounts for hot-reload development.
+- **Multi-stage builds** keep production images lean — build tools never reach the shipped image.
+- **Docker Compose** is the natural evolution of shell scripts — one YAML file, one command to start everything.
+- **Never bake secrets into an image** — pass them at runtime via `-e` or `--env-file`.
+
+For deeper dives, see the [References](#references) section. Practice with real projects — the commands become muscle memory quickly.
 
 ---
 
