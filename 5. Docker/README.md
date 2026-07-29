@@ -76,13 +76,6 @@
   - [How to Work With Anonymous Volumes in Docker](#how-to-work-with-anonymous-volumes-in-docker)
   - [How to Perform Multi-Staged Builds in Docker](#how-to-perform-multi-staged-builds-in-docker)
   - [How to Ignore Unnecessary Files](#how-to-ignore-unnecessary-files)
-- [How to Containerize a Multi-Container JavaScript Application](#how-to-containerize-a-multi-container-javascript-application)
-  - [One Shot Revision](#one-shot-revision-4)
-  - [How to Run the Database Server](#how-to-run-the-database-server)
-  - [How to Work with Named Volumes in Docker](#how-to-work-with-named-volumes-in-docker)
-  - [How to Access Logs from a Container in Docker](#how-to-access-logs-from-a-container-in-docker)
-  - [How to Create a Network and Attaching the Database Server in Docker](#how-to-create-a-network-and-attaching-the-database-server-in-docker)
-  - [How to Write the Dockerfile](#how-to-write-the-dockerfile)
 - [Docker Networking](#docker-networking)
   - [One Shot Revision](#one-shot-revision-4)
   - [Docker Network Basics](#docker-network-basics)
@@ -102,23 +95,7 @@
   - [How to Write the Dockerfile](#how-to-write-the-dockerfile)
   - [How to Execute Commands in a Running Container](#how-to-execute-commands-in-a-running-container)
   - [How to Write Management Scripts in Docker](#how-to-write-management-scripts-in-docker)
-<<<<<<< HEAD
-  - [How to Execute Commands in a Running Container](#how-to-execute-commands-in-a-running-container)
-- [Docker Compose](#docker-compose)
-  - [`compose.yaml` Structure](#composeyaml-structure)
-  - [Core Compose Commands](#core-compose-commands)
-=======
-- [How to Compose Projects Using Docker-Compose](#how-to-compose-projects-using-docker-compose)
-  - [One Shot Revision](#one-shot-revision-6)
-  - [Docker Compose Basics](#docker-compose-basics)
-  - [How to Start Services in Docker Compose](#how-to-start-services-in-docker-compose)
-  - [How to List Services in Docker Compose](#how-to-list-services-in-docker-compose)
-  - [How to Execute Commands Inside a Running Service in Docker Compose](#how-to-execute-commands-inside-a-running-service-in-docker-compose)
-  - [How to Access Logs from a Running Service in Docker Compose](#how-to-access-logs-from-a-running-service-in-docker-compose)
-  - [How to Stop Services in Docker Compose](#how-to-stop-services-in-docker-compose)
-  - [How to Compose a Full-stack Application in Docker Compose](#how-to-compose-a-full-stack-application-in-docker-compose)
 - [Conclusion](#conclusion)
->>>>>>> develop
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -129,7 +106,7 @@
 Brief notes about Docker — the container platform that packages an application together with its dependencies into a portable, isolated runtime.
 
 - **Focus:** Building, running, and shipping containerized applications with Docker.
-- **Scope:** Images → containers → volumes → networks → Dockerfile → Compose → registries.
+- **Scope:** Images → containers → volumes → networks → Dockerfile → registries.
 - **Goal:** Build strong container fundamentals for DevOps interview prep and day-to-day workflows.
 
 **Learn from the official source:**
@@ -152,11 +129,11 @@ Before touching any command, it helps to build a clear mental picture of what Do
 
 ### One Shot Revision
 
-| Topic                                                             | Short Description                                                       |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| [What is Docker?](#what-is-docker)                                | Containerization platform that packages apps with their dependencies    |
-| [Containers vs VMs](#containers-vs-virtual-machines)              | Containers share the host kernel; VMs ship a full guest OS              |
-| [Docker Architecture](#docker-architecture)                       | CLI → daemon → containerd → runc; daemon also talks to registries       |
+| Topic                                                     | Short Description                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------------------ |
+| [What is Docker?](#what-is-docker)                        | Containerization platform that packages apps with their dependencies |
+| [Containers vs VMs](#containers-vs-virtual-machines)      | Containers share the host kernel; VMs ship a full guest OS         |
+| [Docker Architecture](#docker-architecture)               | CLI → daemon → containerd → runc; daemon also talks to registries  |
 | [Images, Containers & Registries](#images-containers--registries) | Image = blueprint, container = running instance, registry = image store |
 
 ### What is Docker?
@@ -187,14 +164,14 @@ Together they create the illusion of a separate machine without ever leaving the
 
 Both give you isolation, but they achieve it very differently.
 
-| Aspect             | Container                           | Virtual Machine                    |
-| ------------------ | ----------------------------------- | ---------------------------------- |
-| What's virtualized | Just the OS (shares host kernel)    | The whole machine (CPU, RAM, disk) |
-| Guest OS           | None — uses the host kernel         | A full OS (Ubuntu, Windows, etc.)  |
-| Size               | Tens of MB                          | Several GB                         |
-| Startup            | Milliseconds                        | Minutes                            |
-| Density            | Hundreds per host                   | A handful per host                 |
-| Isolation          | Process-level (namespaces, cgroups) | Hardware-level (hypervisor)        |
+| Aspect         | Container                            | Virtual Machine                    |
+| -------------- | ------------------------------------ | ---------------------------------- |
+| What's virtualized | Just the OS (shares host kernel) | The whole machine (CPU, RAM, disk) |
+| Guest OS       | None — uses the host kernel          | A full OS (Ubuntu, Windows, etc.)  |
+| Size           | Tens of MB                           | Several GB                         |
+| Startup        | Milliseconds                         | Minutes                            |
+| Density        | Hundreds per host                    | A handful per host                 |
+| Isolation      | Process-level (namespaces, cgroups)  | Hardware-level (hypervisor)        |
 
 **Easy way to remember:** A **VM is a whole house** with its own foundation, plumbing, and roof. A **container is an apartment** in a shared building — it has its own locked door and furniture, but the walls, wiring, and heating are shared with everyone else.
 
@@ -290,20 +267,20 @@ The commands you use every single day to run, inspect, and clean up containers.
 
 ### One Shot Revision
 
-| Topic                                                                                     | Short Description                                      |
-| ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| [How to Run a Container](#how-to-run-a-container)                                         | Create + start a container from an image               |
-| [How to Publish a Port](#how-to-publish-a-port)                                           | Map host ports to container ports                      |
-| [How to Use Detached Mode](#how-to-use-detached-mode)                                     | Run containers in the background with `-d`             |
-| [How to List Containers](#how-to-list-containers)                                         | Inspect running and stopped containers                 |
-| [How to Name or Rename a Container](#how-to-name-or-rename-a-container)                   | Set a name at creation or rename with `docker rename`  |
-| [How to Stop or Kill a Running Container](#how-to-stop-or-kill-a-running-container)       | Graceful stop vs immediate kill                        |
-| [How to Restart a Container](#how-to-restart-a-container)                                 | Bounce a container with `docker restart`               |
-| [How to Create a Container Without Running](#how-to-create-a-container-without-running)   | Stage a container with `docker create`                 |
-| [How to Remove Dangling Containers](#how-to-remove-dangling-containers)                   | Clean up stopped and leftover containers               |
-| [How to Run a Container in Interactive Mode](#how-to-run-a-container-in-interactive-mode) | Open a shell inside a new container with `-it`         |
+| Topic                                                                  | Short Description                              |
+| ---------------------------------------------------------------------- | ---------------------------------------------- |
+| [How to Run a Container](#how-to-run-a-container)                      | Create + start a container from an image       |
+| [How to Publish a Port](#how-to-publish-a-port)                        | Map host ports to container ports              |
+| [How to Use Detached Mode](#how-to-use-detached-mode)                  | Run containers in the background with `-d`     |
+| [How to List Containers](#how-to-list-containers)                      | Inspect running and stopped containers         |
+| [How to Name or Rename a Container](#how-to-name-or-rename-a-container) | Set a name at creation or rename with `docker rename` |
+| [How to Stop or Kill a Running Container](#how-to-stop-or-kill-a-running-container) | Graceful stop vs immediate kill |
+| [How to Restart a Container](#how-to-restart-a-container)              | Bounce a container with `docker restart`       |
+| [How to Create a Container Without Running](#how-to-create-a-container-without-running) | Stage a container with `docker create` |
+| [How to Remove Dangling Containers](#how-to-remove-dangling-containers) | Clean up stopped and leftover containers      |
+| [How to Run a Container in Interactive Mode](#how-to-run-a-container-in-interactive-mode) | Open a shell inside a new container with `-it` |
 | [How to Execute Commands Inside a Container](#how-to-execute-commands-inside-a-container) | Run commands in a running container with `docker exec` |
-| [How to Work With Executable Images](#how-to-work-with-executable-images)                 | Use `ENTRYPOINT` images as CLI tools                   |
+| [How to Work With Executable Images](#how-to-work-with-executable-images) | Use `ENTRYPOINT` images as CLI tools         |
 
 ### How to Run a Container
 
@@ -317,16 +294,16 @@ docker run [options] <image> [command]
 
 **Common Options:**
 
-| Option          | Description                                           |
-| --------------- | ----------------------------------------------------- |
-| `-p, --publish` | Map a host port to a container port: `-p 8080:80`     |
-| `-d, --detach`  | Run in the background; return the container ID        |
-| `-it`           | Interactive + TTY — for shells and REPLs              |
-| `--name`        | Give the container a friendly name                    |
-| `--rm`          | Auto-remove the container when it exits               |
-| `-e, --env`     | Set an environment variable: `-e NODE_ENV=production` |
-| `-v, --volume`  | Attach a volume or bind mount: `-v $(pwd):/app`       |
-| `--network`     | Attach the container to a specific network            |
+| Option          | Description                                                          |
+| --------------- | -------------------------------------------------------------------- |
+| `-p, --publish` | Map a host port to a container port: `-p 8080:80`                    |
+| `-d, --detach`  | Run in the background; return the container ID                       |
+| `-it`           | Interactive + TTY — for shells and REPLs                             |
+| `--name`        | Give the container a friendly name                                   |
+| `--rm`          | Auto-remove the container when it exits                              |
+| `-e, --env`     | Set an environment variable: `-e NODE_ENV=production`                |
+| `-v, --volume`  | Attach a volume or bind mount: `-v $(pwd):/app`                      |
+| `--network`     | Attach the container to a specific network                           |
 
 **Examples:**
 
@@ -362,12 +339,12 @@ docker run -p <host-port>:<container-port> <image>
 
 **Port Mapping Formats:**
 
-| Format                 | Description                                        |
-| ---------------------- | -------------------------------------------------- |
-| `-p 8080:80`           | Map host port 8080 → container port 80             |
-| `-p 127.0.0.1:8080:80` | Bind only on loopback — not exposed to the network |
-| `-p 80`                | Docker picks a random host port                    |
-| `-p 8080:80/udp`       | Map a UDP port instead of TCP                      |
+| Format                  | Description                                        |
+| ----------------------- | -------------------------------------------------- |
+| `-p 8080:80`            | Map host port 8080 → container port 80             |
+| `-p 127.0.0.1:8080:80`  | Bind only on loopback — not exposed to the network |
+| `-p 80`                 | Docker picks a random host port                    |
+| `-p 8080:80/udp`        | Map a UDP port instead of TCP                      |
 
 **Examples:**
 
@@ -429,16 +406,16 @@ docker stop web
 
 **Managing Detached Containers:**
 
-| Command                 | What it does                                       |
-| ----------------------- | -------------------------------------------------- |
-| `docker ps`             | List all running containers                        |
-| `docker ps -a`          | List all containers, including stopped ones        |
-| `docker logs <name>`    | Print the container's stdout/stderr                |
-| `docker logs -f <name>` | Follow (tail) live log output                      |
-| `docker stop <name>`    | Gracefully stop the container (sends SIGTERM)      |
-| `docker start <name>`   | Restart a stopped container in detached mode       |
-| `docker attach <name>`  | Re-attach your terminal to the container's output  |
-| `docker stats`          | Live CPU / memory usage for all running containers |
+| Command                     | What it does                                      |
+| --------------------------- | ------------------------------------------------- |
+| `docker ps`                 | List all running containers                       |
+| `docker ps -a`              | List all containers, including stopped ones       |
+| `docker logs <name>`        | Print the container's stdout/stderr               |
+| `docker logs -f <name>`     | Follow (tail) live log output                     |
+| `docker stop <name>`        | Gracefully stop the container (sends SIGTERM)     |
+| `docker start <name>`       | Restart a stopped container in detached mode      |
+| `docker attach <name>`      | Re-attach your terminal to the container's output |
+| `docker stats`              | Live CPU / memory usage for all running containers|
 
 **Notes:**
 
@@ -461,14 +438,14 @@ docker container ls [options]
 
 **Common Options:**
 
-| Option        | Description                                                                 |
-| ------------- | --------------------------------------------------------------------------- |
-| `-a, --all`   | Show all containers — running **and** stopped                               |
-| `-q, --quiet` | Print only container IDs (useful for scripting)                             |
-| `--filter`    | Filter by field: `--filter status=exited`, `--filter name=web`              |
-| `--format`    | Custom output with Go templates: `--format "table {{.Names}}\t{{.Status}}"` |
-| `-n <count>`  | Show the last N containers created                                          |
-| `-s, --size`  | Display the container's disk usage                                          |
+| Option              | Description                                                     |
+| ------------------- | --------------------------------------------------------------- |
+| `-a, --all`         | Show all containers — running **and** stopped                   |
+| `-q, --quiet`       | Print only container IDs (useful for scripting)                 |
+| `--filter`          | Filter by field: `--filter status=exited`, `--filter name=web`  |
+| `--format`          | Custom output with Go templates: `--format "table {{.Names}}\t{{.Status}}"` |
+| `-n <count>`        | Show the last N containers created                              |
+| `-s, --size`        | Display the container's disk usage                              |
 
 **Examples:**
 
@@ -497,15 +474,15 @@ docker rm $(docker ps -aq --filter status=exited)
 
 **Output Columns:**
 
-| Column         | What it shows                                     |
-| -------------- | ------------------------------------------------- |
-| `CONTAINER ID` | Short ID of the container                         |
-| `IMAGE`        | The image the container was created from          |
-| `COMMAND`      | The command running inside the container          |
-| `CREATED`      | How long ago the container was created            |
-| `STATUS`       | `Up X minutes`, `Exited (0) X minutes ago`, etc.  |
-| `PORTS`        | Port mappings (e.g. `0.0.0.0:8080->80/tcp`)       |
-| `NAMES`        | The container's name (auto-generated or `--name`) |
+| Column       | What it shows                                          |
+| ------------ | ------------------------------------------------------ |
+| `CONTAINER ID` | Short ID of the container                            |
+| `IMAGE`      | The image the container was created from               |
+| `COMMAND`    | The command running inside the container               |
+| `CREATED`    | How long ago the container was created                 |
+| `STATUS`     | `Up X minutes`, `Exited (0) X minutes ago`, etc.       |
+| `PORTS`      | Port mappings (e.g. `0.0.0.0:8080->80/tcp`)            |
+| `NAMES`      | The container's name (auto-generated or `--name`)      |
 
 **Notes:**
 
@@ -547,12 +524,12 @@ docker ps --filter name=primary-db
 
 **Naming Rules:**
 
-| Rule               | Detail                                                  |
-| ------------------ | ------------------------------------------------------- |
-| Characters allowed | Letters, digits, underscores `_`, hyphens `-`, dots `.` |
-| Case sensitive     | `Web` and `web` are different names                     |
-| Must be unique     | Two containers on the same host cannot share a name     |
-| No spaces          | Use `-` or `_` as word separators                       |
+| Rule                        | Detail                                                      |
+| --------------------------- | ----------------------------------------------------------- |
+| Characters allowed          | Letters, digits, underscores `_`, hyphens `-`, dots `.`     |
+| Case sensitive              | `Web` and `web` are different names                         |
+| Must be unique              | Two containers on the same host cannot share a name         |
+| No spaces                   | Use `-` or `_` as word separators                           |
 
 **Notes:**
 
@@ -574,10 +551,10 @@ docker kill [options] <container> [<container>...]
 
 **Common Options:**
 
-| Option           | Command       | Description                                          |
-| ---------------- | ------------- | ---------------------------------------------------- |
-| `-t, --time <n>` | `docker stop` | Seconds to wait before sending SIGKILL (default: 10) |
-| `-s, --signal`   | `docker kill` | Signal to send instead of SIGKILL (e.g. `-s SIGINT`) |
+| Option           | Command        | Description                                              |
+| ---------------- | -------------- | -------------------------------------------------------- |
+| `-t, --time <n>` | `docker stop`  | Seconds to wait before sending SIGKILL (default: 10)     |
+| `-s, --signal`   | `docker kill`  | Signal to send instead of SIGKILL (e.g. `-s SIGINT`)    |
 
 **Examples:**
 
@@ -606,12 +583,12 @@ docker ps -a --filter name=web
 
 **`stop` vs `kill` — when to use which:**
 
-| Scenario                                     | Use              |
-| -------------------------------------------- | ---------------- |
-| Normal shutdown — app should clean up        | `docker stop`    |
-| Container is frozen / not responding to stop | `docker kill`    |
-| Database or message broker (needs flush)     | `docker stop`    |
-| Quick teardown in a dev/test script          | `docker kill`    |
+| Scenario                                     | Use          |
+| -------------------------------------------- | ------------ |
+| Normal shutdown — app should clean up        | `docker stop` |
+| Container is frozen / not responding to stop | `docker kill` |
+| Database or message broker (needs flush)     | `docker stop` |
+| Quick teardown in a dev/test script          | `docker kill` |
 | Sending a custom signal (e.g. SIGHUP)        | `docker kill -s` |
 
 **Notes:**
@@ -633,8 +610,8 @@ docker restart [options] <container> [<container>...]
 
 **Common Options:**
 
-| Option           | Description                                                    |
-| ---------------- | -------------------------------------------------------------- |
+| Option           | Description                                                  |
+| ---------------- | ------------------------------------------------------------ |
 | `-t, --time <n>` | Seconds to wait for graceful stop before forcing (default: 10) |
 
 **Examples:**
@@ -661,10 +638,10 @@ docker ps --filter name=web
 
 **`docker restart` vs `docker start`:**
 
-| Command          | Use when                                               |
-| ---------------- | ------------------------------------------------------ |
-| `docker restart` | Container is **running** and you want to bounce it     |
-| `docker start`   | Container is **stopped** and you want to bring it back |
+| Command          | Use when                                                        |
+| ---------------- | --------------------------------------------------------------- |
+| `docker restart` | Container is **running** and you want to bounce it              |
+| `docker start`   | Container is **stopped** and you want to bring it back          |
 
 **Notes:**
 
@@ -713,10 +690,10 @@ docker logs -f db
 
 **`docker create` vs `docker run`:**
 
-| Aspect          | `docker create`                        | `docker run`                            |
-| --------------- | -------------------------------------- | --------------------------------------- |
-| Starts process? | No — stays in `Created` state          | Yes — container starts immediately      |
-| Start manually? | Yes — `docker start <name>`            | Not needed                              |
+| Aspect          | `docker create`                        | `docker run`                          |
+| --------------- | -------------------------------------- | ------------------------------------- |
+| Starts process? | No — stays in `Created` state          | Yes — container starts immediately    |
+| Start manually? | Yes — `docker start <name>`            | Not needed                            |
 | Use case        | Stage, inspect, or pre-pull before run | Default for all everyday container work |
 
 **Notes:**
@@ -742,12 +719,12 @@ docker container prune
 
 **Common Options:**
 
-| Option          | Command                  | Description                                             |
-| --------------- | ------------------------ | ------------------------------------------------------- |
-| `-f, --force`   | `docker rm`              | Force-remove a **running** container (stop + remove)    |
-| `-v, --volumes` | `docker rm`              | Also remove anonymous volumes attached to the container |
-| `-f, --force`   | `docker container prune` | Skip the confirmation prompt                            |
-| `--filter`      | `docker container prune` | Prune only containers matching a condition              |
+| Option       | Command              | Description                                            |
+| ------------ | -------------------- | ------------------------------------------------------ |
+| `-f, --force` | `docker rm`         | Force-remove a **running** container (stop + remove)   |
+| `-v, --volumes` | `docker rm`       | Also remove anonymous volumes attached to the container |
+| `-f, --force` | `docker container prune` | Skip the confirmation prompt                    |
+| `--filter`   | `docker container prune` | Prune only containers matching a condition      |
 
 **Examples:**
 
@@ -782,11 +759,11 @@ docker container prune -f && docker volume prune -f
 
 **`docker rm` vs `docker container prune`:**
 
-| Command                                   | Removes                                | Requires name/ID? |
-| ----------------------------------------- | -------------------------------------- | ----------------- |
-| `docker rm <name>`                        | The specific container(s) you name     | Yes               |
-| `docker rm $(docker ps -aq --filter ...)` | Containers matching a filter           | No (scripted)     |
-| `docker container prune`                  | **All** stopped containers on the host | No                |
+| Command                  | Removes                                         | Requires name/ID? |
+| ------------------------ | ----------------------------------------------- | ----------------- |
+| `docker rm <name>`       | The specific container(s) you name              | Yes               |
+| `docker rm $(docker ps -aq --filter ...)` | Containers matching a filter  | No (scripted)     |
+| `docker container prune` | **All** stopped containers on the host          | No                |
 
 **Notes:**
 
@@ -807,11 +784,11 @@ docker run -it [options] <image> [shell]
 
 **Flags explained:**
 
-| Flag  | Full name       | What it does                                         |
-| ----- | --------------- | ---------------------------------------------------- |
-| `-i`  | `--interactive` | Keep stdin open even when not attached               |
-| `-t`  | `--tty`         | Allocate a pseudo-TTY (terminal emulator)            |
-| `-it` | Both together   | The standard combo for any interactive shell session |
+| Flag          | Full name         | What it does                                              |
+| ------------- | ----------------- | --------------------------------------------------------- |
+| `-i`          | `--interactive`   | Keep stdin open even when not attached                    |
+| `-t`          | `--tty`           | Allocate a pseudo-TTY (terminal emulator)                 |
+| `-it`         | Both together     | The standard combo for any interactive shell session      |
 
 **Examples:**
 
@@ -854,13 +831,13 @@ docker exec [options] <container> <command> [args...]
 
 **Common Options:**
 
-| Option          | Description                                            |
-| --------------- | ------------------------------------------------------ |
-| `-it`           | Interactive + TTY — required for opening a shell       |
-| `-d, --detach`  | Run the command in the background inside the container |
-| `-e, --env`     | Set an env var for this command only: `-e DEBUG=true`  |
-| `-u, --user`    | Run as a specific user: `-u root` or `-u 1000`         |
-| `-w, --workdir` | Set the working directory for the command              |
+| Option          | Description                                                    |
+| --------------- | -------------------------------------------------------------- |
+| `-it`           | Interactive + TTY — required for opening a shell               |
+| `-d, --detach`  | Run the command in the background inside the container         |
+| `-e, --env`     | Set an env var for this command only: `-e DEBUG=true`          |
+| `-u, --user`    | Run as a specific user: `-u root` or `-u 1000`                 |
+| `-w, --workdir` | Set the working directory for the command                      |
 
 **Examples:**
 
@@ -892,12 +869,12 @@ docker exec web env | grep NODE_ENV
 
 **`docker exec` vs `docker run`:**
 
-| Aspect           | `docker exec`                            | `docker run`                                  |
-| ---------------- | ---------------------------------------- | --------------------------------------------- |
-| Target           | An **existing, running** container       | Creates a **brand-new** container             |
+| Aspect           | `docker exec`                            | `docker run`                              |
+| ---------------- | ---------------------------------------- | ----------------------------------------- |
+| Target           | An **existing, running** container       | Creates a **brand-new** container         |
 | Main process     | Untouched — runs alongside it            | The command you pass becomes the main process |
-| Stops container? | No — exec exits, container keeps running | Container stops when the command exits        |
-| Use case         | Debug, inspect, admin tasks              | Start a fresh container from an image         |
+| Stops container? | No — exec exits, container keeps running | Container stops when the command exits    |
+| Use case         | Debug, inspect, admin tasks              | Start a fresh container from an image     |
 
 **Notes:**
 
@@ -950,12 +927,12 @@ docker inspect --format '{{.Config.Entrypoint}}' nginx
 
 **How `ENTRYPOINT` and `CMD` combine:**
 
-| Dockerfile                                | `docker run` invocation        | Command that runs        |
-| ----------------------------------------- | ------------------------------ | ------------------------ |
-| `ENTRYPOINT ["curl"]`                     | `docker run img https://x.com` | `curl https://x.com`     |
-| `ENTRYPOINT ["node"]` `CMD ["server.js"]` | `docker run img`               | `node server.js`         |
-| `ENTRYPOINT ["node"]` `CMD ["server.js"]` | `docker run img worker.js`     | `node worker.js`         |
-| `CMD ["nginx", "-g", "daemon off;"]`      | `docker run img`               | `nginx -g "daemon off;"` |
+| Dockerfile             | `docker run` invocation        | Command that runs          |
+| ---------------------- | ------------------------------ | -------------------------- |
+| `ENTRYPOINT ["curl"]`  | `docker run img https://x.com` | `curl https://x.com`       |
+| `ENTRYPOINT ["node"]` `CMD ["server.js"]` | `docker run img` | `node server.js` |
+| `ENTRYPOINT ["node"]` `CMD ["server.js"]` | `docker run img worker.js` | `node worker.js` |
+| `CMD ["nginx", "-g", "daemon off;"]` | `docker run img` | `nginx -g "daemon off;"` |
 
 **Notes:**
 
@@ -972,20 +949,20 @@ Everything you do with the images themselves — pulling from a registry, listin
 
 ### One Shot Revision
 
-| Command                                                                           | Short Description                                                   |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `docker pull`                                                                     | Download an image from a registry                                   |
-| [`docker image ls`](#how-to-list-and-remove-docker-images)                        | List local images                                                   |
-| `docker image build`                                                              | Build an image from a Dockerfile                                    |
-| [`docker image tag`](#how-to-tag-docker-images)                                   | Give an image an additional name/tag                                |
-| `docker push`                                                                     | Upload an image to a registry                                       |
-| [`docker image rm` / `prune`](#how-to-list-and-remove-docker-images)              | Delete images                                                       |
-| [`docker image history`](#how-to-understand-the-many-layers-of-a-docker-image)    | Show layer history of an image                                      |
-| [Build NGINX from Source](#how-to-build-nginx-from-source)                        | Compile NGINX from source inside a Dockerfile                       |
-| [Optimize Docker Images](#how-to-optimize-docker-images)                          | Techniques to shrink image size and speed up builds                 |
-| [Embracing Alpine Linux](#embracing-alpine-linux)                                 | Why Alpine is the default small base and how to use it              |
-| [How to Create Executable Docker Images](#how-to-create-executable-docker-images) | Build images that behave like standalone CLI tools via `ENTRYPOINT` |
-| [How to Share Your Docker Images Online](#how-to-share-your-docker-images-online) | Push images to Docker Hub and other registries for sharing          |
+| Command                                                                              | Short Description                    |
+| ------------------------------------------------------------------------------------ | ------------------------------------ |
+| `docker pull`                                                                        | Download an image from a registry    |
+| [`docker image ls`](#how-to-list-and-remove-docker-images)                           | List local images                    |
+| `docker image build`                                                                 | Build an image from a Dockerfile     |
+| [`docker image tag`](#how-to-tag-docker-images)                                      | Give an image an additional name/tag |
+| `docker push`                                                                        | Upload an image to a registry        |
+| [`docker image rm` / `prune`](#how-to-list-and-remove-docker-images)                 | Delete images                        |
+| [`docker image history`](#how-to-understand-the-many-layers-of-a-docker-image)       | Show layer history of an image       |
+| [Build NGINX from Source](#how-to-build-nginx-from-source)                           | Compile NGINX from source inside a Dockerfile |
+| [Optimize Docker Images](#how-to-optimize-docker-images)                              | Techniques to shrink image size and speed up builds |
+| [Embracing Alpine Linux](#embracing-alpine-linux)                                     | Why Alpine is the default small base and how to use it |
+| [How to Create Executable Docker Images](#how-to-create-executable-docker-images)    | Build images that behave like standalone CLI tools via `ENTRYPOINT` |
+| [How to Share Your Docker Images Online](#how-to-share-your-docker-images-online)    | Push images to Docker Hub and other registries for sharing |
 
 ### How to Create a Docker Image
 
@@ -1018,13 +995,13 @@ See [Dockerfile Instructions](#dockerfile-instructions) for the full instruction
 docker build -t my-app:1.0 .
 ```
 
-| Option                | What it does                                                       |
-| --------------------- | ------------------------------------------------------------------ |
-| `-t my-app:1.0`       | Name and tag the resulting image                                   |
-| `.`                   | Build context — the folder Docker packages and sends to the daemon |
-| `-f Dockerfile.prod`  | Use a differently named Dockerfile                                 |
-| `--no-cache`          | Ignore all cached layers and rebuild from scratch                  |
-| `--build-arg KEY=val` | Pass a value for an `ARG` declared in the Dockerfile               |
+| Option | What it does |
+| ------ | ------------ |
+| `-t my-app:1.0` | Name and tag the resulting image |
+| `.` | Build context — the folder Docker packages and sends to the daemon |
+| `-f Dockerfile.prod` | Use a differently named Dockerfile |
+| `--no-cache` | Ignore all cached layers and rebuild from scratch |
+| `--build-arg KEY=val` | Pass a value for an `ARG` declared in the Dockerfile |
 
 Verify the image appeared locally:
 
@@ -1103,12 +1080,12 @@ A **tag** is just a pointer — a human-readable label attached to an image ID. 
 [registry/][username/]repository:tag
 ```
 
-| Part         | Example                                                | Default if omitted |
-| ------------ | ------------------------------------------------------ | ------------------ |
-| `registry`   | `ghcr.io`, `123456789.dkr.ecr.us-east-1.amazonaws.com` | Docker Hub         |
-| `username`   | `tahshinsharon`                                        | —                  |
-| `repository` | `my-app`                                               | —                  |
-| `tag`        | `1.0`, `stable`, `latest`                              | `latest`           |
+| Part | Example | Default if omitted |
+| ---- | ------- | ------------------ |
+| `registry` | `ghcr.io`, `123456789.dkr.ecr.us-east-1.amazonaws.com` | Docker Hub |
+| `username` | `tahshinsharon` | — |
+| `repository` | `my-app` | — |
+| `tag` | `1.0`, `stable`, `latest` | `latest` |
 
 #### Syntax
 
@@ -1230,12 +1207,12 @@ docker image rm -f my-app:1.0
 
 #### Bulk cleanup
 
-| Command                                      | What it removes                                         |
-| -------------------------------------------- | ------------------------------------------------------- |
-| `docker image prune`                         | Dangling images only (`<none>:<none>`)                  |
-| `docker image prune -a`                      | Every image not used by at least one container          |
-| `docker image prune -a --filter "until=24h"` | Unused images older than 24 hours                       |
-| `docker system prune -a --volumes`           | Images + stopped containers + unused networks + volumes |
+| Command | What it removes |
+| ------- | --------------- |
+| `docker image prune` | Dangling images only (`<none>:<none>`) |
+| `docker image prune -a` | Every image not used by at least one container |
+| `docker image prune -a --filter "until=24h"` | Unused images older than 24 hours |
+| `docker system prune -a --volumes` | Images + stopped containers + unused networks + volumes |
 
 ```bash
 # Dry-run style: see what prune would delete before committing
@@ -1272,14 +1249,14 @@ Each layer stores only the **diff** — files that were added, changed, or delet
 
 When Docker starts a container from an image, it adds a thin **writable layer** on top of the read-only image stack using a copy-on-write (CoW) strategy.
 
-| Layer type      | Read/Write | Persists after container stops? |
-| --------------- | ---------- | ------------------------------- |
-| Image layers    | Read-only  | Yes — unchanged, shared         |
+| Layer type | Read/Write | Persists after container stops? |
+| ---------- | ---------- | ------------------------------- |
+| Image layers | Read-only | Yes — unchanged, shared |
 | Container layer | Read-write | No — deleted with the container |
 
 - Reading a file: served directly from whichever image layer owns it — zero copying.
 - Writing or modifying a file: Docker copies it up to the writable container layer first, then applies the modification. The image layer is untouched.
-- Deleting a file: a _whiteout_ entry is written to the container layer, masking the file from lower layers.
+- Deleting a file: a *whiteout* entry is written to the container layer, masking the file from lower layers.
 
 This is why a large image does not make each container large — many containers can share the same read-only image layers simultaneously.
 
@@ -1354,12 +1331,12 @@ docker build --no-cache -t my-app:1.0 .
 
 #### Practical implications
 
-| Goal              | What to do                                                                                    |
-| ----------------- | --------------------------------------------------------------------------------------------- |
-| Smaller images    | Chain related `RUN` commands with `&&` — one layer instead of many                            |
-| Faster builds     | Put rarely-changing instructions (install deps) before frequently-changing ones (copy source) |
-| Smaller images    | Use a `.dockerignore` file to exclude large or secret files from the build context            |
-| Production safety | Avoid writing secrets in `RUN` layers — they persist in the layer even if deleted later       |
+| Goal | What to do |
+| ---- | ---------- |
+| Smaller images | Chain related `RUN` commands with `&&` — one layer instead of many |
+| Faster builds | Put rarely-changing instructions (install deps) before frequently-changing ones (copy source) |
+| Smaller images | Use a `.dockerignore` file to exclude large or secret files from the build context |
+| Production safety | Avoid writing secrets in `RUN` layers — they persist in the layer even if deleted later |
 
 ### How to Build NGINX from Source
 
@@ -1403,13 +1380,13 @@ CMD ["nginx", "-g", "daemon off;"]
 
 **What `./configure` flags do:**
 
-| Flag                                   | Purpose                                         |
-| -------------------------------------- | ----------------------------------------------- |
-| `--sbin-path`                          | Where the compiled `nginx` binary lands         |
-| `--conf-path`                          | Path to the main configuration file             |
-| `--error-log-path` / `--http-log-path` | Log file locations                              |
-| `--pid-path`                           | Where NGINX writes its process ID               |
-| `--with-http_ssl_module`               | Enable TLS support (not compiled in by default) |
+| Flag | Purpose |
+| ---- | ------- |
+| `--sbin-path` | Where the compiled `nginx` binary lands |
+| `--conf-path` | Path to the main configuration file |
+| `--error-log-path` / `--http-log-path` | Log file locations |
+| `--pid-path` | Where NGINX writes its process ID |
+| `--with-http_ssl_module` | Enable TLS support (not compiled in by default) |
 
 #### Build and run
 
@@ -1443,14 +1420,14 @@ docker exec web nginx -v
 
 The base image is the floor — everything else stacks on top. Switching from a general-purpose OS to a purpose-built variant can cut hundreds of megabytes instantly.
 
-| Base image             | Approximate size | When to use                                         |
-| ---------------------- | ---------------- | --------------------------------------------------- |
-| `ubuntu:22.04`         | ~80 MB           | Familiarity, apt packages                           |
-| `debian:bookworm-slim` | ~75 MB           | Debian ecosystem, smaller than ubuntu               |
-| `node:20-alpine`       | ~50 MB           | Alpine-based runtimes — most common choice          |
-| `node:20-slim`         | ~80 MB           | Debian-slim, if Alpine causes compat issues         |
-| `distroless/nodejs20`  | ~50 MB           | No shell, no package manager — production hardening |
-| `scratch`              | 0 MB             | Statically compiled binaries only (Go, Rust)        |
+| Base image | Approximate size | When to use |
+| ---------- | ---------------- | ----------- |
+| `ubuntu:22.04` | ~80 MB | Familiarity, apt packages |
+| `debian:bookworm-slim` | ~75 MB | Debian ecosystem, smaller than ubuntu |
+| `node:20-alpine` | ~50 MB | Alpine-based runtimes — most common choice |
+| `node:20-slim` | ~80 MB | Debian-slim, if Alpine causes compat issues |
+| `distroless/nodejs20` | ~50 MB | No shell, no package manager — production hardening |
+| `scratch` | 0 MB | Statically compiled binaries only (Go, Rust) |
 
 ```dockerfile
 # Before — full Ubuntu base
@@ -1544,15 +1521,15 @@ Every file matched here is excluded from the context — it can never be `COPY`'
 
 #### Quick-reference optimization checklist
 
-| Technique                                      | Impact                                           |
-| ---------------------------------------------- | ------------------------------------------------ |
-| Switch to Alpine or slim base                  | Large size reduction                             |
-| Multi-stage build                              | Eliminates build tools and dev deps              |
-| Chain `RUN` with `&&` + cleanup in same layer  | Removes layer bloat from installs                |
-| `--no-install-recommends` on `apt-get install` | Skips optional packages                          |
-| Order: stable deps → volatile source           | Keeps cache warm on rebuilds                     |
-| `.dockerignore`                                | Shrinks build context; prevents accidental leaks |
-| Pin exact image tags                           | Reproducible builds                              |
+| Technique | Impact |
+| --------- | ------ |
+| Switch to Alpine or slim base | Large size reduction |
+| Multi-stage build | Eliminates build tools and dev deps |
+| Chain `RUN` with `&&` + cleanup in same layer | Removes layer bloat from installs |
+| `--no-install-recommends` on `apt-get install` | Skips optional packages |
+| Order: stable deps → volatile source | Keeps cache warm on rebuilds |
+| `.dockerignore` | Shrinks build context; prevents accidental leaks |
+| Pin exact image tags | Reproducible builds |
 
 ```bash
 # See where the size is coming from
@@ -1575,13 +1552,13 @@ docker image ls my-app
 
 #### What makes Alpine different
 
-| Aspect             | Alpine             | Debian / Ubuntu    |
-| ------------------ | ------------------ | ------------------ |
-| C library          | musl libc          | glibc              |
-| Shell              | `sh` (BusyBox ash) | `bash`             |
-| Package manager    | `apk`              | `apt-get`          |
-| Base image size    | ~7 MB              | ~75–80 MB          |
-| Default user tools | Minimal (BusyBox)  | Full GNU coreutils |
+| Aspect | Alpine | Debian / Ubuntu |
+| ------ | ------ | --------------- |
+| C library | musl libc | glibc |
+| Shell | `sh` (BusyBox ash) | `bash` |
+| Package manager | `apk` | `apt-get` |
+| Base image size | ~7 MB | ~75–80 MB |
+| Default user tools | Minimal (BusyBox) | Full GNU coreutils |
 
 #### Using Alpine as a base
 
@@ -1598,14 +1575,14 @@ The `--no-cache` flag tells `apk` not to store the index locally — you get the
 
 #### Common `apk` commands
 
-| Command                                           | What it does                                     |
-| ------------------------------------------------- | ------------------------------------------------ |
-| `apk add --no-cache <pkg>`                        | Install a package without caching the index      |
-| `apk add --no-cache --virtual .build-deps <pkgs>` | Install packages under a named group             |
-| `apk del .build-deps`                             | Remove every package in that named group at once |
-| `apk update && apk upgrade`                       | Refresh index and upgrade installed packages     |
-| `apk search <term>`                               | Search the package index                         |
-| `apk info <pkg>`                                  | Show details about an installed package          |
+| Command | What it does |
+| ------- | ------------ |
+| `apk add --no-cache <pkg>` | Install a package without caching the index |
+| `apk add --no-cache --virtual .build-deps <pkgs>` | Install packages under a named group |
+| `apk del .build-deps` | Remove every package in that named group at once |
+| `apk update && apk upgrade` | Refresh index and upgrade installed packages |
+| `apk search <term>` | Search the package index |
+| `apk info <pkg>` | Show details about an installed package |
 
 #### The virtual package pattern
 
@@ -1775,10 +1752,10 @@ docker run --rm -v $(pwd)/data:/app/data report-tool:1.0 --input data/sales.csv
 
 Always prefer the **exec form** (`["binary", "arg"]`) for `ENTRYPOINT`. The shell form wraps the command in `sh -c`, which means signals like `SIGTERM` never reach your process — the shell absorbs them and the container hangs on `docker stop`.
 
-| Form             | Syntax                         | Signal handling                                 |
-| ---------------- | ------------------------------ | ----------------------------------------------- |
+| Form | Syntax | Signal handling |
+| ---- | ------ | --------------- |
 | Exec (preferred) | `ENTRYPOINT ["binary", "arg"]` | PID 1 = your binary, signals delivered directly |
-| Shell (avoid)    | `ENTRYPOINT binary arg`        | PID 1 = `sh`, signals swallowed                 |
+| Shell (avoid) | `ENTRYPOINT binary arg` | PID 1 = `sh`, signals swallowed |
 
 #### Discover what an image's entrypoint is
 
@@ -1805,13 +1782,13 @@ docker inspect --format 'ENTRYPOINT={{.Config.Entrypoint}} CMD={{.Config.Cmd}}' 
 
 #### Registries at a glance
 
-| Registry                         | Host prefix                                | Free tier                        |
-| -------------------------------- | ------------------------------------------ | -------------------------------- |
-| Docker Hub                       | _(none — default)_                         | 1 private repo, unlimited public |
-| GitHub Container Registry (GHCR) | `ghcr.io`                                  | Free for public repos            |
-| Amazon ECR                       | `<account>.dkr.ecr.<region>.amazonaws.com` | 500 MB free tier                 |
-| Google Artifact Registry         | `<region>-docker.pkg.dev/<project>/<repo>` | 0.5 GB free                      |
-| Self-hosted (Harbor, Gitea)      | your own domain                            | Unlimited                        |
+| Registry | Host prefix | Free tier |
+| -------- | ----------- | --------- |
+| Docker Hub | *(none — default)* | 1 private repo, unlimited public |
+| GitHub Container Registry (GHCR) | `ghcr.io` | Free for public repos |
+| Amazon ECR | `<account>.dkr.ecr.<region>.amazonaws.com` | 500 MB free tier |
+| Google Artifact Registry | `<region>-docker.pkg.dev/<project>/<repo>` | 0.5 GB free |
+| Self-hosted (Harbor, Gitea) | your own domain | Unlimited |
 
 #### Step 1 — Log in
 
@@ -1921,16 +1898,16 @@ Containerizing a JavaScript application means packaging it — along with its No
 
 ### One Shot Revision
 
-| Step | Action                                          | Key detail                                                                               |
-| ---- | ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| 1    | Use `Dockerfile.dev` (not `Dockerfile`)         | Pass `--file Dockerfile.dev` to `docker build`                                           |
-| 2    | Run as non-root                                 | `USER node` — the official `node` image ships a built-in non-root user                   |
-| 3    | Copy `package.json` first                       | Keeps `npm install` layer cached until deps change                                       |
-| 4    | Start the dev server                            | `CMD ["npm", "run", "dev"]`                                                              |
-| 5    | Enable hot reload with a bind mount             | `--volume $(pwd):/home/node/app` syncs local source into the container                   |
-| 6    | Protect `node_modules` with an anonymous volume | `--volume /home/node/app/node_modules` prevents the bind mount from overwriting it       |
-| 7    | Build for production with multi-stage builds    | Stage 1: `node` builds the app; Stage 2: `nginx` serves the static output                |
-| 8    | Exclude unnecessary files                       | `.dockerignore` prevents `.git`, `node_modules`, secrets from entering the build context |
+| Step | Action | Key detail |
+| ---- | ------ | ---------- |
+| 1 | Use `Dockerfile.dev` (not `Dockerfile`) | Pass `--file Dockerfile.dev` to `docker build` |
+| 2 | Run as non-root | `USER node` — the official `node` image ships a built-in non-root user |
+| 3 | Copy `package.json` first | Keeps `npm install` layer cached until deps change |
+| 4 | Start the dev server | `CMD ["npm", "run", "dev"]` |
+| 5 | Enable hot reload with a bind mount | `--volume $(pwd):/home/node/app` syncs local source into the container |
+| 6 | Protect `node_modules` with an anonymous volume | `--volume /home/node/app/node_modules` prevents the bind mount from overwriting it |
+| 7 | Build for production with multi-stage builds | Stage 1: `node` builds the app; Stage 2: `nginx` serves the static output |
+| 8 | Exclude unnecessary files | `.dockerignore` prevents `.git`, `node_modules`, secrets from entering the build context |
 
 ### How to Write the Development Dockerfile
 
@@ -1968,17 +1945,17 @@ CMD [ "npm", "run", "dev" ]
 
 **Why each instruction is here:**
 
-| Instruction                   | Reason                                                           |
-| ----------------------------- | ---------------------------------------------------------------- |
-| `FROM node:lts-alpine`        | Smallest official Node.js image with long-term support           |
-| `USER node`                   | Runs as non-root — the `node` image ships a built-in `node` user |
-| `RUN mkdir -p /home/node/app` | Creates the app directory under the node user's home             |
-| `WORKDIR /home/node/app`      | All subsequent `COPY`, `RUN`, and `CMD` resolve relative to here |
-| `COPY ./package.json .`       | Copied alone so `npm install` is cached until deps change        |
-| `RUN npm install`             | Installs dependencies at build time                              |
-| `COPY . .`                    | Copies the rest of the source after the cached layer             |
-| `CMD ["npm", "run", "dev"]`   | Starts the dev server when the container launches                |
-| `EXPOSE 3000`                 | Documents that the dev server listens on port 3000               |
+| Instruction | Reason |
+| ----------- | ------ |
+| `FROM node:lts-alpine` | Smallest official Node.js image with long-term support |
+| `USER node` | Runs as non-root — the `node` image ships a built-in `node` user |
+| `RUN mkdir -p /home/node/app` | Creates the app directory under the node user's home |
+| `WORKDIR /home/node/app` | All subsequent `COPY`, `RUN`, and `CMD` resolve relative to here |
+| `COPY ./package.json .` | Copied alone so `npm install` is cached until deps change |
+| `RUN npm install` | Installs dependencies at build time |
+| `COPY . .` | Copies the rest of the source after the cached layer |
+| `CMD ["npm", "run", "dev"]` | Starts the dev server when the container launches |
+| `EXPOSE 3000` | Documents that the dev server listens on port 3000 |
 
 Because the filename is `Dockerfile.dev` (not the default `Dockerfile`), pass it explicitly with `--file`:
 
@@ -2110,13 +2087,13 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 
 **How it works:**
 
-| Line                              | What it does                                                |
-| --------------------------------- | ----------------------------------------------------------- |
+| Line | What it does |
+| ---- | ------------ |
 | `FROM node:lts-alpine as builder` | Names the first stage `builder` so Stage 2 can reference it |
-| `RUN npm run build`               | Compiles the app; output lands in `/app/dist`               |
-| `FROM nginx:stable-alpine`        | Starts a fresh, tiny nginx image — no Node runtime included |
-| `COPY --from=builder /app/dist …` | Pulls only the compiled files from the `builder` stage      |
-| `EXPOSE 80`                       | nginx listens on port 80 by default                         |
+| `RUN npm run build` | Compiles the app; output lands in `/app/dist` |
+| `FROM nginx:stable-alpine` | Starts a fresh, tiny nginx image — no Node runtime included |
+| `COPY --from=builder /app/dist …` | Pulls only the compiled files from the `builder` stage |
+| `EXPOSE 80` | nginx listens on port 80 by default |
 
 **Build and run:**
 
@@ -2150,12 +2127,12 @@ node_modules
 
 **What each entry does:**
 
-| Entry              | Why exclude it                                                          |
-| ------------------ | ----------------------------------------------------------------------- |
-| `.git`             | Git history is irrelevant inside the image and adds significant size    |
-| `*Dockerfile*`     | The build recipe itself doesn't belong in the image                     |
-| `*docker-compose*` | Compose files are orchestration config, not app code                    |
-| `node_modules`     | Dependencies are installed fresh during the build via `RUN npm install` |
+| Entry | Why exclude it |
+| ----- | -------------- |
+| `.git` | Git history is irrelevant inside the image and adds significant size |
+| `*Dockerfile*` | The build recipe itself doesn't belong in the image |
+| `*docker-compose*` | Compose files are orchestration config, not app code |
+| `node_modules` | Dependencies are installed fresh during the build via `RUN npm install` |
 
 **Two important rules:**
 
@@ -2170,18 +2147,18 @@ Containers talk to each other over Docker-managed networks. Docker creates a def
 
 ### One Shot Revision
 
-| Concept / Command                             | What it does                                                                          |
-| --------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Default `bridge` network                      | Every container joins this automatically; containers reach each other by IP only      |
-| User-defined bridge network                   | Containers on the same network reach each other by **container name** (automatic DNS) |
-| `docker network create <name>`                | Create a user-defined bridge network                                                  |
-| `docker network ls`                           | List all networks on the host                                                         |
-| `docker network inspect <name>`               | Show connected containers and network config                                          |
-| `docker network connect <net> <container>`    | Attach a running container to a network                                               |
-| `docker network disconnect <net> <container>` | Detach a running container from a network                                             |
-| `docker network rm <name>`                    | Remove a network                                                                      |
-| `docker network prune`                        | Remove all unused networks                                                            |
-| `-p host:container`                           | Publish a container port to the host (port mapping)                                   |
+| Concept / Command | What it does |
+| ----------------- | ------------ |
+| Default `bridge` network | Every container joins this automatically; containers reach each other by IP only |
+| User-defined bridge network | Containers on the same network reach each other by **container name** (automatic DNS) |
+| `docker network create <name>` | Create a user-defined bridge network |
+| `docker network ls` | List all networks on the host |
+| `docker network inspect <name>` | Show connected containers and network config |
+| `docker network connect <net> <container>` | Attach a running container to a network |
+| `docker network disconnect <net> <container>` | Detach a running container from a network |
+| `docker network rm <name>` | Remove a network |
+| `docker network prune` | Remove all unused networks |
+| `-p host:container` | Publish a container port to the host (port mapping) |
 
 ### Docker Network Basics
 
@@ -2228,13 +2205,13 @@ docker run -d -p 8080:3000 my-app:1.0
 
 ### Network Types
 
-| Driver    | When to use                                                       |
-| --------- | ----------------------------------------------------------------- |
-| `bridge`  | Default. Best for single-host apps with multiple containers.      |
-| `host`    | Share the host's network stack directly. No isolation, max speed. |
-| `none`    | No network at all. Total isolation.                               |
-| `overlay` | Multi-host networking for Docker Swarm / clusters.                |
-| `macvlan` | Give a container its own MAC address on the physical LAN.         |
+| Driver    | When to use                                                        |
+| --------- | ------------------------------------------------------------------ |
+| `bridge`  | Default. Best for single-host apps with multiple containers.       |
+| `host`    | Share the host's network stack directly. No isolation, max speed.  |
+| `none`    | No network at all. Total isolation.                                |
+| `overlay` | Multi-host networking for Docker Swarm / clusters.                 |
+| `macvlan` | Give a container its own MAC address on the physical LAN.          |
 
 ### `docker network` Commands
 
@@ -2280,10 +2257,10 @@ The default `bridge` network lets containers communicate only by IP address. If 
 
 **Advantages of a user-defined bridge over the default bridge:**
 
-| Feature                  | Default bridge               | User-defined bridge                    |
-| ------------------------ | ---------------------------- | -------------------------------------- |
-| Container name DNS       | No — IP only                 | Yes — automatic                        |
-| Isolation                | All containers share it      | Only containers you attach             |
+| Feature | Default bridge | User-defined bridge |
+| ------- | -------------- | ------------------- |
+| Container name DNS | No — IP only | Yes — automatic |
+| Isolation | All containers share it | Only containers you attach |
 | Attach/detach on the fly | No — must recreate container | Yes — `network connect` / `disconnect` |
 
 **Step 1 — Create the network:**
@@ -2468,7 +2445,7 @@ A network is considered unused if no running container is currently connected to
 
 ## How to Containerize a Multi-Container JavaScript Application
 
-A real-world application almost always needs more than one service — an API, a database, a cache. This section walks through containerizing `notes-api`, a Node.js REST API backed by a PostgreSQL database, using only `docker run`, named volumes, and user-defined networks. Doing it manually first makes clear exactly what Docker Compose automates in the next section.
+A real-world application almost always needs more than one service — an API, a database, a cache. This section walks through containerizing `notes-api`, a Node.js REST API backed by a PostgreSQL database, using only `docker run`, named volumes, and user-defined networks. Doing it manually first makes clear the full mechanics behind multi-container orchestration.
 
 **The stack:**
 
@@ -2477,14 +2454,15 @@ A real-world application almost always needs more than one service — an API, a
 
 ### One Shot Revision
 
-| Step | What you do                                | Key command / concept                                                                       |
-| ---- | ------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| 1    | Run the database server                    | `docker container run --detach --name notes-db postgres:12`                                 |
-| 2    | Persist data with a named volume           | `docker volume create notes-db-data` then `--volume notes-db-data:/var/lib/postgresql/data` |
-| 3    | Check the database started correctly       | `docker container logs notes-db`                                                            |
-| 4    | Create a network and attach the database   | `docker network create notes-api-network`                                                   |
-| 5    | Write a multi-stage Dockerfile for the API | Stage 1: build deps; Stage 2: minimal runtime image                                         |
-| 6    | Write management scripts                   | Shell scripts that automate the full start/stop lifecycle                                   |
+| Step | What you do | Key command / concept |
+| ---- | ----------- | --------------------- |
+| 1 | Run the database server | `docker container run --detach --name notes-db postgres:12` |
+| 2 | Persist data with a named volume | `docker volume create notes-db-data` then `--volume notes-db-data:/var/lib/postgresql/data` |
+| 3 | Check the database started correctly | `docker container logs notes-db` |
+| 4 | Create a network and attach the database | `docker network create notes-api-network` |
+| 5 | Write a multi-stage Dockerfile for the API | Stage 1: build deps; Stage 2: minimal runtime image |
+| 6 | Run migrations inside the container | `docker container exec notes-api npm run db:migrate` |
+| 7 | Write management scripts | Shell scripts that automate the full start/stop lifecycle |
 
 ### How to Run the Database Server
 
@@ -2503,13 +2481,13 @@ docker container run \
 
 **What each flag does:**
 
-| Flag                             | Purpose                                           |
-| -------------------------------- | ------------------------------------------------- |
-| `--detach`                       | Run in the background                             |
-| `--name=notes-db`                | Give it a stable name so the API can reference it |
-| `--env POSTGRES_DB=notesdb`      | Create a database called `notesdb` on startup     |
-| `--env POSTGRES_PASSWORD=secret` | Set the password for the `postgres` superuser     |
-| `postgres:12`                    | Use the official PostgreSQL 12 image              |
+| Flag | Purpose |
+| ---- | ------- |
+| `--detach` | Run in the background |
+| `--name=notes-db` | Give it a stable name so the API can reference it |
+| `--env POSTGRES_DB=notesdb` | Create a database called `notesdb` on startup |
+| `--env POSTGRES_PASSWORD=secret` | Set the password for the `postgres` superuser |
+| `postgres:12` | Use the official PostgreSQL 12 image |
 
 **Verify it's running:**
 
@@ -2548,12 +2526,12 @@ docker volume prune
 
 **Named vs anonymous volumes:**
 
-| Aspect      | Named volume                | Anonymous volume                                |
-| ----------- | --------------------------- | ----------------------------------------------- |
-| Name        | You choose it               | Docker assigns a random hash                    |
-| Reuse       | Easy — reference by name    | Hard — must look up the hash                    |
-| Persistence | Survives `docker rm`        | Removed when container is removed (with `--rm`) |
-| Use case    | Databases, persistent state | Protecting a path from a bind mount             |
+| Aspect | Named volume | Anonymous volume |
+| ------ | ------------ | ---------------- |
+| Name | You choose it | Docker assigns a random hash |
+| Reuse | Easy — reference by name | Hard — must look up the hash |
+| Persistence | Survives `docker rm` | Removed when container is removed (with `--rm`) |
+| Use case | Databases, persistent state | Protecting a path from a bind mount |
 
 **Start the database with a named volume:**
 
@@ -2585,12 +2563,12 @@ docker container logs [options] <container>
 
 **Common options:**
 
-| Option                | Description                                                                |
-| --------------------- | -------------------------------------------------------------------------- |
-| `--follow` / `-f`     | Stream live output (Ctrl-C to stop)                                        |
-| `--tail <n>`          | Show only the last n lines                                                 |
-| `--timestamps` / `-t` | Prefix each line with a timestamp                                          |
-| `--since <time>`      | Show logs since a timestamp or relative duration (e.g. `1h`, `2023-01-01`) |
+| Option | Description |
+| ------ | ----------- |
+| `--follow` / `-f` | Stream live output (Ctrl-C to stop) |
+| `--tail <n>` | Show only the last n lines |
+| `--timestamps` / `-t` | Prefix each line with a timestamp |
+| `--since <time>` | Show logs since a timestamp or relative duration (e.g. `1h`, `2023-01-01`) |
 
 **Examples:**
 
@@ -2699,17 +2677,17 @@ CMD [ "node", "bin/www" ]
 
 **What each instruction does:**
 
-| Instruction                                             | Reason                                                                     |
-| ------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `FROM node:lts-alpine as builder`                       | Names the first stage so Stage 2 can reference it                          |
-| `RUN apk add --no-cache python make g++`                | Adds native-module build tools (Alpine uses `apk`)                         |
+| Instruction | Reason |
+| ----------- | ------ |
+| `FROM node:lts-alpine as builder` | Names the first stage so Stage 2 can reference it |
+| `RUN apk add --no-cache python make g++` | Adds native-module build tools (Alpine uses `apk`) |
 | `COPY ./package.json .` + `RUN npm install --only=prod` | Installs only production dependencies, cached until `package.json` changes |
-| `FROM node:lts-alpine` (Stage 2)                        | Starts a clean, minimal image — no build tools included                    |
-| `ENV NODE_ENV=production`                               | Tells Express and most Node libraries to use production mode               |
-| `USER node`                                             | Drops root privileges; the `node` image ships a built-in `node` user       |
-| `COPY --from=builder /app/node_modules …`               | Pulls only the compiled `node_modules` from Stage 1                        |
-| `COPY --chown=node:node . .`                            | Copies the rest of the source with ownership set to `node`                 |
-| `CMD ["node", "bin/www"]`                               | Starts the API server                                                      |
+| `FROM node:lts-alpine` (Stage 2) | Starts a clean, minimal image — no build tools included |
+| `ENV NODE_ENV=production` | Tells Express and most Node libraries to use production mode |
+| `USER node` | Drops root privileges; the `node` image ships a built-in `node` user |
+| `COPY --from=builder /app/node_modules …` | Pulls only the compiled `node_modules` from Stage 1 |
+| `COPY --chown=node:node . .` | Copies the rest of the source with ownership set to `node` |
+| `CMD ["node", "bin/www"]` | Starts the API server |
 
 **Build and run the API container:**
 
@@ -2730,6 +2708,63 @@ docker container run \
 ```
 
 The `DB_HOST=notes-db` environment variable points the API at the database container by name. Because both containers are on `notes-api-network`, Docker resolves `notes-db` to the correct IP automatically.
+
+### How to Execute Commands in a Running Container
+
+After starting the API, the database schema needs to be set up. `docker container exec` runs an arbitrary command inside a running container without interrupting the main process.
+
+**Syntax:**
+
+```bash
+docker container exec [options] <container> <command> [args]
+```
+
+**Common options:**
+
+| Option | Description |
+| ------ | ----------- |
+| `-it` | Interactive + TTY — opens a shell session |
+| `-e KEY=VALUE` | Pass an extra environment variable for this command only |
+| `-u <user>` | Run as a specific user |
+| `-w <dir>` | Set the working directory |
+
+**Run database migrations:**
+
+```bash
+docker container exec notes-api npm run db:migrate
+
+# Expected output:
+# > notes-api@ db:migrate /home/node/app
+# > knex migrate:latest
+#
+# Using environment: production
+# Batch 1 run: 4 migrations
+```
+
+**Open an interactive shell:**
+
+```bash
+docker container exec -it notes-api sh
+
+# Once inside, you can inspect the filesystem, run commands, or debug:
+/home/node/app $ ls
+/home/node/app $ cat .env
+/home/node/app $ exit
+```
+
+**Seed the database:**
+
+```bash
+docker container exec notes-api npm run db:seed
+```
+
+**Key difference from `docker container run`:**
+
+| | `docker container run` | `docker container exec` |
+| - | ---------------------- | ----------------------- |
+| Target | Creates a **new** container | Runs inside an **existing** container |
+| Effect on main process | None (separate container) | None (main process keeps running) |
+| Use case | One-off jobs, debug shells | Migrations, seeds, admin tasks |
 
 ### How to Write Management Scripts in Docker
 
@@ -2833,762 +2868,11 @@ chmod +x shell/boot.sh shell/stop.sh shell/nuke.sh
 ./shell/nuke.sh
 ```
 
-**Why write scripts instead of jumping straight to Docker Compose?**
-
-Writing the shell scripts manually first teaches you exactly what Compose does for you — networks, volumes, container ordering, env vars. Once you've done it by hand, the `compose.yaml` format makes intuitive sense.
-
----
-
-<<<<<<< HEAD
-## Docker Networking
-
-Containers talk to each other over Docker-managed networks. Docker creates a default network for you, but user-defined networks are usually a better choice.
-
-### One Shot Revision
-
-| Concept / Command                             | What it does                                                                          |
-| --------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Default `bridge` network                      | Every container joins this automatically; containers reach each other by IP only      |
-| User-defined bridge network                   | Containers on the same network reach each other by **container name** (automatic DNS) |
-| `docker network create <name>`                | Create a user-defined bridge network                                                  |
-| `docker network ls`                           | List all networks on the host                                                         |
-| `docker network inspect <name>`               | Show connected containers and network config                                          |
-| `docker network connect <net> <container>`    | Attach a running container to a network                                               |
-| `docker network disconnect <net> <container>` | Detach a running container from a network                                             |
-| `docker network rm <name>`                    | Remove a network                                                                      |
-| `docker network prune`                        | Remove all unused networks                                                            |
-| `-p host:container`                           | Publish a container port to the host (port mapping)                                   |
-| `docker container exec <container> <cmd>`     | Run a command inside a running container                                              |
-| `docker container exec -it <container> sh`    | Open an interactive shell in a running container                                      |
-
-### Docker Network Basics
-
-Every container gets its own isolated **network namespace** — its own network interfaces, routing table, and DNS. Containers can't reach each other by default unless they share a network.
-
-**How the default bridge network works:**
-
-When you start a container without specifying a network, Docker attaches it to a built-in network called `bridge`. Containers on this network can communicate with each other, but only by **IP address** — hostnames don't resolve. That makes the default bridge fragile; if a container restarts, its IP can change.
-
-```bash
-# Both containers are on the default bridge, but can only reach each other by IP
-docker run -d --name db postgres:16-alpine
-docker run -d --name web my-app:1.0
-```
-
-**Why user-defined networks are better:**
-
-When you create your own network with `docker network create`, Docker sets up **automatic DNS** for every container on that network. Containers can reach each other by container name — no IP tracking needed.
-
-```bash
-docker network create app-net
-
-docker run -d --name db --network app-net postgres:16-alpine
-docker run -d --name web --network app-net my-app:1.0
-
-# Inside "web", "db" resolves to the database container's IP automatically
-```
-
-**Port publishing:**
-
-By default, a container's ports are not reachable from outside. Use `-p` to map a host port to a container port:
-
-```bash
-docker run -d -p 8080:3000 my-app:1.0
-# host:8080 → container:3000
-```
-
-**Key rules to remember:**
-
-- Containers on the **same user-defined network** talk to each other freely by name.
-- Containers on **different networks** are isolated from each other.
-- Use `-p` to expose a container port to the host (and therefore the outside world).
-- The default `bridge` network is for quick testing only — always use user-defined networks in real projects.
-
-### Network Types
-
-| Driver    | When to use                                                       |
-| --------- | ----------------------------------------------------------------- |
-| `bridge`  | Default. Best for single-host apps with multiple containers.      |
-| `host`    | Share the host's network stack directly. No isolation, max speed. |
-| `none`    | No network at all. Total isolation.                               |
-| `overlay` | Multi-host networking for Docker Swarm / clusters.                |
-| `macvlan` | Give a container its own MAC address on the physical LAN.         |
-
-### `docker network` Commands
-
-```bash
-# Create a user-defined bridge network
-docker network create app-net
-
-# Attach a container at run time
-docker run -d --name db --network app-net postgres:16-alpine
-
-# Attach / detach an already-running container
-docker network connect app-net web
-docker network disconnect app-net web
-
-# Inspect what's on a network
-docker network inspect app-net
-
-# List and clean up
-docker network ls
-docker network rm app-net
-docker network prune
-```
-
-### Container-to-Container Communication
-
-The best reason to use a **user-defined bridge network**: containers on the same user-defined network can reach each other by **container name** via automatic DNS.
-
-```bash
-docker network create app-net
-
-docker run -d --name db --network app-net -e POSTGRES_PASSWORD=secret postgres:16-alpine
-docker run -d --name web --network app-net -p 3000:3000 my-app:1.0
-
-# Inside "web", the database is reachable at hostname "db" on port 5432
-# Connection string: postgres://postgres:secret@db:5432/postgres
-```
-
-On the **default** bridge network, containers can only reach each other by IP — which is fragile and painful.
-
-### How to Create a User-Defined Bridge in Docker
-
-The default `bridge` network lets containers communicate only by IP address. If a container restarts its IP can change, making references fragile. A **user-defined bridge** solves this with automatic DNS — containers reach each other by name.
-
-**Advantages of a user-defined bridge over the default bridge:**
-
-| Feature                  | Default bridge               | User-defined bridge                    |
-| ------------------------ | ---------------------------- | -------------------------------------- |
-| Container name DNS       | No — IP only                 | Yes — automatic                        |
-| Isolation                | All containers share it      | Only containers you attach             |
-| Attach/detach on the fly | No — must recreate container | Yes — `network connect` / `disconnect` |
-
-**Step 1 — Create the network:**
-
-```bash
-docker network create skynet
-
-# 7bd5f351aa892ac6ec15fed8619fc3bbb95a7dcdd58980c28304627c8f7eb070
-
-docker network ls
-# NETWORK ID     NAME     DRIVER    SCOPE
-# be0cab667c4b   bridge   bridge    local
-# 124dccee067f   host     host      local
-# 506e3822bf1f   none     null      local
-# 7bd5f351aa89   skynet   bridge    local
-```
-
-**Step 2 — Attach containers at run time using `--network`:**
-
-```bash
-docker container run --network skynet --rm --name hello-dock --detach --publish 8080:80 fhsinchy/hello-dock
-```
-
-**Step 3 — Attach an already-running container using `network connect`:**
-
-```bash
-# Generic syntax
-docker network connect <network> <container>
-
-# Example
-docker network connect skynet hello-dock
-```
-
-A container can be on multiple networks at the same time. `network inspect` shows which containers are attached:
-
-```bash
-docker network inspect --format='{{range .Containers}} {{.Name}} {{end}}' skynet
-#  hello-dock
-```
-
-**Step 4 — Verify automatic DNS:**
-
-Spin up a second container on the same network and ping the first by name:
-
-```bash
-docker container run --network skynet --rm --name alpine-box -it alpine sh
-
-/ # ping hello-dock
-# PING hello-dock (172.18.0.2): 56 data bytes
-# 64 bytes from 172.18.0.2: seq=0 ttl=64 time=0.191 ms
-# 64 bytes from 172.18.0.2: seq=1 ttl=64 time=0.103 ms
-```
-
-Containers on the same user-defined bridge resolve each other by container name automatically. This only works when you give containers explicit names with `--name` — randomly generated names don't participate in DNS.
-
-**Step 5 — Detach a container from the network:**
-
-```bash
-# Generic syntax
-docker network disconnect <network> <container>
-
-# Example
-docker network disconnect skynet hello-dock
-```
-
-**Step 6 — Remove the network:**
-
-```bash
-docker network rm skynet
-
-# Remove all unused networks at once
-docker network prune
-```
-
-### How to Attach a Container to a Network in Docker
-
-There are two ways to attach a container to a network.
-
-**Method 1 — `--network` flag at run time:**
-
-Pass `--network <network>` to `docker container run` or `docker container create`. The container joins the network from the moment it starts.
-
-```bash
-docker container run \
-    --network skynet \
-    --rm \
-    --detach \
-    --name hello-dock \
-    --publish 8080:80 \
-    fhsinchy/hello-dock
-```
-
-**Method 2 — `docker network connect` for a running container:**
-
-Use this when a container is already running and you want to add it to another network without restarting it.
-
-```bash
-# Generic syntax
-docker network connect <network> <container>
-
-# Example
-docker network connect skynet hello-dock
-```
-
-A container can belong to multiple networks simultaneously. Verify by inspecting each network:
-
-```bash
-docker network inspect --format='{{range .Containers}} {{.Name}} {{end}}' skynet
-#  hello-dock
-
-docker network inspect --format='{{range .Containers}} {{.Name}} {{end}}' bridge
-#  hello-dock
-```
-
-Both commands show `hello-dock`, confirming it is attached to both networks at the same time.
-
-**Verifying automatic DNS:**
-
-Once two containers share a user-defined network, they can reach each other by container name:
-
-```bash
-docker container run --network skynet --rm --name alpine-box -it alpine sh
-
-/ # ping hello-dock
-# PING hello-dock (172.18.0.2): 56 data bytes
-# 64 bytes from 172.18.0.2: seq=0 ttl=64 time=0.191 ms
-# 64 bytes from 172.18.0.2: seq=1 ttl=64 time=0.103 ms
-```
-
-> Automatic DNS only works with explicitly named containers. The `--name` flag is required — randomly generated names are not resolvable.
-
-### How to Detach Containers from a Network in Docker
-
-Use `docker network disconnect` to remove a container from a network without stopping or restarting it.
-
-```bash
-# Generic syntax
-docker network disconnect <network> <container>
-
-# Example
-docker network disconnect skynet hello-dock
-```
-
-The command produces no output on success. The container continues running but can no longer communicate with other containers on `skynet` by name.
-
-To confirm the container is gone from the network:
-
-```bash
-docker network inspect --format='{{range .Containers}} {{.Name}} {{end}}' skynet
-# (empty — hello-dock has been detached)
-```
-
-### How to Get Rid of Networks in Docker
-
-**Remove a specific network:**
-
-```bash
-# Generic syntax
-docker network rm <network>
-
-# Example
-docker network rm skynet
-```
-
-The network must have no active endpoints (connected containers) before it can be removed. Stop or disconnect all containers first.
-
-**Remove all unused networks at once:**
-
-```bash
-docker network prune
-```
-
-Docker will prompt for confirmation. Pass `-f` or `--force` to skip the prompt:
-
-```bash
-docker network prune -f
-```
-
-A network is considered unused if no running container is currently connected to it.
-
-### How to Execute Commands in a Running Container
-
-`docker container exec` runs an arbitrary command inside a running container without interrupting the main process.
-
-**Syntax:**
-
-```bash
-docker container exec [options] <container> <command> [args]
-```
-
-**Common options:**
-
-| Option         | Description                                              |
-| -------------- | -------------------------------------------------------- |
-| `-it`          | Interactive + TTY — opens a shell session                |
-| `-e KEY=VALUE` | Pass an extra environment variable for this command only |
-| `-u <user>`    | Run as a specific user                                   |
-| `-w <dir>`     | Set the working directory                                |
-
-**Run database migrations:**
-
-```bash
-docker container exec notes-api npm run db:migrate
-
-# Expected output:
-# > notes-api@ db:migrate /home/node/app
-# > knex migrate:latest
-#
-# Using environment: production
-# Batch 1 run: 4 migrations
-```
-
-**Open an interactive shell:**
-
-```bash
-docker container exec -it notes-api sh
-
-# Once inside, you can inspect the filesystem, run commands, or debug:
-/home/node/app $ ls
-/home/node/app $ cat .env
-/home/node/app $ exit
-```
-
-**Seed the database:**
-
-```bash
-docker container exec notes-api npm run db:seed
-```
-
-**Key difference from `docker container run`:**
-
-|                        | `docker container run`      | `docker container exec`               |
-| ---------------------- | --------------------------- | ------------------------------------- |
-| Target                 | Creates a **new** container | Runs inside an **existing** container |
-| Effect on main process | None (separate container)   | None (main process keeps running)     |
-| Use case               | One-off jobs, debug shells  | Migrations, seeds, admin tasks        |
-
----
-
-## Docker Compose
-=======
-## How to Compose Projects Using Docker-Compose
->>>>>>> develop
-
-Docker Compose is the tool that replaces all those shell scripts. Instead of running long `docker run` commands one by one, you describe your entire multi-container application in a single `compose.yaml` file and start it with one command.
-
-### One Shot Revision
-
-| Topic | Short Description |
-| ----- | ----------------- |
-| [Docker Compose Basics](#docker-compose-basics) | What Compose is and how the `compose.yaml` file is structured |
-| [How to Start Services in Docker Compose](#how-to-start-services-in-docker-compose) | `docker compose up --detach` starts the whole stack |
-| [How to List Services in Docker Compose](#how-to-list-services-in-docker-compose) | `docker compose ps` shows running services and their ports |
-| [How to Execute Commands Inside a Running Service in Docker Compose](#how-to-execute-commands-inside-a-running-service-in-docker-compose) | `docker compose exec <service> <command>` runs a command in a service |
-| [How to Access Logs from a Running Service in Docker Compose](#how-to-access-logs-from-a-running-service-in-docker-compose) | `docker compose logs --follow <service>` streams live logs |
-| [How to Stop Services in Docker Compose](#how-to-stop-services-in-docker-compose) | `stop` pauses; `down` removes containers and network |
-| [How to Compose a Full-stack Application in Docker Compose](#how-to-compose-a-full-stack-application-in-docker-compose) | Apply Compose to the hello-dock Vite app for a complete dev setup |
-
-### Docker Compose Basics
-
-**Why Compose?** The shell scripts from the previous section work — but they are fragile, hard to read, and don't belong in version control alongside application code. Docker Compose fixes all of that. You describe your entire stack in a `compose.yaml` file (also accepted as `docker-compose.yaml`, `compose.yml`, or `docker-compose.yml`) and control it with a small set of commands.
-
-**The notes-api `compose.yaml`:**
-
-Taking the notes-api project from the previous section, a `compose.yaml` that replaces all three shell scripts looks like this:
-
-```yaml
-<<<<<<< HEAD
-<<<<<<< HEAD
-services:
-  web:
-    build: . # build the current folder's Dockerfile
-    image: my-app:1.0
-    ports:
-      - "3000:3000"
-    environment:
-      DATABASE_URL: postgres://postgres:secret@db:5432/postgres
-    depends_on:
-      - db
-    networks:
-      - app-net
-=======
-version: "3.8"
->>>>>>> develop
-
-=======
->>>>>>> develop
-services:
-    db:
-        image: postgres:12
-        container_name: notes-db
-        volumes:
-            - notes-db-data:/var/lib/postgresql/data
-        environment:
-            POSTGRES_DB: notesdb
-            POSTGRES_PASSWORD: secret
-        networks:
-            - notes-api-network
-
-    api:
-        build:
-            context: ./api
-            dockerfile: Dockerfile.dev
-        image: notes-api:dev
-        container_name: notes-api
-        volumes:
-            - /home/node/app/node_modules
-            - ./api:/home/node/app
-        ports:
-            - 3000:3000
-        environment:
-            DB_HOST: db
-            DB_DATABASE: notesdb
-            DB_PASSWORD: secret
-        networks:
-            - notes-api-network
-
-volumes:
-    notes-db-data:
-        name: notes-db-data
-
-networks:
-    notes-api-network:
-        name: notes-api-network
-```
-
-**What Compose gives you for free:**
-
-- A shared network — services reach each other by service name (the `api` service reaches the database at hostname `db`).
-- Named volumes created and managed automatically on `up`.
-- All configuration in one file that lives in version control alongside your code.
-
-### How to Start Services in Docker Compose
-
-**Description:** `docker compose up` reads your `compose.yaml`, creates any missing networks and volumes, builds images if needed, and starts all services. The `--detach` flag runs everything in the background.
-
-**Syntax:**
-
-```bash
-docker compose up [options] [service...]
-```
-
-**Common Options:**
-
-| Option | Description |
-| ------ | ----------- |
-| `-d, --detach` | Run services in the background |
-| `--build` | Force a rebuild of images before starting |
-| `--no-deps` | Start only the specified service, not its dependencies |
-| `--scale <service>=<n>` | Start N replicas of a service |
-| `--remove-orphans` | Remove containers for services not defined in the compose file |
-
-**Examples:**
-
-```bash
-# Start all services (foreground — logs stream to terminal)
-docker compose up
-
-# Start all services in the background
-docker compose up --detach
-
-# Rebuild images then start
-docker compose up --detach --build
-
-# Start only the db service
-docker compose up --detach db
-
-# Point to a non-default compose file
-docker compose --file path/to/compose.yaml up --detach
-```
-
-**Notes:**
-
-- On first run, Compose creates the named networks and volumes defined in the file — they persist across `up`/`down` cycles unless you pass `-v` to `down`.
-- `depends_on` controls **start order**, not readiness. If your API needs the database to be accepting connections, add a health check.
-- Modern Docker uses `docker compose` (space, plugin). The older standalone binary is `docker-compose` (hyphen) — same concept, different binary.
-
-### How to List Services in Docker Compose
-
-**Description:** `docker compose ps` shows the services defined in your `compose.yaml` — their container name, running status, and published ports. It scopes output to the current project, not every container on the host.
-
-**Syntax:**
-
-```bash
-docker compose ps [options] [service...]
-```
-
-**Common Options:**
-
-| Option | Description |
-| ------ | ----------- |
-| `-a, --all` | Show stopped services alongside running ones |
-| `--services` | Print service names only |
-| `--filter` | Filter by status: `--filter status=running` |
-
-**Examples:**
-
-```bash
-# Show all running services in the current project
-docker compose ps
-
-# Sample output:
-# NAME          IMAGE           COMMAND                  SERVICE   CREATED       STATUS       PORTS
-# notes-api     notes-api:dev   "docker-entrypoint.s…"   api       2 hours ago   Up 2 hours   0.0.0.0:3000->3000/tcp
-# notes-db      postgres:12     "docker-entrypoint.s…"   db        2 hours ago   Up 2 hours   5432/tcp
-
-# Include stopped services
-docker compose ps --all
-
-# Print only service names
-docker compose ps --services
-```
-
-**Notes:**
-
-- `docker compose ps` only shows services in the current Compose project. Use `docker ps` to see every container on the host.
-- A service listed as `Exit 1` crashed — run `docker compose logs <service>` to investigate.
-
-### How to Execute Commands Inside a Running Service in Docker Compose
-
-**Description:** `docker compose exec` runs a one-off command inside an already-running service container. It is the Compose equivalent of `docker exec` — the service's main process keeps running uninterrupted.
-
-**Syntax:**
-
-```bash
-docker compose exec [options] <service> <command> [args...]
-```
-
-**Common Options:**
-
-| Option | Description |
-| ------ | ----------- |
-| `-it` | Interactive + TTY — opens a shell |
-| `-e KEY=VALUE` | Set an env var for this command only |
-| `-u <user>` | Run as a specific user |
-| `--workdir <dir>` | Set the working directory |
-
-**Examples:**
-
-```bash
-# Run database migrations inside the api service
-docker compose exec api npm run db:migrate
-
-# Seed the database
-docker compose exec api npm run db:seed
-
-# Open an interactive shell inside the api service
-docker compose exec api sh
-
-# Open a psql session inside the db service
-docker compose exec db psql --username=postgres
-
-# Check environment variables inside a service
-docker compose exec api env | grep DB_
-```
-
-**Notes:**
-
-- The service must be running before you can `exec` into it — start with `docker compose up` first.
-- Exit a shell started with `exec` using `exit` or `Ctrl-D` — the service container keeps running.
-
-### How to Access Logs from a Running Service in Docker Compose
-
-**Description:** `docker compose logs` prints the stdout/stderr of one or more services. Pass `--follow` to stream live output as it arrives.
-
-**Syntax:**
-
-```bash
-docker compose logs [options] [service...]
-```
-
-**Common Options:**
-
-| Option | Description |
-| ------ | ----------- |
-| `-f, --follow` | Stream live log output (like `tail -f`) |
-| `--tail <n>` | Show only the last N lines |
-| `--no-log-prefix` | Omit the service name prefix from each line |
-| `--timestamps` | Include timestamps on each line |
-
-**Examples:**
-
-```bash
-# Print all logs from every service (one-shot)
-docker compose logs
-
-# Stream live logs from every service
-docker compose logs --follow
-
-# Stream live logs from the api service only
-docker compose logs --follow api
-
-# Show only the last 50 lines from the db service
-docker compose logs --tail 50 db
-
-# Show logs with timestamps
-docker compose logs --timestamps api
-```
-
-**Notes:**
-
-- Without a service name, `docker compose logs` combines output from all services and prefixes each line with the service name.
-- Press `Ctrl-C` to stop following — the service keeps running.
-
-### How to Stop Services in Docker Compose
-
-**Description:** Compose gives you two levels of shutdown — `stop` (pause, keep everything) and `down` (stop and clean up). Choose based on whether you want to resume quickly or start fresh.
-
-**Syntax:**
-
-```bash
-docker compose stop [service...]
-docker compose down [options]
-```
-
-**`stop` vs `down`:**
-
-| Command | What it does | Data preserved? |
-| ------- | ------------ | --------------- |
-| `docker compose stop` | Sends SIGTERM to running containers — they stop but are not removed | Yes — volumes, networks, and containers kept |
-| `docker compose down` | Stops and removes containers and the default network | Named volumes kept (unless `-v` passed) |
-| `docker compose down --volumes` | Stops, removes containers, network, **and** named volumes | No — all data deleted |
-
-**Examples:**
-
-```bash
-# Gracefully stop all services (containers remain, can be restarted)
-docker compose stop
-
-# Stop a specific service
-docker compose stop db
-
-# Resume stopped services
-docker compose start
-
-# Stop and remove containers + network (volumes kept)
-docker compose down
-
-# Full teardown including named volumes (all data lost)
-docker compose down --volumes
-
-# Stop, remove, and also remove built images
-docker compose down --rmi all
-```
-
-**Notes:**
-
-- Use `docker compose stop` during development when you want to preserve your data and resume later.
-- Use `docker compose down` in CI or when you want a clean slate.
-- `docker compose down --volumes` is destructive — it permanently deletes named volumes and the data inside them.
-
-### How to Compose a Full-stack Application in Docker Compose
-
-The notes-api project showed how Compose handles a multi-container stack. Now let's apply Compose to the **hello-dock** Vite app from the JavaScript Application section — a simpler single-service example that demonstrates how Compose manages bind mounts and anonymous volumes.
-
-**Project structure:**
-
-```
-hello-dock/
-├── Dockerfile.dev
-├── .dockerignore
-├── compose.yaml
-├── package.json
-└── src/
-```
-
-**`compose.yaml` for development:**
-
-```yaml
-services:
-    web:
-        build:
-            context: .
-            dockerfile: Dockerfile.dev
-        image: hello-dock:dev
-        container_name: hello-dock-dev
-        volumes:
-            - .:/home/node/app
-            - /home/node/app/node_modules
-        ports:
-            - 3000:3000
-```
-
-**What each key does:**
-
-| Key | Effect |
-| --- | ------ |
-| `build.context: .` | Build from the current directory |
-| `build.dockerfile: Dockerfile.dev` | Use the dev Dockerfile |
-| `volumes: - .:/home/node/app` | Bind-mount the project root for hot reload |
-| `volumes: - /home/node/app/node_modules` | Anonymous volume to protect installed packages |
-| `ports: - 3000:3000` | Expose the dev server on port 3000 |
-
-**Start the dev stack:**
-
-```bash
-# From the hello-dock directory
-docker compose up --detach
-
-# Verify it's running
-docker compose ps
-
-# Follow logs
-docker compose logs --follow web
-
-# Stop the stack
-docker compose down
-```
-
-Edit any file in your local `src/` folder — the Vite dev server inside the container picks up the change instantly via the bind mount.
-
-**Shell scripts vs Docker Compose:**
-
-| Concern | Shell scripts | Docker Compose |
-| ------- | ------------- | -------------- |
-| Start the stack | `./shell/boot.sh` | `docker compose up -d` |
-| Stop the stack | `./shell/stop.sh` | `docker compose stop` |
-| Tear down | `./shell/nuke.sh` | `docker compose down -v` |
-| View logs | `docker logs <container>` | `docker compose logs -f <service>` |
-| Exec into a service | `docker exec -it <container> sh` | `docker compose exec <service> sh` |
-| Stored in version control | Fragile shell scripts | Clean YAML alongside your code |
-
 ---
 
 ## Conclusion
 
-Docker is a foundational skill for any DevOps or backend engineering workflow. These notes covered the complete journey — from understanding what containers are and how they differ from VMs, through building images, managing containers, configuring networks, containerizing multi-container applications, and finally orchestrating everything with Docker Compose.
+Docker is a foundational skill for any DevOps or backend engineering workflow. These notes covered the complete journey — from understanding what containers are and how they differ from VMs, through building images, managing containers, configuring networks, and containerizing multi-container applications.
 
 **Key takeaways:**
 
@@ -3596,7 +2880,6 @@ Docker is a foundational skill for any DevOps or backend engineering workflow. T
 - **Prefer user-defined networks** — automatic DNS by container/service name makes multi-container wiring simple.
 - **Use named volumes** for persistent data; bind mounts for hot-reload development.
 - **Multi-stage builds** keep production images lean — build tools never reach the shipped image.
-- **Docker Compose** is the natural evolution of shell scripts — one YAML file, one command to start everything.
 - **Never bake secrets into an image** — pass them at runtime via `-e` or `--env-file`.
 
 For deeper dives, see the [References](#references) section. Practice with real projects — the commands become muscle memory quickly.
@@ -3613,7 +2896,7 @@ For deeper dives, see the [References](#references) section. Practice with real 
 - **Never bake secrets into an image.** Pass them at runtime via `-e`, `--env-file`, or a secrets manager.
 - **Free up disk fast:** `docker system df` shows what's using space; `docker system prune -a --volumes` reclaims it.
 - **Debug a broken container** by overriding its command: `docker run --rm -it --entrypoint sh my-app:1.0`.
-- **Reproducible builds:** commit both your `Dockerfile` and the `docker-compose.yaml` — the container is only as portable as the recipe that built it.
+- **Reproducible builds:** commit your `Dockerfile` alongside your code — the container is only as portable as the recipe that built it.
 
 ---
 
@@ -3623,7 +2906,6 @@ For deeper dives, see the [References](#references) section. Practice with real 
 - [Docker Documentation](https://docs.docker.com/)
 - [Docker Get Started Guide](https://docs.docker.com/get-started/)
 - [Dockerfile Reference](https://docs.docker.com/engine/reference/builder/)
-- [Docker Compose Documentation](https://docs.docker.com/compose/)
 - [Docker Hub](https://hub.docker.com/)
 - [Play with Docker (browser sandbox)](https://labs.play-with-docker.com/)
 - [BongoDev](https://www.bongodev.com/)
