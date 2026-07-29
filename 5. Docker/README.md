@@ -3230,6 +3230,7 @@ Taking the notes-api project from the previous section, a `compose.yaml` that re
 
 ```yaml
 <<<<<<< HEAD
+<<<<<<< HEAD
 services:
   web:
     build: . # build the current folder's Dockerfile
@@ -3246,6 +3247,8 @@ services:
 version: "3.8"
 >>>>>>> develop
 
+=======
+>>>>>>> develop
 services:
     db:
         image: postgres:12
@@ -3284,27 +3287,6 @@ networks:
     notes-api-network:
         name: notes-api-network
 ```
-
-**Key sections of `compose.yaml`:**
-
-| Key | What it configures |
-| --- | ------------------ |
-| `services` | Each container in your stack — name, image, build context, ports, env vars, volumes, networks |
-| `volumes` | Named volumes — declared here are created automatically by Compose |
-| `networks` | User-defined networks — Compose creates them on `up` and removes them on `down` |
-
-**Per-service keys:**
-
-| Key | Equivalent `docker run` flag | What it does |
-| --- | ---------------------------- | ------------ |
-| `image` | *(image name)* | Use this image (pulled if not local) |
-| `build` | *(from Dockerfile)* | Build the image from a Dockerfile before running |
-| `container_name` | `--name` | Give the container an explicit name |
-| `ports` | `-p host:container` | Publish ports to the host |
-| `volumes` | `-v` | Bind mounts and named volume mounts |
-| `environment` | `-e KEY=VALUE` | Set environment variables |
-| `networks` | `--network` | Attach to a named network |
-| `depends_on` | — | Wait for another service to start first |
 
 **What Compose gives you for free:**
 
@@ -3549,8 +3531,6 @@ hello-dock/
 **`compose.yaml` for development:**
 
 ```yaml
-version: "3.8"
-
 services:
     web:
         build:
