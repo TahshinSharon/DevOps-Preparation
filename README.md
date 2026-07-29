@@ -180,7 +180,6 @@ The container platform for packaging applications with their dependencies into p
 - **How to Containerize a JavaScript Application** — writing a development Dockerfile with a non-root user; enabling hot reload with bind mounts; protecting `node_modules` with anonymous volumes; shipping a lean production image using multi-stage builds (`node` builder → `nginx` runtime); and excluding unnecessary files with `.dockerignore`.
 - **Docker Networking** — network drivers (`bridge`, `host`, `none`, `overlay`), `docker network` commands, and container-to-container DNS.
 - **How to Containerize a Multi-Container JavaScript Application** — running a PostgreSQL database container with a named volume; checking logs; creating a user-defined network; writing a multi-stage Dockerfile for a Node.js API; running migrations with `docker exec`; and automating the full lifecycle with shell scripts.
-- **How to Compose Projects Using Docker-Compose** — `compose.yaml` structure and per-service keys; starting (`docker compose up`), listing (`docker compose ps`), exec-ing into (`docker compose exec`), and logging (`docker compose logs`) services; `stop` vs `down` vs `down --volumes`; composing the hello-dock full-stack app for development with bind mounts and anonymous volumes.
 
 → [Open the Docker notes](./Docker/README.md)
 
