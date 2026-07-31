@@ -30,6 +30,8 @@
   <a href="../Networking/README.md"><b>Networking Notes</b></a>
   &nbsp;·&nbsp;
   <a href="../Cloud-Engineering/README.md"><b>Cloud Engineering Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="../Kubernetes/README.md"><b>Kubernetes Notes</b></a>
 </p>
 
 ---

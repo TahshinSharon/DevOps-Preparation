@@ -14,7 +14,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/Topics-5-blue?style=flat-square" alt="Topics">
+  <img src="https://img.shields.io/badge/Topics-6-blue?style=flat-square" alt="Topics">
   <img src="https://img.shields.io/badge/Made%20For-DevOps%20Prep-orange?style=flat-square" alt="Made For">
 </p>
 
@@ -30,6 +30,8 @@
   <a href="./Cloud-Engineering/README.md"><b>Cloud Engineering Notes</b></a>
   &nbsp;·&nbsp;
   <a href="./Docker/README.md"><b>Docker Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="./Kubernetes/README.md"><b>Kubernetes Notes</b></a>
 </p>
 
 ---
@@ -45,6 +47,7 @@
   - [Networking](#networking)
   - [Cloud Engineering](#cloud-engineering)
   - [Docker](#docker)
+  - [Kubernetes](#kubernetes)
 - [Conventions](#conventions)
 - [Contributing / Personal Use](#contributing--personal-use)
 - [References](#references)
@@ -76,11 +79,13 @@ DevOps-Preparation/
 │   └── README.md               ← OSI/TCP-IP, ip/ss/dig/curl/ssh, firewalls, packet capture, ...
 ├── 4. Cloud-Engineering/
 │   └── README.md               ← AWS EC2 and other cloud services, concepts, and notes
-└── 5. Docker/
-    └── README.md               ← Containers, images, Dockerfile, volumes, networks, Compose, ...
+├── 5. Docker/
+│   └── README.md               ← Containers, images, Dockerfile, volumes, networks, Compose, ...
+└── 6. Kubernetes/
+    └── README.md               ← Pods, Deployments, Services, Namespaces, kubectl, Helm, ...
 ```
 
-> **Note:** the numbers above indicate the recommended reading order; the actual folders on disk are named without the `N. ` prefix (`Git-Github/`, `Linux/`, `Networking/`, `Cloud-Engineering/`, `Docker/`).
+> **Note:** the numbers above indicate the recommended reading order; the actual folders on disk are named without the `N. ` prefix (`Git-Github/`, `Linux/`, `Networking/`, `Cloud-Engineering/`, `Docker/`, `Kubernetes/`).
 
 Every topic folder holds a single `README.md` that acts as the full reference for that subject. New topics (Kubernetes, CI/CD, Terraform, etc.) will be added the same way — one folder, one self-contained `README.md`.
 
@@ -183,6 +188,14 @@ The container platform for packaging applications with their dependencies into p
 - **How to Compose Projects Using Docker-Compose** — `compose.yaml` structure and per-service keys; starting (`docker compose up`), listing (`docker compose ps`), exec-ing into (`docker compose exec`), and logging (`docker compose logs`) services; `stop` vs `down` vs `down --volumes`; composing the hello-dock full-stack app for development with bind mounts and anonymous volumes.
 
 → [Open the Docker notes](./Docker/README.md)
+
+### Kubernetes
+
+The container orchestration platform for deploying, scaling, and managing containerized applications across a cluster.
+
+- **Kubernetes Fundamentals** — what Kubernetes is, K8s vs Docker, cluster architecture, control plane (API Server, etcd, Scheduler, Controller Manager), worker node components (kubelet, kube-proxy, container runtime).
+
+→ [Open the Kubernetes notes](./Kubernetes/README.md)
 
 ---
 
