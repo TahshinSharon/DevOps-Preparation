@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-3-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-2-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -39,17 +39,12 @@
 ## Table of Contents
 
 - [Introduction](#introduction)
-- [Kubernetes Architecture](#kubernetes-architecture)
-  - [Architecture Diagram](#architecture-diagram)
-  - [Control Plane](#control-plane)
-  - [Worker Node](#worker-node)
-  - [Pod](#pod)
 - [Kubernetes Commands](#kubernetes-commands)
 - [Kubernetes Fundamentals](#kubernetes-fundamentals)
   - [One Shot Revision](#one-shot-revision)
   - [What is Kubernetes?](#what-is-kubernetes)
   - [Kubernetes vs Docker](#kubernetes-vs-docker)
-  - [Kubernetes Architecture](#kubernetes-architecture-1)
+  - [Kubernetes Architecture](#kubernetes-architecture)
   - [Control Plane Components](#control-plane-components)
   - [Worker Node Components](#worker-node-components)
 - [Kubernetes Basics](#kubernetes-basics)
@@ -74,131 +69,6 @@ Brief notes about Kubernetes — the open-source container orchestration platfor
 
 ---
 
-## Kubernetes Architecture
-
-> A visual reference of every component in a Kubernetes cluster — where it lives and what it does.
-
-### Contents
-
-| Component | Lives On | What It Does |
-| --------- | -------- | ------------ |
-| [kube-apiserver](#kube-apiserver) | Control Plane | Front door for all cluster operations — REST API |
-| [etcd](#etcd) | Control Plane | Distributed key-value store — single source of truth |
-| [kube-scheduler](#kube-scheduler) | Control Plane | Decides which node an unscheduled pod runs on |
-| [kube-controller-manager](#kube-controller-manager) | Control Plane | Runs controllers that reconcile actual → desired state |
-| [cloud-controller-manager](#cloud-controller-manager) | Control Plane | Links cluster to cloud provider (LBs, disks, nodes) |
-| [kubelet](#kubelet) | Worker Node | Node agent — starts, stops, and monitors pods |
-| [kube-proxy](#kube-proxy) | Worker Node | Manages iptables/ipvs rules for Service routing |
-| [Container Runtime](#container-runtime) | Worker Node | Runs containers — usually containerd or CRI-O |
-| [Pod](#pod) | Worker Node | Smallest unit — one or more co-located containers |
-
----
-
-### Architecture Diagram
-
-```
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                           KUBERNETES CLUSTER                                 ║
-║                                                                              ║
-║  ╔══════════════════════════════════════════════════════════════════════╗    ║
-║  ║                          CONTROL PLANE                               ║    ║
-║  ║                                                                       ║    ║
-║  ║  ┌─────────────────────┐     ┌──────────────────┐                    ║    ║
-║  ║  │   kube-apiserver    │◄───►│       etcd       │                    ║    ║
-║  ║  │  (REST API / HTTPS) │     │  (key-val store) │                    ║    ║
-║  ║  └──────────┬──────────┘     └──────────────────┘                    ║    ║
-║  ║        ▲    │   watches & writes state                                ║    ║
-║  ║        │    ▼                                                         ║    ║
-║  ║  ┌─────┴─────────────────┐   ┌──────────────────────────────────┐    ║    ║
-║  ║  │    kube-scheduler     │   │    kube-controller-manager       │    ║    ║
-║  ║  │  (pod ← node assign)  │   │  Node · Replica · Endpoint · SA  │    ║    ║
-║  ║  └───────────────────────┘   └──────────────────────────────────┘    ║    ║
-║  ║                                                                        ║    ║
-║  ║  ┌────────────────────────────────────────────┐                       ║    ║
-║  ║  │       cloud-controller-manager             │  ← optional           ║    ║
-║  ║  │   LB Provisioning · Disk Attach · Node     │    (cloud only)       ║    ║
-║  ║  └────────────────────────────────────────────┘                       ║    ║
-║  ╚══════════════════════════════════════════════════════════════════════╝    ║
-║                           │  HTTPS / watch loop                              ║
-║  ╔══════════════════════════════════════════════════════════════════════╗    ║
-║  ║                    WORKER NODE  (×N nodes)                            ║    ║
-║  ║                                                                        ║    ║
-║  ║  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐    ║    ║
-║  ║  │     kubelet      │  │   kube-proxy     │  │Container Runtime │    ║    ║
-║  ║  │   (node agent)   │  │  (net routing)   │  │containerd/CRI-O  │    ║    ║
-║  ║  └──────────────────┘  └──────────────────┘  └──────────────────┘    ║    ║
-║  ║                                                                        ║    ║
-║  ║  ┌──────────────────────────────────────────────────────────────────┐ ║    ║
-║  ║  │                            POD                                   │ ║    ║
-║  ║  │  ┌───────────────────┐   ┌───────────────────┐                  │ ║    ║
-║  ║  │  │    Container A    │   │    Container B    │  shared:          │ ║    ║
-║  ║  │  │  (app / sidecar)  │   │  (app / sidecar)  │  IP · localhost   │ ║    ║
-║  ║  │  └───────────────────┘   └───────────────────┘  Volumes          │ ║    ║
-║  ║  └──────────────────────────────────────────────────────────────────┘ ║    ║
-║  ╚══════════════════════════════════════════════════════════════════════╝    ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-```
-
-**Flow:** `kubectl apply` → API Server validates & stores in etcd → Scheduler assigns pod to node → kubelet starts containers via runtime → Controllers watch for drift and self-heal.
-
----
-
-### Control Plane
-
-The **brain** of the cluster. Runs on dedicated master node(s) — never runs application workloads.
-
-#### kube-apiserver
-
-The **single entry point** for all cluster operations. Every `kubectl` command, every controller, and every kubelet communicates exclusively through this REST API over HTTPS. It validates requests, authenticates callers, and persists state to etcd. Can be horizontally scaled for high availability.
-
-#### etcd
-
-A **distributed key-value store** that holds the entire cluster state — every object (pod, service, deployment) is serialized and stored here. It is the single source of truth. If etcd is lost without a backup, all cluster state is gone. Always run with replication (3 or 5 nodes) in production.
-
-#### kube-scheduler
-
-Watches for **newly created pods with no assigned node** and selects the best node for them. Decision factors: resource requests/limits, node affinity/anti-affinity, taints and tolerations, and data locality. The scheduler only *assigns* the pod — kubelet performs the actual container work.
-
-#### kube-controller-manager
-
-A **single binary that bundles multiple control loops**. Each controller watches the API Server for its resource type and reconciles actual state → desired state. Key built-in controllers: Node (detects failed nodes), ReplicaSet (maintains pod count), Endpoints, ServiceAccount, Namespace.
-
-#### cloud-controller-manager
-
-An **optional component** that decouples Kubernetes core code from cloud-provider–specific logic. Manages node lifecycle (adds/removes VMs as the cloud scales), provisions cloud load balancers for Services, and attaches persistent volumes. Only present on cloud-managed clusters (EKS, GKE, AKS).
-
----
-
-### Worker Node
-
-Where **application pods actually run**. A cluster has many worker nodes; each runs exactly three system components.
-
-#### kubelet
-
-The **primary node agent**. Watches the API Server for PodSpecs assigned to its node, instructs the container runtime to start/stop containers, runs liveness and readiness probes, and reports pod and node status back to the API Server. Does not manage containers started outside Kubernetes.
-
-#### kube-proxy
-
-A **network proxy** running on every node that implements the Kubernetes Service abstraction. It maintains iptables (or ipvs) rules so traffic destined for a Service cluster IP is forwarded to a healthy backing pod — even across nodes. Rules update whenever Services or Endpoints change.
-
-#### Container Runtime
-
-The **software that actually starts and stops containers** by talking to the kernel. Kubernetes interfaces with it via the Container Runtime Interface (CRI). Default: **containerd**. Alternative: **CRI-O**. Docker Engine (via the now-removed dockershim) was the original but is no longer supported in modern Kubernetes.
-
----
-
-### Pod
-
-The **smallest deployable unit** in Kubernetes. A pod wraps one or more containers that share:
-
-- **Network namespace** — same IP address; containers reach each other via `localhost`.
-- **Storage volumes** — mounted volumes are accessible to all containers in the pod.
-- **Lifecycle** — all containers in a pod are scheduled, started, and stopped together.
-
-Pods are **ephemeral** — they are replaced, never repaired. Higher-level objects (Deployments, StatefulSets, DaemonSets) manage pod lifecycles.
-
----
-
 ## Kubernetes Commands
 
 Kubernetes' primary CLI is `kubectl` — it lets you create, inspect, update, and delete Kubernetes resources. Every command follows the pattern `kubectl <verb> <resource> [options]`. Common verbs: `get`, `describe`, `apply`, `delete`, `logs`, `exec`, `scale`, `rollout`.
@@ -217,7 +87,7 @@ Before touching any command, it helps to build a clear mental picture of what Ku
 | ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | [What is Kubernetes?](#what-is-kubernetes)                        | Container orchestration platform that automates deployment, scaling, and healing  |
 | [Kubernetes vs Docker](#kubernetes-vs-docker)                     | Docker runs containers; Kubernetes orchestrates many containers across many hosts |
-| [Kubernetes Architecture](#kubernetes-architecture-1)             | Control plane manages state; worker nodes run workloads                           |
+| [Kubernetes Architecture](#kubernetes-architecture)               | Control plane manages state; worker nodes run workloads                           |
 | [Control Plane Components](#control-plane-components)             | API Server, etcd, Scheduler, Controller Manager — the cluster brain               |
 | [Worker Node Components](#worker-node-components)                 | kubelet, kube-proxy, container runtime — execute and expose workloads             |
 
