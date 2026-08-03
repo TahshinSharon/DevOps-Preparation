@@ -408,6 +408,7 @@ More sections (Pods, Deployments, Services, Namespaces, ConfigMaps, Secrets, Vol
 - [The Kubernetes Book — Nigel Poulton](https://nigelpoulton.com/books/)
 - [BongoDev](https://www.bongodev.com/)
 - [BongoDev on GitHub](https://github.com/bongodev)
+- [k8sStarter](https://github.com/TahshinSharon/k8sStarter)
 
 ---
 
