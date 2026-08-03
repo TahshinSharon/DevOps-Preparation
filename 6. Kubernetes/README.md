@@ -50,6 +50,7 @@
 - [Kubernetes Basics](#kubernetes-basics)
   - [One Shot Revision](#one-shot-revision-1)
   - [Create a Cluster](#create-a-cluster)
+  - [Deploy an App Using Kubectl](#deploy-an-app-using-kubectl)
 - [Conclusion](#conclusion)
 - [References](#references)
 
@@ -201,6 +202,7 @@ Hands-on foundation — from spinning up a cluster to running your first workloa
 | Topic | Short Description |
 | ----- | ----------------- |
 | [Create a Cluster](#create-a-cluster) | Bootstrap a real cluster with kubeadm or a local dev cluster with kind |
+| [Deploy an App Using Kubectl](#deploy-an-app-using-kubectl) | Run, expose, scale, and inspect a workload with kubectl imperatively |
 
 ### Create a Cluster
 
@@ -382,6 +384,65 @@ kubectl get pods -A      # all system pods should be Running or Completed
 > - Local dev / CI → use **kind** (fast, zero infrastructure cost)
 > - Real VMs / bare-metal / on-prem production → use **kubeadm**
 > - Managed cloud cluster → use your cloud provider's tool (EKS, GKE, AKS)
+
+---
+
+### Deploy an App Using Kubectl
+
+Once the cluster is running, the fastest way to get a workload up is with `kubectl` imperative commands — no YAML required for a first run.
+
+**1 — Create a Deployment**
+
+A Deployment manages a set of identical Pods and keeps the desired replica count healthy.
+
+```bash
+kubectl create deployment hello-app --image=nginx:latest
+```
+
+**2 — Verify the Deployment and Pod**
+
+```bash
+kubectl get deployments          # shows desired / ready / up-to-date counts
+kubectl get pods                 # shows the pod(s) spawned by the deployment
+kubectl describe pod <pod-name>  # full event log — useful when a pod is pending/crashing
+```
+
+**3 — Expose the Deployment as a Service**
+
+A Service gives the Deployment a stable network endpoint. `NodePort` makes it reachable on a port of each node's IP:
+
+```bash
+kubectl expose deployment hello-app --type=NodePort --port=80
+kubectl get services             # note the NodePort assigned (30000–32767 range)
+```
+
+For a local kind cluster, forward the port directly to your machine:
+
+```bash
+kubectl port-forward deployment/hello-app 8080:80
+# Now open http://localhost:8080 in your browser
+```
+
+**4 — Scale the Deployment**
+
+```bash
+kubectl scale deployment hello-app --replicas=3
+kubectl get pods                 # three pods should now be Running
+```
+
+**5 — Check logs**
+
+```bash
+kubectl logs <pod-name>          # stdout/stderr of the container
+kubectl logs -f <pod-name>       # follow (stream) logs live
+```
+
+**6 — Clean up**
+
+```bash
+kubectl delete service hello-app
+kubectl delete deployment hello-app
+```
 
 ---
 
