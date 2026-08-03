@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-2-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-3-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -52,6 +52,9 @@
   - [Kubernetes Architecture](#kubernetes-architecture-1)
   - [Control Plane Components](#control-plane-components)
   - [Worker Node Components](#worker-node-components)
+- [Kubernetes Basics](#kubernetes-basics)
+  - [One Shot Revision](#one-shot-revision-1)
+  - [Create a Cluster](#create-a-cluster)
 - [Conclusion](#conclusion)
 - [References](#references)
 
@@ -319,6 +322,199 @@ A Kubernetes **cluster** is made up of two logical layers:
 
 ---
 
+## Kubernetes Basics
+
+Hands-on foundation — from spinning up a cluster to running your first workload. Every concept from the Fundamentals section becomes concrete here.
+
+### One Shot Revision
+
+| Topic | Short Description |
+| ----- | ----------------- |
+| [Create a Cluster](#create-a-cluster) | Bootstrap a real cluster with kubeadm or a local dev cluster with kind |
+
+### Create a Cluster
+
+Two tools dominate cluster creation depending on your context:
+
+| Tool | Best For | What It Creates |
+| ---- | -------- | --------------- |
+| **kubeadm** | Production / bare-metal / VMs | Real multi-node cluster on Linux hosts |
+| **kind** | Local development / CI | Cluster running inside Docker containers |
+
+---
+
+#### Using kubeadm
+
+`kubeadm` is the official Kubernetes bootstrap tool. It sets up the control plane and joins worker nodes onto the cluster.
+
+**Prerequisites (all nodes):**
+- Ubuntu 22.04 / CentOS 9 (or equivalent Linux)
+- 2 GB RAM, 2 CPUs minimum per node
+- Unique hostname, MAC address, and `product_uuid` on every node
+- Swap disabled
+- `containerd` installed as the container runtime
+- Required ports open per the [Kubernetes networking docs](https://kubernetes.io/docs/reference/networking/ports-and-protocols/)
+
+**Step 1 — Disable swap (all nodes)**
+
+```bash
+sudo swapoff -a
+sudo sed -i '/ swap / s/^/#/' /etc/fstab
+```
+
+**Step 2 — Install containerd (all nodes)**
+
+```bash
+sudo apt-get update
+sudo apt-get install -y containerd
+sudo mkdir -p /etc/containerd
+containerd config default | sudo tee /etc/containerd/config.toml
+sudo systemctl restart containerd && sudo systemctl enable containerd
+```
+
+**Step 3 — Install kubeadm, kubelet, kubectl (all nodes)**
+
+```bash
+sudo apt-get install -y apt-transport-https ca-certificates curl
+
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | \
+  sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] \
+  https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | \
+  sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+sudo apt-get update
+sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+```
+
+`apt-mark hold` prevents these packages from being auto-upgraded and breaking the cluster.
+
+**Step 4 — Initialize the control plane (master node only)**
+
+```bash
+sudo kubeadm init --pod-network-cidr=192.168.0.0/16
+```
+
+After the command succeeds, copy the `kubeadm join` command printed at the bottom — you will need it in Step 7 to add worker nodes.
+
+**Step 5 — Configure kubectl (master node)**
+
+```bash
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+```
+
+**Step 6 — Install a pod network (CNI) add-on (master node)**
+
+Without a CNI plugin, pods on different nodes cannot communicate. Calico is a common choice:
+
+```bash
+kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+```
+
+**Step 7 — Join worker nodes**
+
+Run the `kubeadm join` command (from Step 4 output) on each worker node:
+
+```bash
+sudo kubeadm join <control-plane-ip>:6443 \
+  --token <token> \
+  --discovery-token-ca-cert-hash sha256:<hash>
+```
+
+**Verify the cluster**
+
+```bash
+kubectl get nodes        # all nodes should show Ready
+kubectl get pods -A      # all system pods should be Running or Completed
+```
+
+---
+
+#### Using kind
+
+`kind` (**K**ubernetes **IN** **D**ocker) runs a full Kubernetes cluster inside Docker containers. Ideal for local development, CI pipelines, and quick experimentation — no VMs needed.
+
+**Prerequisites:**
+- Docker installed and running
+- `kubectl` installed
+
+**Install kind**
+
+```bash
+# macOS
+brew install kind
+
+# Linux
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64
+chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
+```
+
+**Create a single-node cluster (quickstart)**
+
+```bash
+kind create cluster
+```
+
+kind automatically sets the current `kubectl` context to point at the new cluster.
+
+```bash
+kubectl cluster-info --context kind-kind
+kubectl get nodes
+```
+
+**Create a named multi-node cluster**
+
+Write a config file and pass it to `kind create`:
+
+```yaml
+# cluster-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+```
+
+```bash
+kind create cluster --name dev-cluster --config cluster-config.yaml
+kubectl get nodes --context kind-dev-cluster
+```
+
+**Load a local Docker image into kind**
+
+kind nodes don't share your local Docker registry — images must be loaded explicitly:
+
+```bash
+docker build -t my-app:latest .
+kind load docker-image my-app:latest --name dev-cluster
+```
+
+**Delete a cluster**
+
+```bash
+kind delete cluster --name dev-cluster
+```
+
+**List all kind clusters**
+
+```bash
+kind get clusters
+```
+
+---
+
+> **Quick pick guide:**
+> - Local dev / CI → use **kind** (fast, zero infrastructure cost)
+> - Real VMs / bare-metal / on-prem production → use **kubeadm**
+> - Managed cloud cluster → use your cloud provider's tool (EKS, GKE, AKS)
+
+---
+
 ## Conclusion
 
 Kubernetes is the industry-standard platform for running containerized workloads at scale. This section covers the mental model needed before writing a single YAML manifest.
@@ -329,6 +525,7 @@ Kubernetes is the industry-standard platform for running containerized workloads
 - The **control plane** stores state and makes decisions; **worker nodes** run workloads.
 - The **API Server** is the single entry point — all components speak through it.
 - Docker builds and runs containers; Kubernetes **orchestrates** them at scale.
+- Use **kind** for local development and **kubeadm** for production cluster bootstrapping.
 
 More sections (Pods, Deployments, Services, Namespaces, ConfigMaps, Secrets, Volumes, Helm) will be added here as they are completed.
 

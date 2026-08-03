@@ -194,6 +194,7 @@ The container platform for packaging applications with their dependencies into p
 The container orchestration platform for deploying, scaling, and managing containerized applications across a cluster.
 
 - **Kubernetes Fundamentals** — what Kubernetes is, K8s vs Docker, cluster architecture, control plane (API Server, etcd, Scheduler, Controller Manager), worker node components (kubelet, kube-proxy, container runtime).
+- **Kubernetes Basics** — creating a cluster with **kubeadm** (production / VMs) and **kind** (local development / CI).
 
 → [Open the Kubernetes notes](./Kubernetes/README.md)
 
