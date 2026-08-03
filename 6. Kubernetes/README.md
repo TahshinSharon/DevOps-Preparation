@@ -208,8 +208,82 @@ Two tools dominate cluster creation depending on your context:
 
 | Tool | Best For | What It Creates |
 | ---- | -------- | --------------- |
-| **kubeadm** | Production / bare-metal / VMs | Real multi-node cluster on Linux hosts |
 | **kind** | Local development / CI | Cluster running inside Docker containers |
+| **kubeadm** | Production / bare-metal / VMs | Real multi-node cluster on Linux hosts |
+
+---
+
+#### Using kind
+
+`kind` (**K**ubernetes **IN** **D**ocker) runs a full Kubernetes cluster inside Docker containers. Ideal for local development, CI pipelines, and quick experimentation — no VMs needed.
+
+**Prerequisites:**
+- Docker installed and running
+- `kubectl` installed
+
+**Install kind**
+
+```bash
+# macOS
+brew install kind
+
+# Linux
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64
+chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
+```
+
+**Create a single-node cluster (quickstart)**
+
+```bash
+kind create cluster
+```
+
+kind automatically sets the current `kubectl` context to point at the new cluster.
+
+```bash
+kubectl cluster-info --context kind-kind
+kubectl get nodes
+```
+
+**Create a named multi-node cluster**
+
+Write a config file and pass it to `kind create`:
+
+```yaml
+# cluster-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+```
+
+```bash
+kind create cluster --name dev-cluster --config cluster-config.yaml
+kubectl get nodes --context kind-dev-cluster
+```
+
+**Load a local Docker image into kind**
+
+kind nodes don't share your local Docker registry — images must be loaded explicitly:
+
+```bash
+docker build -t my-app:latest .
+kind load docker-image my-app:latest --name dev-cluster
+```
+
+**Delete a cluster**
+
+```bash
+kind delete cluster --name dev-cluster
+```
+
+**List all kind clusters**
+
+```bash
+kind get clusters
+```
 
 ---
 
@@ -300,80 +374,6 @@ sudo kubeadm join <control-plane-ip>:6443 \
 ```bash
 kubectl get nodes        # all nodes should show Ready
 kubectl get pods -A      # all system pods should be Running or Completed
-```
-
----
-
-#### Using kind
-
-`kind` (**K**ubernetes **IN** **D**ocker) runs a full Kubernetes cluster inside Docker containers. Ideal for local development, CI pipelines, and quick experimentation — no VMs needed.
-
-**Prerequisites:**
-- Docker installed and running
-- `kubectl` installed
-
-**Install kind**
-
-```bash
-# macOS
-brew install kind
-
-# Linux
-curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64
-chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
-```
-
-**Create a single-node cluster (quickstart)**
-
-```bash
-kind create cluster
-```
-
-kind automatically sets the current `kubectl` context to point at the new cluster.
-
-```bash
-kubectl cluster-info --context kind-kind
-kubectl get nodes
-```
-
-**Create a named multi-node cluster**
-
-Write a config file and pass it to `kind create`:
-
-```yaml
-# cluster-config.yaml
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-  - role: control-plane
-  - role: worker
-  - role: worker
-```
-
-```bash
-kind create cluster --name dev-cluster --config cluster-config.yaml
-kubectl get nodes --context kind-dev-cluster
-```
-
-**Load a local Docker image into kind**
-
-kind nodes don't share your local Docker registry — images must be loaded explicitly:
-
-```bash
-docker build -t my-app:latest .
-kind load docker-image my-app:latest --name dev-cluster
-```
-
-**Delete a cluster**
-
-```bash
-kind delete cluster --name dev-cluster
-```
-
-**List all kind clusters**
-
-```bash
-kind get clusters
 ```
 
 ---
