@@ -130,7 +130,7 @@ Distributed version control plus the collaboration layer on top.
 - **Undoing Changes** — `restore`, `reset`, `revert`, `clean`, `reflog`.
 - **Stashing & Tagging** — `stash`, `tag`.
 - **Advanced Git** — `bisect`, `blame`, `submodule`, `worktree`, hooks.
-- **GitHub & Collaboration** — SSH keys, PR workflow, `gh` CLI, GitHub Actions.
+- **GitHub & Collaboration** — SSH keys, PR workflow, `gh` CLI, GitHub Actions, CI/CD concepts.
 
 → [Open the Git & GitHub notes](./Git-Github/README.md)
 

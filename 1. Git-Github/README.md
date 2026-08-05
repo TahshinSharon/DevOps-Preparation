@@ -1528,6 +1528,7 @@ The collaboration layer on top of Git: authentication, pull requests, CI, and th
 | [Forks & Pull Requests](#forks--pull-requests) | The standard open-source workflow                             |
 | [GitHub CLI (gh)](#github-cli-gh)           | Manage PRs, issues, releases from your terminal                  |
 | [GitHub Actions](#github-actions)           | Native CI/CD — run workflows on push, PR, schedules              |
+| [CI/CD](#cicd)                              | Build → test → deploy pipeline concepts, tools, and strategies   |
 | [Issues, README, LICENSE](#issues-readme-license) | The "social" files every public repo needs                |
 
 ### SSH Keys
@@ -1720,6 +1721,77 @@ on:
 - Browse / inspect runs: `gh run list` or the **Actions** tab on GitHub.
 - The official actions marketplace lives at [github.com/marketplace?type=actions](https://github.com/marketplace?type=actions).
 - Pin actions to a SHA (not just `@v4`) for supply-chain safety on sensitive repos.
+
+### CI/CD
+
+**Description:** **Continuous Integration / Continuous Delivery (CI/CD)** is the practice of automating the build, test, and release pipeline so that every code change is verified and deployable with minimal human intervention. GitHub Actions is one implementation; the concepts below apply to any CI/CD platform.
+
+**The three terms:**
+
+| Term | Meaning |
+| ---- | ------- |
+| **Continuous Integration (CI)** | Every push triggers an automated build + test run — catch regressions before they reach `main`. |
+| **Continuous Delivery (CD)** | After CI passes the artifact is automatically prepared for release; a human approves the final deploy. |
+| **Continuous Deployment** | Every passing build is deployed to production automatically — no manual gate. |
+
+**Typical pipeline stages:**
+
+```
+Code push → Build → Unit tests → Integration tests → Security scan → Package artifact → Deploy staging → Smoke test → Deploy prod
+```
+
+**Common CI/CD tools:**
+
+| Tool | Hosted? | Key strength |
+| ---- | ------- | ------------ |
+| **GitHub Actions** | Yes (GitHub) | Native to GitHub; YAML in `.github/workflows/` |
+| **GitLab CI/CD** | Yes / Self-hosted | Tight GitLab integration; `.gitlab-ci.yml` |
+| **CircleCI** | Yes / Self-hosted | Fast caching, reusable "orbs" |
+| **Jenkins** | Self-hosted | Extremely flexible; massive plugin ecosystem |
+| **ArgoCD** | Self-hosted | GitOps CD for Kubernetes |
+
+**Key concepts:**
+
+| Concept | Meaning |
+| ------- | ------- |
+| **Artifact** | A versioned build output (Docker image, `.jar`, binary) stored after the build step. |
+| **Pipeline** | The ordered sequence of stages a change passes through. |
+| **Environment** | A named deployment target: `dev`, `staging`, `production`. |
+| **Secret / Env var** | Credentials injected at runtime — never baked into the image or committed to the repo. |
+| **Rollback** | Redeploying the previous artifact when a release fails. |
+| **Gate / Approval** | A manual check between stages (e.g. "approve to deploy to prod"). |
+
+**Deployment strategies:**
+
+| Strategy | How it works | Downtime | Rollback speed |
+| -------- | ------------ | -------- | -------------- |
+| **Recreate** | Stop old version, start new. Simple but has a gap. | Yes | Slow |
+| **Rolling** | Replace instances one by one — no hard cutover. | No | Medium |
+| **Blue-Green** | Run two identical environments; flip the traffic switch. | No | Instant |
+| **Canary** | Route a small % of traffic to the new version; monitor, then promote. | No | Instant |
+
+**Minimal GitHub Actions CD example (deploy after CI):**
+
+```yaml
+jobs:
+  deploy:
+    needs: test           # only runs if the 'test' job passes
+    runs-on: ubuntu-latest
+    environment: production   # triggers a manual approval gate on GitHub
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy
+        run: ./scripts/deploy.sh
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+```
+
+**Notes:**
+
+- Keep CI fast (under 10 min) — slow pipelines kill adoption. Cache dependencies aggressively.
+- Store secrets in a secret manager (GitHub Secrets, Vault, AWS SSM) — never commit them.
+- **Fail fast**: put cheap checks (lint, unit tests) first; expensive checks (e2e, security scans) later.
+- Version artifacts with SemVer or a commit SHA. Immutable artifacts make rollbacks reliable.
 
 ### Issues, README, LICENSE
 
