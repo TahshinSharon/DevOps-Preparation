@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-11-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-8-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -52,26 +52,8 @@
   - [FaaS — Function as a Service](#faas--function-as-a-service)
   - [Deployment Models](#deployment-models)
   - [Shared Responsibility Model](#shared-responsibility-model)
-- [IaaS — Infrastructure as a Service](#iaas--infrastructure-as-a-service-1)
-  - [One Shot Revision](#one-shot-revision-1)
-  - [What is IaaS](#what-is-iaas)
-  - [IaaS Core Components](#iaas-core-components)
-  - [IaaS on AWS](#iaas-on-aws)
-  - [IaaS Use Cases](#iaas-use-cases)
-- [PaaS — Platform as a Service](#paas--platform-as-a-service-1)
-  - [One Shot Revision](#one-shot-revision-2)
-  - [What is PaaS](#what-is-paas)
-  - [PaaS Core Components](#paas-core-components)
-  - [PaaS on AWS](#paas-on-aws)
-  - [PaaS Use Cases](#paas-use-cases)
-- [SaaS — Software as a Service](#saas--software-as-a-service-1)
-  - [One Shot Revision](#one-shot-revision-3)
-  - [What is SaaS](#what-is-saas)
-  - [SaaS Core Characteristics](#saas-core-characteristics)
-  - [SaaS on AWS](#saas-on-aws)
-  - [SaaS Use Cases](#saas-use-cases)
 - [AWS Global Infrastructure](#aws-global-infrastructure)
-  - [One Shot Revision](#one-shot-revision-4)
+  - [One Shot Revision](#one-shot-revision-1)
   - [Regions](#regions)
   - [Availability Zones](#availability-zones)
   - [Edge Locations & Points of Presence](#edge-locations--points-of-presence)
@@ -79,20 +61,20 @@
   - [AWS Outposts](#aws-outposts)
   - [How to Choose a Region](#how-to-choose-a-region)
 - [AWS Free Tier](#aws-free-tier)
-  - [One Shot Revision](#one-shot-revision-5)
+  - [One Shot Revision](#one-shot-revision-2)
   - [Free Tier Types](#free-tier-types)
   - [Key Services in the Free Tier](#key-services-in-the-free-tier)
   - [Monitoring Free Tier Usage](#monitoring-free-tier-usage)
   - [Avoiding Unexpected Charges](#avoiding-unexpected-charges)
 - [AWS Pricing Models](#aws-pricing-models)
-  - [One Shot Revision](#one-shot-revision-6)
+  - [One Shot Revision](#one-shot-revision-3)
   - [On-Demand](#on-demand)
   - [Reserved Instances & Savings Plans](#reserved-instances--savings-plans)
   - [Spot Instances](#spot-instances)
   - [Dedicated Hosts & Dedicated Instances](#dedicated-hosts--dedicated-instances)
   - [Pricing Calculators & Cost Tools](#pricing-calculators--cost-tools)
 - [AWS Access Methods](#aws-access-methods)
-  - [One Shot Revision](#one-shot-revision-7)
+  - [One Shot Revision](#one-shot-revision-4)
   - [AWS Management Console](#aws-management-console)
   - [AWS CLI](#aws-cli)
   - [AWS SDKs](#aws-sdks)
@@ -100,14 +82,14 @@
   - [AWS REST APIs](#aws-rest-apis)
   - [Infrastructure as Code](#infrastructure-as-code)
 - [IAM — Identity and Access Management](#iam--identity-and-access-management)
-  - [One Shot Revision](#one-shot-revision-8)
+  - [One Shot Revision](#one-shot-revision-5)
   - [IAM Overview](#iam-overview)
   - [IAM Users & Groups](#iam-users--groups)
   - [IAM Roles](#iam-roles)
   - [IAM Policies](#iam-policies)
   - [IAM Best Practices](#iam-best-practices)
 - [Elastic Compute Cloud](#elastic-compute-cloud)
-  - [One Shot Revision](#one-shot-revision-9)
+  - [One Shot Revision](#one-shot-revision-6)
   - [EC2 Overview](#ec2-overview)
 - [AWS Lambda](#aws-lambda)
   - [One Shot Revision](#one-shot-revision-10)
@@ -183,74 +165,369 @@ Cloud computing is delivered in three primary **service models** and four **depl
 
 ### IaaS — Infrastructure as a Service
 
-**What it is:** The cloud provider supplies virtualised compute, storage, and networking. You are responsible for the operating system, runtime, middleware, and application stack above the hypervisor.
+**Infrastructure as a Service (IaaS)** is the most fundamental cloud service model. The cloud provider supplies virtualised compute, storage, and networking resources over the internet. You retain full control of the operating system and everything above it — which means maximum flexibility but also maximum responsibility.
 
-**You manage:** OS, patches, runtime, middleware, application, data.
-**Provider manages:** Physical hardware, hypervisor, data centre, network fabric.
+The analogy: the provider gives you an empty plot of land with utilities (power, water, connectivity). You build the house.
 
-**AWS examples:** EC2, EBS, VPC, S3.
+#### What is IaaS
 
-**Typical use cases:**
-- Lift-and-shift migrations from on-premises servers.
-- Custom OS configurations or legacy software that needs root access.
-- High-performance computing (HPC) with specific hardware requirements.
-
-**Pros / Cons:**
-
-| Pros | Cons |
+| Layer | Managed by |
 | --- | --- |
-| Maximum control over the environment | You handle OS updates and security patches |
-| Supports any OS, runtime, or framework | Higher operational overhead vs. PaaS |
-| Pay for capacity, scale to your needs | Requires infrastructure expertise |
+| Physical hardware, data centre | Cloud provider |
+| Hypervisor / virtualisation | Cloud provider |
+| Virtual Machines (compute) | Cloud provider creates, **you configure** |
+| Operating System | **You** |
+| Runtime and middleware | **You** |
+| Application | **You** |
+| Data | **You** |
+
+**Key characteristics:**
+- **On-demand provisioning** — spin up and tear down resources in minutes via API, console, or CLI.
+- **Pay-as-you-go** — billed per hour or per second; no upfront hardware purchase.
+- **Elastic scaling** — increase or decrease resource allocation without physical intervention.
+- **Multi-tenancy** — physical hardware is shared across customers; logical isolation is enforced by the hypervisor.
+- **Self-service** — you manage resources directly without raising tickets with a vendor.
+
+**Notes:**
+- IaaS gives you the same level of access as owning a bare-metal server — minus the physical maintenance. You still need to harden the OS, apply patches, configure firewalls, and manage software.
+- Because you control the OS, IaaS is the only model that supports arbitrary kernel modules, custom drivers, or non-standard runtimes.
+
+---
+
+#### IaaS Core Components
+
+Every IaaS offering bundles three resource categories:
+
+**Compute:**
+
+| Resource | Description | AWS service |
+| --- | --- | --- |
+| Virtual Machine | Emulated server running a full OS | EC2 instance |
+| Bare Metal | Physical server without a hypervisor layer | EC2 Bare Metal instance |
+| Auto Scaling | Automatically adjust the number of VMs based on load | EC2 Auto Scaling Group |
+
+**Storage:**
+
+| Type | Description | AWS service |
+| --- | --- | --- |
+| Block storage | Raw disk attached to a single VM; formatted with a filesystem | EBS (Elastic Block Store) |
+| Object storage | Flat namespace for files/blobs accessed via HTTP | S3 |
+| File storage | Shared NFS/SMB filesystem mounted by multiple VMs | EFS (Elastic File System) |
+| Archive storage | Very low-cost, high-latency cold storage | S3 Glacier |
+
+**Networking:**
+
+| Resource | Description | AWS service |
+| --- | --- | --- |
+| Virtual private network | Isolated virtual network with its own IP space | VPC |
+| Public IP address | Static or dynamic public IPv4 address | Elastic IP (EIP) |
+| Load balancer | Distributes traffic across multiple instances | ELB (ALB / NLB / CLB) |
+| DNS | Domain name routing | Route 53 |
+| Firewall | Stateful packet filtering at the instance or subnet level | Security Groups / NACLs |
+
+---
+
+#### IaaS on AWS
+
+AWS is the largest IaaS provider. The core IaaS services:
+
+| Service | Category | What it provides |
+| --- | --- | --- |
+| **EC2** | Compute | Virtual servers (instances) — choose OS, instance type, region |
+| **EBS** | Block storage | Persistent disk volumes attached to EC2 instances |
+| **S3** | Object storage | Highly durable object store — 99.999999999% (11 nines) durability |
+| **VPC** | Networking | Isolated virtual network — subnets, route tables, internet gateways |
+| **ELB** | Load balancing | Application (HTTP/HTTPS), Network (TCP/UDP), and Classic load balancers |
+| **EFS** | File storage | Managed NFS file system shared across multiple EC2 instances |
+| **Auto Scaling** | Elasticity | Scale EC2 fleets up/down automatically based on CloudWatch metrics |
+| **Elastic IP** | Networking | Static public IPv4 address that can be re-associated across instances |
+
+**How the IaaS layers map to AWS services:**
+
+```
+Physical hardware       → AWS data centres (customer never sees this)
+Hypervisor              → AWS Nitro System (custom hypervisor)
+Virtual Machine         → EC2 instance
+OS disk                 → EBS root volume
+Additional storage      → EBS data volumes / EFS / S3
+Network interface       → Elastic Network Interface (ENI) inside a VPC
+Public connectivity     → Internet Gateway + Elastic IP or NAT Gateway
+Load balancing          → ELB (ALB / NLB)
+DNS                     → Route 53
+Firewall                → Security Groups (instance-level) + NACLs (subnet-level)
+```
+
+---
+
+#### IaaS Use Cases
+
+| Use Case | Why IaaS fits |
+| --- | --- |
+| **Lift-and-shift migration** | Move an on-premises VM to EC2 with minimal application changes |
+| **Custom OS or kernel** | Run Red Hat, Windows Server, or any OS with custom kernel modules |
+| **High-performance computing (HPC)** | GPU instances (P-series, G-series) or compute-optimised instances for ML training |
+| **Legacy software** | Applications that require a specific OS version or cannot be containerised |
+| **Disaster recovery** | Replicate on-premises servers to EC2 AMIs; spin up in minutes during a failover |
+| **Dev/test environments** | Provision short-lived environments on demand and terminate when done |
+| **Database servers** | Run MySQL, PostgreSQL, or Oracle on EC2 with full DBA control |
+
+**When NOT to use IaaS:**
+- When you don't need OS-level control — use PaaS (Elastic Beanstalk, RDS) to reduce operational overhead.
+- For stateless, event-driven workloads — use FaaS (Lambda) to eliminate idle compute costs.
+- For off-the-shelf applications — use SaaS to eliminate all infrastructure management.
+
+**Notes:**
+- The most common IaaS anti-pattern is treating EC2 instances as permanent, manually configured servers ("pet" servers). The modern approach uses Auto Scaling, Launch Templates, and immutable AMIs so that instances are disposable ("cattle").
+- Always attach an IAM role to EC2 instances instead of embedding credentials — the role grants temporary, automatically-rotated credentials via the instance metadata service (IMDS).
 
 ---
 
 ### PaaS — Platform as a Service
 
-**What it is:** The provider manages the runtime, OS, and underlying infrastructure. You deploy application code and configure behaviour; the platform handles scaling, patching, and availability automatically.
+**Platform as a Service (PaaS)** abstracts away the operating system, runtime, and underlying infrastructure. You provide application code and configuration; the platform handles provisioning, patching, scaling, and availability automatically.
 
-**You manage:** Application code, configuration, data.
-**Provider manages:** Runtime, OS, middleware, servers, networking.
+The analogy: the provider gives you a furnished apartment. You bring your belongings and arrange them — but you don't deal with plumbing, wiring, or structural maintenance.
 
-**AWS examples:** AWS Elastic Beanstalk, AWS App Runner, Amazon RDS.
+#### What is PaaS
 
-**Typical use cases:**
-- Web application deployment without managing servers.
-- Managed relational databases — you care about schema, not server administration.
-- CI/CD pipelines where you push code and the platform builds and deploys.
-
-**Pros / Cons:**
-
-| Pros | Cons |
+| Layer | Managed by |
 | --- | --- |
-| Fast time-to-deploy — no infra setup | Less control over the underlying environment |
-| Automatic OS patching and scaling | Potential vendor lock-in with proprietary runtimes |
-| Focus on application logic, not infrastructure | Can cost more than raw IaaS at scale |
+| Physical hardware, data centre | Cloud provider |
+| Hypervisor / virtualisation | Cloud provider |
+| Operating System | Cloud provider |
+| Runtime (Node, Python, Java JVM, etc.) | Cloud provider |
+| Middleware and app server | Cloud provider |
+| Application code and configuration | **You** |
+| Data | **You** |
+
+**Key characteristics:**
+- **Zero OS management** — the provider patches the OS and runtime; you never SSH into the underlying server.
+- **Managed scaling** — the platform automatically scales the runtime environment in response to traffic.
+- **Deployment-focused workflow** — you push code (via Git, zip, or container image) and the platform builds and runs it.
+- **Managed services** — databases, caches, and queues are offered as fully managed services (you query them, not administer them).
+- **Higher abstraction = less control** — you cannot install arbitrary OS packages or tune the kernel.
+
+**Notes:**
+- PaaS is the sweet spot for teams that want to ship features quickly without hiring dedicated infrastructure engineers.
+- The trade-off is reduced portability — code that relies on platform-specific features (e.g. Elastic Beanstalk environment variables, RDS parameter groups) may need rework to run on a different cloud.
+
+---
+
+#### PaaS Core Components
+
+**Application hosting:**
+
+| Component | Description | AWS service |
+| --- | --- | --- |
+| Managed runtime | Runs your app in a managed environment (Node, Python, Java, Go, etc.) | Elastic Beanstalk, App Runner |
+| Container platform | Runs Docker containers without managing VMs | AWS Fargate (ECS/EKS) |
+| CI/CD pipeline | Builds, tests, and deploys code automatically on push | AWS CodePipeline + CodeBuild |
+
+**Managed databases:**
+
+| Type | Description | AWS service |
+| --- | --- | --- |
+| Relational (SQL) | Fully managed PostgreSQL, MySQL, Oracle, SQL Server | Amazon RDS |
+| NoSQL (key-value / document) | Managed serverless NoSQL with single-digit millisecond latency | Amazon DynamoDB |
+| In-memory cache | Managed Redis or Memcached clusters | Amazon ElastiCache |
+| Data warehouse | Columnar analytics database for petabyte-scale BI workloads | Amazon Redshift |
+| Search | Managed OpenSearch / Elasticsearch cluster | Amazon OpenSearch Service |
+
+**Other managed platform services:**
+
+| Component | Description | AWS service |
+| --- | --- | --- |
+| Message queue | Fully managed message queuing (no broker to manage) | Amazon SQS |
+| Event bus | Publish/subscribe messaging and event routing | Amazon SNS / EventBridge |
+| API management | Managed API gateway — throttling, auth, caching | Amazon API Gateway |
+| Email sending | Managed SMTP / API email delivery | Amazon SES |
+
+---
+
+#### PaaS on AWS
+
+AWS offers a broad PaaS layer on top of its IaaS foundation:
+
+| Service | Category | What it provides |
+| --- | --- | --- |
+| **Elastic Beanstalk** | App hosting | Deploy web apps in Node, Python, Java, Ruby, PHP, Go, .NET, Docker — zero infra config |
+| **AWS App Runner** | Container hosting | Push a container image or source repo; App Runner builds, deploys, and scales it |
+| **AWS Fargate** | Container platform | Run ECS/EKS workloads without managing EC2 nodes |
+| **Amazon RDS** | Relational DB | Managed PostgreSQL, MySQL, MariaDB, Oracle, SQL Server; automated backups and failover |
+| **Amazon Aurora** | Relational DB | AWS-designed MySQL/PostgreSQL-compatible DB with up to 5× performance improvement |
+| **Amazon DynamoDB** | NoSQL DB | Serverless key-value / document DB; auto-scales read/write capacity |
+| **Amazon ElastiCache** | In-memory cache | Managed Redis or Memcached |
+| **Amazon Redshift** | Data warehouse | Columnar SQL analytics at petabyte scale |
+| **Amazon SQS** | Messaging | Fully managed message queue |
+| **Amazon SNS** | Messaging | Pub/sub notifications — push to HTTP, email, SQS, Lambda |
+| **Amazon API Gateway** | API management | Create, publish, and manage REST, HTTP, and WebSocket APIs |
+| **AWS CodePipeline** | CI/CD | Automated release pipelines connecting source, build, test, and deploy stages |
+
+**Elastic Beanstalk — the archetypal AWS PaaS:**
+
+```
+You provide  →  application code (zip / Git / Docker)
+              + environment configuration (instance type, env vars, scaling rules)
+
+Beanstalk manages →  EC2 instances, Auto Scaling Group, Load Balancer
+                  →  OS patching, health monitoring, rolling deployments
+                  →  CloudWatch alarms and log collection
+```
+
+**RDS — the managed database example:**
+
+```
+You provide  →  engine choice (PostgreSQL, MySQL, etc.)
+              + instance class and storage size
+              + parameter group (DB-level config)
+              + credentials and VPC placement
+
+RDS manages  →  OS patching
+             →  automated daily backups + point-in-time restore
+             →  Multi-AZ standby for high availability
+             →  Read replicas for read scaling
+             →  Minor version upgrades (optional automatic)
+```
+
+---
+
+#### PaaS Use Cases
+
+| Use Case | Why PaaS fits |
+| --- | --- |
+| **Web application deployment** | Push code to Elastic Beanstalk or App Runner; platform handles servers and scaling |
+| **Managed relational database** | Use RDS instead of running PostgreSQL on EC2 — no DBA needed for routine ops |
+| **Microservices on containers** | Run Fargate tasks — no EC2 worker nodes to patch or scale |
+| **Rapid prototyping** | Get an app running in minutes with Beanstalk; swap out for custom infra later if needed |
+| **CI/CD automation** | CodePipeline + CodeBuild automates test → build → deploy without managing Jenkins servers |
+| **Asynchronous processing** | SQS + Lambda worker decouples producers from consumers; both scale independently |
+
+**When NOT to use PaaS:**
+- When you need OS-level control (custom kernel, specific OS packages) — use IaaS (EC2).
+- When licensing requires dedicated hardware — use Dedicated Hosts.
+- When you need maximum portability and zero platform lock-in — containerise and use Fargate or EKS.
+
+**Notes:**
+- Elastic Beanstalk is often the first AWS PaaS service encountered. Despite its "managed" label, it still creates EC2 instances, Auto Scaling Groups, and load balancers in your account — you can inspect and modify them directly.
+- RDS Multi-AZ provides automatic failover in under 2 minutes but is not a read-scaling solution — for read scaling, add Read Replicas.
+- DynamoDB is serverless and requires zero capacity planning at small scale; enable on-demand mode and it scales to any throughput automatically.
 
 ---
 
 ### SaaS — Software as a Service
 
-**What it is:** A fully managed application delivered over the internet. The provider handles everything — infrastructure, platform, application, updates, and availability.
+**Software as a Service (SaaS)** is the highest-level cloud model. The provider delivers a complete, ready-to-use application over the internet. You do not manage any infrastructure, platform, or application code — you consume the software as a service.
 
-**You manage:** Data and user-level configuration only.
-**Provider manages:** Everything else.
+The analogy: you check into a hotel. The room is furnished, cleaned, and serviced. You bring nothing except your personal belongings and use the provided amenities.
 
-**AWS examples:** Amazon WorkMail, Amazon Chime, AWS Managed Microsoft AD.
-**Non-AWS examples:** Gmail, Salesforce, Slack, GitHub.
+#### What is SaaS
 
-**Typical use cases:**
-- Collaboration tools — email, video calls, documents.
-- CRM and ERP systems.
-- Any use case where you need functionality, not infrastructure control.
-
-**Pros / Cons:**
-
-| Pros | Cons |
+| Layer | Managed by |
 | --- | --- |
-| Zero infrastructure management | Minimal customisation |
-| Accessible from any browser or device | Data residency concerns — data lives in provider's cloud |
-| Automatic updates and patches | Entirely dependent on provider SLA for availability |
+| Physical hardware | Cloud provider |
+| Hypervisor | Cloud provider |
+| Operating System | Cloud provider |
+| Runtime | Cloud provider |
+| Application code | Cloud provider |
+| Application updates and patches | Cloud provider |
+| Data (content, settings) | **You** |
+| User access and permissions | **You** |
+
+**Key characteristics:**
+- **Zero infrastructure management** — you never think about servers, OS patches, or scaling.
+- **Browser-based or API access** — consumed via a web browser or REST/SDK API; no local installation required.
+- **Multi-tenancy** — a single application instance serves multiple customers; data is logically isolated per tenant.
+- **Subscription pricing** — billed per user per month or per API call; no upfront hardware or software licence.
+- **Automatic updates** — the provider rolls out new features and security patches transparently.
+- **Geographic availability** — SaaS applications are globally distributed; latency is handled by the provider.
+
+**Notes:**
+- Because the application code is managed by the provider, you have limited ability to customise behaviour beyond what the provider exposes in their configuration UI or API.
+- Data sovereignty is a critical concern: sensitive data processed by a SaaS provider resides on their infrastructure. Verify data residency guarantees and compliance certifications (SOC 2, ISO 27001, GDPR, HIPAA) before onboarding regulated data.
+
+---
+
+#### SaaS Core Characteristics
+
+**Multi-tenancy architecture:**
+
+```
+Single application instance
+├── Tenant A  (logically isolated data and config)
+├── Tenant B  (logically isolated data and config)
+└── Tenant C  (logically isolated data and config)
+```
+
+- Reduces provider cost (one codebase, one deployment) and allows faster feature rollout.
+- Customer data isolation is enforced at the application layer (row-level security, separate schemas, or separate encryption keys per tenant).
+
+**Pricing models:**
+
+| Model | Description | Example |
+| --- | --- | --- |
+| **Per-seat / per-user** | Fixed monthly fee per active user | Slack, GitHub Teams |
+| **Per-API-call** | Billed per request or per unit consumed | AWS Rekognition, Translate |
+| **Tiered / freemium** | Free tier with paid upgrades for higher limits or features | GitHub Free vs Pro |
+| **Usage-based** | Billed on actual consumption (emails sent, storage used) | Amazon SES |
+
+**Availability and SLA:**
+- SaaS providers publish Service Level Agreements (SLAs) — typically 99.9% (about 8.7 hours downtime/year) to 99.99% (about 52 minutes/year).
+- During outages you are entirely dependent on the provider's incident response. Design your architecture to degrade gracefully or failover to an alternative if the SaaS service is critical.
+
+---
+
+#### SaaS on AWS
+
+AWS offers SaaS products directly, and its platform services are consumed by third-party SaaS companies as the underlying infrastructure:
+
+**AWS-native SaaS products (you consume them as an end user or developer):**
+
+| Service | Category | What it provides |
+| --- | --- | --- |
+| **Amazon WorkMail** | Email & calendar | Managed business email and calendar compatible with Microsoft Outlook |
+| **Amazon Chime** | Collaboration | Managed video conferencing and messaging |
+| **Amazon WorkDocs** | Document management | Secure, managed document storage and collaboration |
+| **AWS Managed Microsoft AD** | Identity | Fully managed Active Directory in the cloud |
+| **Amazon Connect** | Contact centre | Cloud-based contact centre — pay per minute, no hardware |
+| **Amazon QuickSight** | BI / analytics | Managed business intelligence and dashboarding |
+| **AWS Marketplace** | Software | Thousands of third-party SaaS applications deployable in your AWS account |
+
+**AWS AI/ML services consumed as SaaS APIs:**
+
+| Service | What it provides |
+| --- | --- |
+| **Amazon Rekognition** | Image and video analysis (object detection, facial recognition, text extraction) |
+| **Amazon Comprehend** | Natural language processing (sentiment, entity detection, key phrases) |
+| **Amazon Translate** | Real-time and batch language translation |
+| **Amazon Polly** | Text-to-speech synthesis |
+| **Amazon Transcribe** | Automatic speech recognition (audio → text) |
+| **Amazon Textract** | Extract text and structured data from scanned documents |
+
+These services are consumed entirely through an API — you send data in, get results back. No model training, infrastructure provisioning, or runtime management required.
+
+---
+
+#### SaaS Use Cases
+
+| Use Case | Why SaaS fits |
+| --- | --- |
+| **Business email and collaboration** | WorkMail or Google Workspace — zero mail-server management |
+| **CRM and ERP** | Salesforce, SAP — complex enterprise apps with zero infrastructure overhead |
+| **BI and reporting** | Amazon QuickSight — connect to data sources and build dashboards without running Tableau servers |
+| **AI/ML without a data science team** | Call Rekognition or Comprehend via API — no model training or GPU instances needed |
+| **Identity and SSO** | AWS IAM Identity Center (SSO) or Okta — managed identity without running LDAP servers |
+| **Monitoring and observability** | Datadog, New Relic, Splunk — ingest logs and metrics without running Elasticsearch clusters |
+| **Payment processing** | Stripe, Braintree — PCI-compliant payment APIs consumed as a service |
+
+**When NOT to use SaaS:**
+- When you need to customise the application beyond what the provider allows.
+- When data cannot leave your infrastructure (on-premises requirement) — use IaaS or private cloud.
+- When you need to integrate deeply with proprietary internal systems — PaaS or IaaS gives more control.
+
+**Notes:**
+- SaaS vendor lock-in is real. Evaluate your exit strategy before committing to a SaaS provider for a critical system — ensure you can export your data in a portable format.
+- For regulated industries (finance, healthcare), verify that the SaaS provider holds the relevant compliance certifications: HIPAA BAA, PCI-DSS, FedRAMP, SOC 2 Type II, ISO 27001.
+- The boundary between PaaS and SaaS is blurring — services like Amazon RDS are sometimes described as "database as a service" (DBaaS), which sits between PaaS and SaaS.
 
 ---
 
@@ -340,407 +617,6 @@ AWS and the customer share security and compliance responsibility. The split dep
 - "Security of the cloud vs. security in the cloud" is the exact phrasing used in AWS certifications — memorise it.
 - Misconfigurations (open S3 buckets, overly permissive IAM policies) are always the customer's responsibility regardless of service model.
 - The shared responsibility model is a guaranteed topic in AWS Solutions Architect and Cloud Practitioner exams.
-
----
-
-## IaaS — Infrastructure as a Service
-
-**Infrastructure as a Service (IaaS)** is the most fundamental cloud service model. The cloud provider supplies virtualised compute, storage, and networking resources over the internet. You retain full control of the operating system and everything above it — which means maximum flexibility but also maximum responsibility.
-
-The analogy: the provider gives you an empty plot of land with utilities (power, water, connectivity). You build the house.
-
-### One Shot Revision
-
-| Topic | Short Description |
-| --- | --- |
-| [What is IaaS](#what-is-iaas) | Provider manages hardware and hypervisor; you manage OS and above |
-| [IaaS Core Components](#iaas-core-components) | Compute (VMs), storage (block/object/file), networking (VPC, load balancers) |
-| [IaaS on AWS](#iaas-on-aws) | EC2, EBS, VPC, S3, ELB, EIP — the foundational AWS services |
-| [IaaS Use Cases](#iaas-use-cases) | Lift-and-shift, custom OS, HPC, disaster recovery |
-
----
-
-### What is IaaS
-
-| Layer | Managed by |
-| --- | --- |
-| Physical hardware, data centre | Cloud provider |
-| Hypervisor / virtualisation | Cloud provider |
-| Virtual Machines (compute) | Cloud provider creates, **you configure** |
-| Operating System | **You** |
-| Runtime and middleware | **You** |
-| Application | **You** |
-| Data | **You** |
-
-**Key characteristics:**
-- **On-demand provisioning** — spin up and tear down resources in minutes via API, console, or CLI.
-- **Pay-as-you-go** — billed per hour or per second; no upfront hardware purchase.
-- **Elastic scaling** — increase or decrease resource allocation without physical intervention.
-- **Multi-tenancy** — physical hardware is shared across customers; logical isolation is enforced by the hypervisor.
-- **Self-service** — you manage resources directly without raising tickets with a vendor.
-
-**Notes:**
-- IaaS gives you the same level of access as owning a bare-metal server — minus the physical maintenance. You still need to harden the OS, apply patches, configure firewalls, and manage software.
-- Because you control the OS, IaaS is the only model that supports arbitrary kernel modules, custom drivers, or non-standard runtimes.
-
----
-
-### IaaS Core Components
-
-Every IaaS offering bundles three resource categories:
-
-**Compute:**
-
-| Resource | Description | AWS service |
-| --- | --- | --- |
-| Virtual Machine | Emulated server running a full OS | EC2 instance |
-| Bare Metal | Physical server without a hypervisor layer | EC2 Bare Metal instance |
-| Auto Scaling | Automatically adjust the number of VMs based on load | EC2 Auto Scaling Group |
-
-**Storage:**
-
-| Type | Description | AWS service |
-| --- | --- | --- |
-| Block storage | Raw disk attached to a single VM; formatted with a filesystem | EBS (Elastic Block Store) |
-| Object storage | Flat namespace for files/blobs accessed via HTTP | S3 |
-| File storage | Shared NFS/SMB filesystem mounted by multiple VMs | EFS (Elastic File System) |
-| Archive storage | Very low-cost, high-latency cold storage | S3 Glacier |
-
-**Networking:**
-
-| Resource | Description | AWS service |
-| --- | --- | --- |
-| Virtual private network | Isolated virtual network with its own IP space | VPC |
-| Public IP address | Static or dynamic public IPv4 address | Elastic IP (EIP) |
-| Load balancer | Distributes traffic across multiple instances | ELB (ALB / NLB / CLB) |
-| DNS | Domain name routing | Route 53 |
-| Firewall | Stateful packet filtering at the instance or subnet level | Security Groups / NACLs |
-
----
-
-### IaaS on AWS
-
-AWS is the largest IaaS provider. The core IaaS services:
-
-| Service | Category | What it provides |
-| --- | --- | --- |
-| **EC2** | Compute | Virtual servers (instances) — choose OS, instance type, region |
-| **EBS** | Block storage | Persistent disk volumes attached to EC2 instances |
-| **S3** | Object storage | Highly durable object store — 99.999999999% (11 nines) durability |
-| **VPC** | Networking | Isolated virtual network — subnets, route tables, internet gateways |
-| **ELB** | Load balancing | Application (HTTP/HTTPS), Network (TCP/UDP), and Classic load balancers |
-| **EFS** | File storage | Managed NFS file system shared across multiple EC2 instances |
-| **Auto Scaling** | Elasticity | Scale EC2 fleets up/down automatically based on CloudWatch metrics |
-| **Elastic IP** | Networking | Static public IPv4 address that can be re-associated across instances |
-
-**How the IaaS layers map to AWS services:**
-
-```
-Physical hardware       → AWS data centres (customer never sees this)
-Hypervisor              → AWS Nitro System (custom hypervisor)
-Virtual Machine         → EC2 instance
-OS disk                 → EBS root volume
-Additional storage      → EBS data volumes / EFS / S3
-Network interface       → Elastic Network Interface (ENI) inside a VPC
-Public connectivity     → Internet Gateway + Elastic IP or NAT Gateway
-Load balancing          → ELB (ALB / NLB)
-DNS                     → Route 53
-Firewall                → Security Groups (instance-level) + NACLs (subnet-level)
-```
-
----
-
-### IaaS Use Cases
-
-| Use Case | Why IaaS fits |
-| --- | --- |
-| **Lift-and-shift migration** | Move an on-premises VM to EC2 with minimal application changes |
-| **Custom OS or kernel** | Run Red Hat, Windows Server, or any OS with custom kernel modules |
-| **High-performance computing (HPC)** | GPU instances (P-series, G-series) or compute-optimised instances for ML training |
-| **Legacy software** | Applications that require a specific OS version or cannot be containerised |
-| **Disaster recovery** | Replicate on-premises servers to EC2 AMIs; spin up in minutes during a failover |
-| **Dev/test environments** | Provision short-lived environments on demand and terminate when done |
-| **Database servers** | Run MySQL, PostgreSQL, or Oracle on EC2 with full DBA control |
-
-**When NOT to use IaaS:**
-- When you don't need OS-level control — use PaaS (Elastic Beanstalk, RDS) to reduce operational overhead.
-- For stateless, event-driven workloads — use FaaS (Lambda) to eliminate idle compute costs.
-- For off-the-shelf applications — use SaaS to eliminate all infrastructure management.
-
-**Notes:**
-- The most common IaaS anti-pattern is treating EC2 instances as permanent, manually configured servers ("pet" servers). The modern approach uses Auto Scaling, Launch Templates, and immutable AMIs so that instances are disposable ("cattle").
-- Always attach an IAM role to EC2 instances instead of embedding credentials — the role grants temporary, automatically-rotated credentials via the instance metadata service (IMDS).
-
----
-
-## PaaS — Platform as a Service
-
-**Platform as a Service (PaaS)** abstracts away the operating system, runtime, and underlying infrastructure. You provide application code and configuration; the platform handles provisioning, patching, scaling, and availability automatically.
-
-The analogy: the provider gives you a furnished apartment. You bring your belongings and arrange them — but you don't deal with plumbing, wiring, or structural maintenance.
-
-### One Shot Revision
-
-| Topic | Short Description |
-| --- | --- |
-| [What is PaaS](#what-is-paas) | Provider manages OS and runtime; you manage app code and data only |
-| [PaaS Core Components](#paas-core-components) | Managed runtime, auto-scaling, deployment pipelines, managed databases |
-| [PaaS on AWS](#paas-on-aws) | Elastic Beanstalk, App Runner, RDS, DynamoDB, Redshift, ElastiCache |
-| [PaaS Use Cases](#paas-use-cases) | Web apps, managed databases, CI/CD, rapid prototyping |
-
----
-
-### What is PaaS
-
-| Layer | Managed by |
-| --- | --- |
-| Physical hardware, data centre | Cloud provider |
-| Hypervisor / virtualisation | Cloud provider |
-| Operating System | Cloud provider |
-| Runtime (Node, Python, Java JVM, etc.) | Cloud provider |
-| Middleware and app server | Cloud provider |
-| Application code and configuration | **You** |
-| Data | **You** |
-
-**Key characteristics:**
-- **Zero OS management** — the provider patches the OS and runtime; you never SSH into the underlying server.
-- **Managed scaling** — the platform automatically scales the runtime environment in response to traffic.
-- **Deployment-focused workflow** — you push code (via Git, zip, or container image) and the platform builds and runs it.
-- **Managed services** — databases, caches, and queues are offered as fully managed services (you query them, not administer them).
-- **Higher abstraction = less control** — you cannot install arbitrary OS packages or tune the kernel.
-
-**Notes:**
-- PaaS is the sweet spot for teams that want to ship features quickly without hiring dedicated infrastructure engineers.
-- The trade-off is reduced portability — code that relies on platform-specific features (e.g. Elastic Beanstalk environment variables, RDS parameter groups) may need rework to run on a different cloud.
-
----
-
-### PaaS Core Components
-
-**Application hosting:**
-
-| Component | Description | AWS service |
-| --- | --- | --- |
-| Managed runtime | Runs your app in a managed environment (Node, Python, Java, Go, etc.) | Elastic Beanstalk, App Runner |
-| Container platform | Runs Docker containers without managing VMs | AWS Fargate (ECS/EKS) |
-| CI/CD pipeline | Builds, tests, and deploys code automatically on push | AWS CodePipeline + CodeBuild |
-
-**Managed databases:**
-
-| Type | Description | AWS service |
-| --- | --- | --- |
-| Relational (SQL) | Fully managed PostgreSQL, MySQL, Oracle, SQL Server | Amazon RDS |
-| NoSQL (key-value / document) | Managed serverless NoSQL with single-digit millisecond latency | Amazon DynamoDB |
-| In-memory cache | Managed Redis or Memcached clusters | Amazon ElastiCache |
-| Data warehouse | Columnar analytics database for petabyte-scale BI workloads | Amazon Redshift |
-| Search | Managed OpenSearch / Elasticsearch cluster | Amazon OpenSearch Service |
-
-**Other managed platform services:**
-
-| Component | Description | AWS service |
-| --- | --- | --- |
-| Message queue | Fully managed message queuing (no broker to manage) | Amazon SQS |
-| Event bus | Publish/subscribe messaging and event routing | Amazon SNS / EventBridge |
-| API management | Managed API gateway — throttling, auth, caching | Amazon API Gateway |
-| Email sending | Managed SMTP / API email delivery | Amazon SES |
-
----
-
-### PaaS on AWS
-
-AWS offers a broad PaaS layer on top of its IaaS foundation:
-
-| Service | Category | What it provides |
-| --- | --- | --- |
-| **Elastic Beanstalk** | App hosting | Deploy web apps in Node, Python, Java, Ruby, PHP, Go, .NET, Docker — zero infra config |
-| **AWS App Runner** | Container hosting | Push a container image or source repo; App Runner builds, deploys, and scales it |
-| **AWS Fargate** | Container platform | Run ECS/EKS workloads without managing EC2 nodes |
-| **Amazon RDS** | Relational DB | Managed PostgreSQL, MySQL, MariaDB, Oracle, SQL Server; automated backups and failover |
-| **Amazon Aurora** | Relational DB | AWS-designed MySQL/PostgreSQL-compatible DB with up to 5× performance improvement |
-| **Amazon DynamoDB** | NoSQL DB | Serverless key-value / document DB; auto-scales read/write capacity |
-| **Amazon ElastiCache** | In-memory cache | Managed Redis or Memcached |
-| **Amazon Redshift** | Data warehouse | Columnar SQL analytics at petabyte scale |
-| **Amazon SQS** | Messaging | Fully managed message queue |
-| **Amazon SNS** | Messaging | Pub/sub notifications — push to HTTP, email, SQS, Lambda |
-| **Amazon API Gateway** | API management | Create, publish, and manage REST, HTTP, and WebSocket APIs |
-| **AWS CodePipeline** | CI/CD | Automated release pipelines connecting source, build, test, and deploy stages |
-
-**Elastic Beanstalk — the archetypal AWS PaaS:**
-
-```
-You provide  →  application code (zip / Git / Docker)
-              + environment configuration (instance type, env vars, scaling rules)
-
-Beanstalk manages →  EC2 instances, Auto Scaling Group, Load Balancer
-                  →  OS patching, health monitoring, rolling deployments
-                  →  CloudWatch alarms and log collection
-```
-
-**RDS — the managed database example:**
-
-```
-You provide  →  engine choice (PostgreSQL, MySQL, etc.)
-              + instance class and storage size
-              + parameter group (DB-level config)
-              + credentials and VPC placement
-
-RDS manages  →  OS patching
-             →  automated daily backups + point-in-time restore
-             →  Multi-AZ standby for high availability
-             →  Read replicas for read scaling
-             →  Minor version upgrades (optional automatic)
-```
-
----
-
-### PaaS Use Cases
-
-| Use Case | Why PaaS fits |
-| --- | --- |
-| **Web application deployment** | Push code to Elastic Beanstalk or App Runner; platform handles servers and scaling |
-| **Managed relational database** | Use RDS instead of running PostgreSQL on EC2 — no DBA needed for routine ops |
-| **Microservices on containers** | Run Fargate tasks — no EC2 worker nodes to patch or scale |
-| **Rapid prototyping** | Get an app running in minutes with Beanstalk; swap out for custom infra later if needed |
-| **CI/CD automation** | CodePipeline + CodeBuild automates test → build → deploy without managing Jenkins servers |
-| **Asynchronous processing** | SQS + Lambda worker decouples producers from consumers; both scale independently |
-
-**When NOT to use PaaS:**
-- When you need OS-level control (custom kernel, specific OS packages) — use IaaS (EC2).
-- When licensing requires dedicated hardware — use Dedicated Hosts.
-- When you need maximum portability and zero platform lock-in — containerise and use Fargate or EKS.
-
-**Notes:**
-- Elastic Beanstalk is often the first AWS PaaS service encountered. Despite its "managed" label, it still creates EC2 instances, Auto Scaling Groups, and load balancers in your account — you can inspect and modify them directly.
-- RDS Multi-AZ provides automatic failover in under 2 minutes but is not a read-scaling solution — for read scaling, add Read Replicas.
-- DynamoDB is serverless and requires zero capacity planning at small scale; enable on-demand mode and it scales to any throughput automatically.
-
----
-
-## SaaS — Software as a Service
-
-**Software as a Service (SaaS)** is the highest-level cloud model. The provider delivers a complete, ready-to-use application over the internet. You do not manage any infrastructure, platform, or application code — you consume the software as a service.
-
-The analogy: you check into a hotel. The room is furnished, cleaned, and serviced. You bring nothing except your personal belongings and use the provided amenities.
-
-### One Shot Revision
-
-| Topic | Short Description |
-| --- | --- |
-| [What is SaaS](#what-is-saas) | Provider manages everything; you manage data and user configuration only |
-| [SaaS Core Characteristics](#saas-core-characteristics) | Multi-tenancy, subscription pricing, browser-based access, automatic updates |
-| [SaaS on AWS](#saas-on-aws) | WorkMail, Chime, Managed Microsoft AD, Rekognition, Translate, Comprehend |
-| [SaaS Use Cases](#saas-use-cases) | Collaboration tools, CRM, analytics, AI/ML APIs, identity services |
-
----
-
-### What is SaaS
-
-| Layer | Managed by |
-| --- | --- |
-| Physical hardware | Cloud provider |
-| Hypervisor | Cloud provider |
-| Operating System | Cloud provider |
-| Runtime | Cloud provider |
-| Application code | Cloud provider |
-| Application updates and patches | Cloud provider |
-| Data (content, settings) | **You** |
-| User access and permissions | **You** |
-
-**Key characteristics:**
-- **Zero infrastructure management** — you never think about servers, OS patches, or scaling.
-- **Browser-based or API access** — consumed via a web browser or REST/SDK API; no local installation required.
-- **Multi-tenancy** — a single application instance serves multiple customers; data is logically isolated per tenant.
-- **Subscription pricing** — billed per user per month or per API call; no upfront hardware or software licence.
-- **Automatic updates** — the provider rolls out new features and security patches transparently.
-- **Geographic availability** — SaaS applications are globally distributed; latency is handled by the provider.
-
-**Notes:**
-- Because the application code is managed by the provider, you have limited ability to customise behaviour beyond what the provider exposes in their configuration UI or API.
-- Data sovereignty is a critical concern: sensitive data processed by a SaaS provider resides on their infrastructure. Verify data residency guarantees and compliance certifications (SOC 2, ISO 27001, GDPR, HIPAA) before onboarding regulated data.
-
----
-
-### SaaS Core Characteristics
-
-**Multi-tenancy architecture:**
-
-```
-Single application instance
-├── Tenant A  (logically isolated data and config)
-├── Tenant B  (logically isolated data and config)
-└── Tenant C  (logically isolated data and config)
-```
-
-- Reduces provider cost (one codebase, one deployment) and allows faster feature rollout.
-- Customer data isolation is enforced at the application layer (row-level security, separate schemas, or separate encryption keys per tenant).
-
-**Pricing models:**
-
-| Model | Description | Example |
-| --- | --- | --- |
-| **Per-seat / per-user** | Fixed monthly fee per active user | Slack, GitHub Teams |
-| **Per-API-call** | Billed per request or per unit consumed | AWS Rekognition, Translate |
-| **Tiered / freemium** | Free tier with paid upgrades for higher limits or features | GitHub Free vs Pro |
-| **Usage-based** | Billed on actual consumption (emails sent, storage used) | Amazon SES |
-
-**Availability and SLA:**
-- SaaS providers publish Service Level Agreements (SLAs) — typically 99.9% (about 8.7 hours downtime/year) to 99.99% (about 52 minutes/year).
-- During outages you are entirely dependent on the provider's incident response. Design your architecture to degrade gracefully or failover to an alternative if the SaaS service is critical.
-
----
-
-### SaaS on AWS
-
-AWS offers SaaS products directly, and its platform services are consumed by third-party SaaS companies as the underlying infrastructure:
-
-**AWS-native SaaS products (you consume them as an end user or developer):**
-
-| Service | Category | What it provides |
-| --- | --- | --- |
-| **Amazon WorkMail** | Email & calendar | Managed business email and calendar compatible with Microsoft Outlook |
-| **Amazon Chime** | Collaboration | Managed video conferencing and messaging |
-| **Amazon WorkDocs** | Document management | Secure, managed document storage and collaboration |
-| **AWS Managed Microsoft AD** | Identity | Fully managed Active Directory in the cloud |
-| **Amazon Connect** | Contact centre | Cloud-based contact centre — pay per minute, no hardware |
-| **Amazon QuickSight** | BI / analytics | Managed business intelligence and dashboarding |
-| **AWS Marketplace** | Software | Thousands of third-party SaaS applications deployable in your AWS account |
-
-**AWS AI/ML services consumed as SaaS APIs:**
-
-| Service | What it provides |
-| --- | --- |
-| **Amazon Rekognition** | Image and video analysis (object detection, facial recognition, text extraction) |
-| **Amazon Comprehend** | Natural language processing (sentiment, entity detection, key phrases) |
-| **Amazon Translate** | Real-time and batch language translation |
-| **Amazon Polly** | Text-to-speech synthesis |
-| **Amazon Transcribe** | Automatic speech recognition (audio → text) |
-| **Amazon Textract** | Extract text and structured data from scanned documents |
-
-These services are consumed entirely through an API — you send data in, get results back. No model training, infrastructure provisioning, or runtime management required.
-
----
-
-### SaaS Use Cases
-
-| Use Case | Why SaaS fits |
-| --- | --- |
-| **Business email and collaboration** | WorkMail or Google Workspace — zero mail-server management |
-| **CRM and ERP** | Salesforce, SAP — complex enterprise apps with zero infrastructure overhead |
-| **BI and reporting** | Amazon QuickSight — connect to data sources and build dashboards without running Tableau servers |
-| **AI/ML without a data science team** | Call Rekognition or Comprehend via API — no model training or GPU instances needed |
-| **Identity and SSO** | AWS IAM Identity Center (SSO) or Okta — managed identity without running LDAP servers |
-| **Monitoring and observability** | Datadog, New Relic, Splunk — ingest logs and metrics without running Elasticsearch clusters |
-| **Payment processing** | Stripe, Braintree — PCI-compliant payment APIs consumed as a service |
-
-**When NOT to use SaaS:**
-- When you need to customise the application beyond what the provider allows.
-- When data cannot leave your infrastructure (on-premises requirement) — use IaaS or private cloud.
-- When you need to integrate deeply with proprietary internal systems — PaaS or IaaS gives more control.
-
-**Notes:**
-- SaaS vendor lock-in is real. Evaluate your exit strategy before committing to a SaaS provider for a critical system — ensure you can export your data in a portable format.
-- For regulated industries (finance, healthcare), verify that the SaaS provider holds the relevant compliance certifications: HIPAA BAA, PCI-DSS, FedRAMP, SOC 2 Type II, ISO 27001.
-- The boundary between PaaS and SaaS is blurring — services like Amazon RDS are sometimes described as "database as a service" (DBaaS), which sits between PaaS and SaaS.
 
 ---
 
