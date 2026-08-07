@@ -170,9 +170,14 @@ The Linux networking stack and the tools used to inspect, configure, and trouble
 
 Cloud-native services on AWS (and equivalents on other providers) used to build, deploy, and scale infrastructure.
 
+- **Cloud Computing Models** — service models (IaaS, PaaS, SaaS, FaaS), deployment models (Public, Private, Hybrid, Multi-Cloud), and the AWS Shared Responsibility Model.
+- **IaaS — Infrastructure as a Service** — deep-dive on the IaaS model: compute (EC2), storage (EBS, S3, EFS), networking (VPC, ELB), core components, AWS services, and when to use IaaS vs higher-level models.
+- **PaaS — Platform as a Service** — deep-dive on the PaaS model: managed app hosting (Elastic Beanstalk, App Runner, Fargate), managed databases (RDS, DynamoDB, ElastiCache), messaging, and CI/CD.
+- **SaaS — Software as a Service** — deep-dive on the SaaS model: multi-tenancy, subscription pricing, AWS SaaS products (WorkMail, Connect, QuickSight), AI/ML APIs (Rekognition, Comprehend, Translate), and vendor lock-in considerations.
 - **AWS Global Infrastructure** — the physical and logical backbone of AWS — Regions, Availability Zones, Edge Locations, Local Zones, Wavelength Zones, Outposts, and how to choose the right Region.
 - **AWS Free Tier** — three offer types (Always Free, 12 Months Free, Trials), key service allowances, billing alerts, and a cleanup checklist to avoid unexpected charges.
 - **AWS Pricing Models** — On-Demand, Reserved Instances, Savings Plans, Spot Instances, Dedicated Hosts, and the cost tools used to estimate, monitor, and optimise spend.
+- **AWS Access Methods** — Management Console (browser GUI), AWS CLI v2 (install, configure, profiles, common commands), AWS SDKs (boto3 and others), CloudShell (browser-based pre-authenticated shell), raw REST APIs (SigV4 signing), and Infrastructure as Code (CloudFormation, CDK, Terraform).
 - **IAM (Identity and Access Management)** — the global identity plane for AWS — users, groups, roles, policies, trust relationships, and policy evaluation logic.
 - **Elastic Compute Cloud (EC2)** — resizable virtual servers in AWS — instances, AMIs, instance types, key pairs, regions, availability zones.
 - **AWS Lambda** — serverless compute — functions, event sources, runtimes, triggers, and pay-per-execution model.
