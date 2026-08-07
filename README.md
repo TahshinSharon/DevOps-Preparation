@@ -170,6 +170,9 @@ The Linux networking stack and the tools used to inspect, configure, and trouble
 
 Cloud-native services on AWS (and equivalents on other providers) used to build, deploy, and scale infrastructure.
 
+- **AWS Global Infrastructure** — the physical and logical backbone of AWS — Regions, Availability Zones, Edge Locations, Local Zones, Wavelength Zones, Outposts, and how to choose the right Region.
+- **AWS Free Tier** — three offer types (Always Free, 12 Months Free, Trials), key service allowances, billing alerts, and a cleanup checklist to avoid unexpected charges.
+- **AWS Pricing Models** — On-Demand, Reserved Instances, Savings Plans, Spot Instances, Dedicated Hosts, and the cost tools used to estimate, monitor, and optimise spend.
 - **IAM (Identity and Access Management)** — the global identity plane for AWS — users, groups, roles, policies, trust relationships, and policy evaluation logic.
 - **Elastic Compute Cloud (EC2)** — resizable virtual servers in AWS — instances, AMIs, instance types, key pairs, regions, availability zones.
 - **AWS Lambda** — serverless compute — functions, event sources, runtimes, triggers, and pay-per-execution model.
