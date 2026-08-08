@@ -176,7 +176,8 @@ Cloud-native services on AWS (and equivalents on other providers) used to build,
 - **AWS Pricing Models** — On-Demand, Reserved Instances, Savings Plans, Spot Instances, Dedicated Hosts, and the cost tools used to estimate, monitor, and optimise spend.
 - **AWS Access Methods** — Management Console (browser GUI), AWS CLI v2 (install, configure, profiles, common commands), AWS SDKs (boto3 and others), CloudShell (browser-based pre-authenticated shell), raw REST APIs (SigV4 signing), and Infrastructure as Code (CloudFormation, CDK, Terraform).
 - **IAM (Identity and Access Management)** — the global identity plane for AWS — users, groups, roles, policies, trust relationships, and policy evaluation logic.
-- **Elastic Compute Cloud (EC2)** — resizable virtual servers in AWS — instances, AMIs, instance types, key pairs, regions, availability zones.
+- **Amazon S3** — object storage — buckets, objects, keys, storage classes (Standard, IA, Glacier, Intelligent-Tiering), security (bucket policies, encryption, Block Public Access), and lifecycle policies.
+- **Elastic Compute Cloud (EC2)** — resizable virtual servers in AWS — instances, AMIs, instance types, security groups, EBS volumes, key pairs, and SSH access.
 - **AWS Lambda** — serverless compute — functions, event sources, runtimes, triggers, and pay-per-execution model.
 
 → [Open the Cloud Engineering notes](./Cloud-Engineering/README.md)

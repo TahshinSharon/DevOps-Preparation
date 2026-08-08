@@ -11,13 +11,14 @@
   <img src="https://img.shields.io/badge/Free%20Tier-29A845?style=for-the-badge&logo=amazonaws&logoColor=white" alt="Free Tier">
   <img src="https://img.shields.io/badge/Pricing%20Models-0D1A26?style=for-the-badge&logo=amazonaws&logoColor=white" alt="Pricing Models">
   <img src="https://img.shields.io/badge/IAM-DD344C?style=for-the-badge&logo=amazonaws&logoColor=white" alt="IAM">
+  <img src="https://img.shields.io/badge/S3-569A31?style=for-the-badge&logo=amazons3&logoColor=white" alt="S3">
   <img src="https://img.shields.io/badge/EC2-FF9900?style=for-the-badge&logo=amazonec2&logoColor=white" alt="EC2">
   <img src="https://img.shields.io/badge/Cloud-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white" alt="Cloud">
   <img src="https://img.shields.io/badge/DevOps-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="DevOps">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-8-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-9-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -88,11 +89,22 @@
   - [IAM Roles](#iam-roles)
   - [IAM Policies](#iam-policies)
   - [IAM Best Practices](#iam-best-practices)
-- [Elastic Compute Cloud](#elastic-compute-cloud)
+- [Amazon S3](#amazon-s3)
   - [One Shot Revision](#one-shot-revision-6)
+  - [S3 Overview](#s3-overview)
+  - [S3 Buckets & Objects](#s3-buckets--objects)
+  - [S3 Storage Classes](#s3-storage-classes)
+  - [S3 Security](#s3-security)
+- [Elastic Compute Cloud](#elastic-compute-cloud)
+  - [One Shot Revision](#one-shot-revision-7)
   - [EC2 Overview](#ec2-overview)
+  - [EC2 Instance Types](#ec2-instance-types)
+  - [AMIs — Amazon Machine Images](#amis--amazon-machine-images)
+  - [EC2 Security Groups](#ec2-security-groups)
+  - [EBS — Elastic Block Store](#ebs--elastic-block-store)
+  - [Key Pairs & SSH Access](#key-pairs--ssh-access)
 - [AWS Lambda](#aws-lambda)
-  - [One Shot Revision](#one-shot-revision-10)
+  - [One Shot Revision](#one-shot-revision-8)
   - [Lambda Overview](#lambda-overview)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
@@ -2322,19 +2334,251 @@ aws iam get-account-summary --query 'SummaryMap.AccountAccessKeysPresent'
 
 ---
 
+## Amazon S3
+
+Amazon S3 (Simple Storage Service) is AWS's foundational **object storage** service. It stores data as discrete objects inside containers called **buckets**, and exposes them through a simple HTTP API. S3 underpins a vast portion of the AWS ecosystem — CloudFront origins, Lambda deployment packages, EC2 AMIs, data lakes, static website hosting, and more.
+
+### One Shot Revision
+
+| Topic                                               | Short Description                                                                       |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [S3 Overview](#s3-overview)                         | Core S3 concepts — buckets, objects, keys, regions, durability                          |
+| [S3 Buckets & Objects](#s3-buckets--objects)        | Bucket naming rules, object structure, metadata, presigned URLs                         |
+| [S3 Storage Classes](#s3-storage-classes)           | Standard, IA, Glacier, Intelligent-Tiering — cost vs retrieval trade-offs               |
+| [S3 Security](#s3-security)                         | Bucket policies, ACLs, encryption, Block Public Access, VPC endpoints                  |
+
+---
+
+### S3 Overview
+
+**Description:** S3 stores arbitrary data as **objects** inside regionally-scoped **buckets**. Each object consists of the binary data, metadata, and a **key** — its unique name within the bucket. S3 is designed for 99.999999999% (11 nines) durability by automatically replicating data across three or more AZs within a region.
+
+**Core concepts:**
+
+| Term             | What it is                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------- |
+| **Bucket**       | A container for objects; created in a specific AWS region                                         |
+| **Object**       | A file plus its metadata; up to 5 TB per object                                                   |
+| **Key**          | The unique identifier (path) of an object within a bucket                                         |
+| **Region**       | Buckets are regional; data stays in the region unless you configure replication                   |
+| **Versioning**   | When enabled, S3 preserves every version of an object on overwrite or delete                      |
+| **Durability**   | 99.999999999% — 11 nines; AWS replicates across ≥3 AZs automatically                            |
+| **Availability** | Varies by storage class; Standard = 99.99%                                                        |
+
+**Object URL format:**
+
+```
+https://<bucket-name>.s3.<region>.amazonaws.com/<key>
+```
+
+**Learn from the official source:**
+
+→ [Amazon S3 — Official AWS Documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html)
+
+**Notes:**
+
+- S3 is **not a filesystem** — there are no true directories. What look like folders are key prefixes (e.g. `logs/2024/01/app.log` is one flat key).
+- Since December 2020, S3 offers **strong read-after-write consistency** for all operations in all regions.
+- S3 operates on a **global namespace** for bucket names — two accounts cannot own the same bucket name simultaneously.
+
+---
+
+### S3 Buckets & Objects
+
+**Description:** Everything in S3 lives inside a bucket. Understanding bucket naming, object structure, and access patterns is essential for using S3 correctly.
+
+**Bucket rules:**
+
+| Rule                  | Detail                                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| **Global uniqueness** | Bucket names are globally unique across all AWS accounts and regions                            |
+| **Name format**       | 3–63 characters; lowercase letters, numbers, hyphens; must start with a letter or number        |
+| **No IPs**            | Names must not be formatted as IP addresses (e.g. `192.168.1.1`)                               |
+| **Regional resource** | Created in a specific region; data stays there unless replicated                                |
+| **Default limit**     | 100 buckets per account (soft limit; raise via Support to 1,000)                               |
+
+**Object structure:**
+
+| Component        | Detail                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------- |
+| **Key**          | The full "path" within the bucket (e.g. `images/2024/photo.jpg`)                                 |
+| **Value**        | The actual binary data                                                                            |
+| **Metadata**     | System metadata (Content-Type, Last-Modified) + up to 10 user-defined key-value pairs            |
+| **Version ID**   | Present when versioning is enabled; null otherwise                                                |
+| **Max size**     | 5 TB per object                                                                                   |
+| **Multipart upload** | Required for objects > 5 GB; recommended above 100 MB                                        |
+
+**Presigned URLs:**
+
+A presigned URL grants time-limited access to a private S3 object without exposing credentials. Useful for allowing a browser or third party to upload or download a specific object directly.
+
+```bash
+# Generate a presigned download URL (valid for 1 hour)
+aws s3 presign s3://my-bucket/private/report.pdf --expires-in 3600
+```
+
+**Notes:**
+
+- S3 **simulates folders** via key prefixes; the console renders these as folders but the underlying model is a flat key-value store.
+- Use **multipart upload** for large files — it enables parallel uploads, is resumable on failure, and is required for objects > 5 GB.
+- **S3 Transfer Acceleration** uses CloudFront edge locations to speed up long-distance uploads.
+
+---
+
+### S3 Storage Classes
+
+**Description:** S3 offers multiple storage classes optimised for different access patterns and cost profiles. Choosing the right class reduces costs without sacrificing durability.
+
+| Storage Class                       | Use Case                                        | Durability  | Availability | Retrieval            |
+| ----------------------------------- | ----------------------------------------------- | ----------- | ------------ | -------------------- |
+| **Standard**                        | Frequently accessed data                        | 11 nines    | 99.99%       | Milliseconds         |
+| **Standard-IA**                     | Infrequently accessed; must survive AZ failure  | 11 nines    | 99.9%        | Milliseconds + fee   |
+| **One Zone-IA**                     | Infrequent access; can be recreated if lost     | 11 nines    | 99.5%        | Milliseconds + fee   |
+| **Glacier Instant Retrieval**       | Archives needing instant access                 | 11 nines    | 99.9%        | Milliseconds         |
+| **Glacier Flexible Retrieval**      | Archives; occasional access                     | 11 nines    | 99.99%       | Minutes–hours        |
+| **Glacier Deep Archive**            | Long-term compliance archives (7–10 years)      | 11 nines    | 99.99%       | 12–48 hours          |
+| **Intelligent-Tiering**             | Unknown or changing access patterns             | 11 nines    | 99.9%        | Depends on tier      |
+
+**Key distinctions:**
+
+- **Standard vs Standard-IA:** Standard-IA costs less per GB stored but adds a per-GB retrieval fee. Break-even is roughly 30 access days per month.
+- **One Zone-IA:** ~20% cheaper than Standard-IA but data lives in a single AZ — only appropriate for reproducible data (e.g. derived thumbnails).
+- **Intelligent-Tiering:** Automatically moves objects between Frequent and Infrequent tiers with no retrieval fees within tiers; monitoring fee per object per month.
+- **Glacier:** For data accessed once per quarter or less. Deep Archive is the cheapest option with the highest retrieval latency.
+
+**S3 Lifecycle policies** let you automatically transition objects between storage classes or expire them:
+
+```json
+{
+  "Rules": [
+    {
+      "ID": "move-to-glacier",
+      "Status": "Enabled",
+      "Transitions": [
+        { "Days": 90, "StorageClass": "GLACIER" }
+      ],
+      "Expiration": { "Days": 365 }
+    }
+  ]
+}
+```
+
+**Notes:**
+
+- All S3 storage classes share the same 11-nines durability (One Zone-IA is the same numerically but exposed to AZ-level loss events).
+- When versioning is enabled, lifecycle rules apply per version. Expired versions become **noncurrent** and can be separately transitioned or deleted.
+
+---
+
+### S3 Security
+
+**Description:** S3 security is controlled through a layered permission model: IAM identity policies (who can act), bucket policies (what can be done on this bucket), ACLs (legacy per-object grants), and the account-level Block Public Access override.
+
+**Permission layers:**
+
+| Layer                     | Scope              | Recommended use                                                         |
+| ------------------------- | ------------------ | ----------------------------------------------------------------------- |
+| **IAM identity policy**   | Principal-level    | Grant/deny S3 actions to IAM users, roles, and services                 |
+| **Bucket policy**         | Bucket/object      | Cross-account access, enforce HTTPS, IP restrictions                    |
+| **ACL**                   | Object/bucket      | Legacy — avoid for new deployments; prefer bucket policies              |
+| **Block Public Access**   | Account or bucket  | Hard override that prevents any public ACL or policy from taking effect |
+
+**Block Public Access (recommended default ON):**
+
+```bash
+# Block all public access on a specific bucket
+aws s3api put-public-access-block \
+  --bucket my-bucket \
+  --public-access-block-configuration \
+    "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+```
+
+**Bucket policy example — enforce HTTPS only:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyHTTP",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::my-bucket",
+        "arn:aws:s3:::my-bucket/*"
+      ],
+      "Condition": {
+        "Bool": { "aws:SecureTransport": "false" }
+      }
+    }
+  ]
+}
+```
+
+**Encryption options:**
+
+| Type                       | Who manages the key | Detail                                                   |
+| -------------------------- | ------------------- | -------------------------------------------------------- |
+| **SSE-S3**                 | AWS (S3-managed)    | Default since Jan 2023; AES-256; no additional cost      |
+| **SSE-KMS**                | AWS KMS             | Audit trail via CloudTrail; key rotation; per-call cost  |
+| **SSE-C**                  | Customer            | You provide the key per request; AWS never stores it     |
+| **Client-side encryption** | Customer            | Encrypt before upload; AWS never sees plaintext          |
+
+**Notes:**
+
+- As of **January 2023**, S3 enables **SSE-S3 encryption by default** on all new objects — no configuration required.
+- A bucket policy alone does **not** make a bucket private if Block Public Access is off — always enable Block Public Access unless you intentionally serve public content.
+- Use **S3 Access Logs** or **AWS CloudTrail Data Events** to audit object access and modifications.
+- **VPC Gateway Endpoints** for S3 route traffic from a VPC to S3 without traversing the public internet — no NAT Gateway required.
+
+---
+
 ## Elastic Compute Cloud
 
 Amazon EC2 (Elastic Compute Cloud) provides resizable virtual servers — called **instances** — in the AWS cloud. It's the foundational compute service for most AWS workloads, letting you launch, configure, scale, and terminate machines on demand without owning physical hardware.
 
 ### One Shot Revision
 
-| Topic                                 | Short Description                                                       |
-| ------------------------------------- | ----------------------------------------------------------------------- |
-| [EC2 Overview](#ec2-overview)         | Core EC2 concepts — instances, AMIs, instance types, key pairs, regions |
+| Topic                                                           | Short Description                                                                  |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [EC2 Overview](#ec2-overview)                                   | Core EC2 concepts — instances, AMIs, instance types, key pairs, regions            |
+| [EC2 Instance Types](#ec2-instance-types)                       | General purpose, compute, memory, storage, and accelerated computing families      |
+| [AMIs — Amazon Machine Images](#amis--amazon-machine-images)    | Pre-configured templates used to launch EC2 instances                              |
+| [EC2 Security Groups](#ec2-security-groups)                     | Stateful virtual firewalls that control instance-level traffic                     |
+| [EBS — Elastic Block Store](#ebs--elastic-block-store)          | Persistent block-storage volumes attached to EC2 instances                         |
+| [Key Pairs & SSH Access](#key-pairs--ssh-access)                | Asymmetric key authentication for Linux EC2 instances                              |
+
+---
 
 ### EC2 Overview
 
-**Description:** A primer on the building blocks of EC2 — what an instance is, how AMIs and instance types fit together, and how regions, availability zones, security groups, and key pairs shape an EC2 deployment.
+**Description:** An EC2 instance is a virtual machine running on AWS hardware. You choose the OS (via an AMI), the hardware profile (instance type), the network placement (VPC and subnet), security rules (security groups), and storage (EBS volumes). EC2 gives IaaS-level control — you are responsible for the OS, runtime, and application; AWS manages the physical host.
+
+**Core concepts:**
+
+| Term                   | What it is                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| **Instance**           | A running virtual machine; uniquely identified by an Instance ID                                 |
+| **AMI**                | Amazon Machine Image — the OS template used to boot an instance                                  |
+| **Instance type**      | The hardware profile: vCPU count, memory, network bandwidth                                      |
+| **Key pair**           | Asymmetric key used for SSH (Linux) or password decryption (Windows)                             |
+| **Security group**     | Stateful virtual firewall attached to an instance's network interface                            |
+| **EBS volume**         | Persistent block storage attached to an instance; survives instance stop/start                   |
+| **Elastic IP**         | Static public IPv4 address that can be re-associated across instances                            |
+| **User data**          | A bootstrap script that runs once when an instance first launches                                |
+| **Instance metadata**  | Endpoint at `169.254.169.254` exposing instance attributes and temporary IAM credentials         |
+
+**Instance lifecycle:**
+
+```
+Pending → Running → Stopping → Stopped → Terminated
+                 ↘ Shutting-down → Terminated
+```
+
+- **Stop:** EBS data persists; compute billing stops; EBS storage continues to be billed.
+- **Terminate:** Instance and root volume are deleted (unless delete-on-termination is disabled).
+- **Hibernate:** RAM state is saved to EBS; instance resumes from where it left off.
 
 **Learn from the official source:**
 
@@ -2342,7 +2586,237 @@ Amazon EC2 (Elastic Compute Cloud) provides resizable virtual servers — called
 
 **Notes:**
 
-- _To be filled in after reading the official documentation._
+- Instances not in a stopped or terminated state incur compute charges. Always terminate unused instances.
+- Attach an **IAM role** to an instance instead of embedding credentials — temporary credentials are delivered via IMDS and auto-rotate.
+- Use **EC2 Instance Connect** or **AWS Systems Manager Session Manager** for SSH access without managing key pairs or opening port 22.
+
+---
+
+### EC2 Instance Types
+
+**Description:** Instance types define the hardware profile — vCPUs, memory, network performance, and available storage. They follow the naming convention `<family><generation>.<size>` (e.g. `t3.medium`, `c6i.xlarge`).
+
+**Instance families:**
+
+| Family                              | Optimised for                   | Example types       | Typical use cases                                   |
+| ----------------------------------- | ------------------------------- | ------------------- | --------------------------------------------------- |
+| **General Purpose (T, M)**          | Balanced CPU/memory             | t3, t4g, m6i, m7g   | Web servers, dev/test, small databases              |
+| **Compute Optimised (C)**           | High CPU-to-memory ratio        | c6i, c7g            | Batch processing, web tier, HPC front-end           |
+| **Memory Optimised (R, X, z)**      | Large in-memory datasets        | r6i, x2iedn         | In-memory DBs (Redis, SAP HANA), big data           |
+| **Storage Optimised (I, D, H)**     | High sequential disk throughput | i4i, d3en           | NoSQL DBs, data warehouses, Hadoop                  |
+| **Accelerated Computing (P, G, Inf, Trn)** | GPUs / custom ASICs      | p4d, g5, inf2, trn1 | ML training, inference, video rendering             |
+| **HPC (Hpc)**                       | Tightly coupled HPC workloads   | hpc6a               | Computational fluid dynamics, genomics              |
+
+**Size suffixes (smallest → largest):**
+
+`nano` → `micro` → `small` → `medium` → `large` → `xlarge` → `2xlarge` → … → `metal`
+
+**T-series burstable instances:**
+
+T-series instances (t2, t3, t4g) earn CPU credits during idle periods and spend them during bursts. With `unlimited` mode enabled, the instance can burst beyond its credit balance at an additional per-CPU-hour charge.
+
+**Notes:**
+
+- **Graviton (Arm-based)** instance types (`t4g`, `m7g`, `c7g`, `r7g`) provide up to 40% better price/performance than x86 equivalents for compatible workloads.
+- Use the **AWS Instance Type Explorer** in the EC2 console to compare families and filter by vCPU, memory, and network requirements.
+
+---
+
+### AMIs — Amazon Machine Images
+
+**Description:** An AMI is the template used to launch an EC2 instance. It bundles the OS, pre-installed software, configuration, and optional data volumes into a reusable snapshot. Every instance is launched from exactly one AMI.
+
+**AMI components:**
+
+| Component                | Detail                                                                                             |
+| ------------------------ | -------------------------------------------------------------------------------------------------- |
+| **Root volume snapshot** | EBS snapshot with the OS and pre-installed software                                                |
+| **Launch permissions**   | Who can use the AMI: public, specific accounts, or private                                         |
+| **Block device mapping** | Defines volumes attached at launch: root device + any additional EBS/ephemeral volumes             |
+
+**AMI sources:**
+
+| Source              | Examples                                                               |
+| ------------------- | ---------------------------------------------------------------------- |
+| **AWS-provided**    | Amazon Linux 2023, Ubuntu, Windows Server, RHEL, SUSE                 |
+| **AWS Marketplace** | Third-party commercial/open-source images (pre-licensed software)      |
+| **Community AMIs**  | Public images shared by other AWS accounts                             |
+| **Custom**          | Created from a running or stopped instance; golden images              |
+
+**Creating a custom AMI:**
+
+```bash
+# Create an AMI from a running instance
+aws ec2 create-image \
+  --instance-id i-0abcd1234efgh5678 \
+  --name "my-golden-image-v1" \
+  --no-reboot
+```
+
+**Copying an AMI to another region:**
+
+```bash
+aws ec2 copy-image \
+  --source-region us-east-1 \
+  --source-image-id ami-0abcdef1234567890 \
+  --region eu-west-1 \
+  --name "my-image-eu-west-1"
+```
+
+**Notes:**
+
+- AMIs are **regional** — an AMI in `us-east-1` cannot launch instances in `eu-west-1` without copying it first.
+- Use **EC2 Image Builder** to automate creation, testing, and distribution of custom AMIs on a schedule.
+- An AMI is backed by EBS snapshots; you pay for snapshot storage even if the AMI isn't actively used. Deregister unused AMIs and delete their backing snapshots.
+
+---
+
+### EC2 Security Groups
+
+**Description:** A security group is a **stateful virtual firewall** that controls inbound and outbound traffic for one or more EC2 instances. Rules allow traffic by protocol, port range, and source/destination (CIDR or another security group reference).
+
+**Key properties:**
+
+| Property             | Detail                                                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **Stateful**         | Inbound response traffic is automatically allowed — no explicit return rule needed                          |
+| **Default deny**     | All traffic is denied unless an explicit allow rule exists                                                   |
+| **No deny rules**    | Security groups can only allow traffic; use Network ACLs (NACLs) for subnet-level deny rules                |
+| **Multiple groups**  | An instance can have up to 5 security groups; rules are unioned                                             |
+| **Group-as-source**  | Rules can reference another security group as source, enabling dynamic allow-listing (e.g. ALB → app tier)  |
+
+**Common rule examples:**
+
+```bash
+# Allow SSH from a specific IP
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-0abc1234 \
+  --protocol tcp --port 22 \
+  --cidr 203.0.113.10/32
+
+# Allow HTTP from anywhere
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-0abc1234 \
+  --protocol tcp --port 80 \
+  --cidr 0.0.0.0/0
+
+# Allow all traffic from another security group (e.g. ALB)
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-0abc1234 \
+  --protocol -1 \
+  --source-group sg-0loadbalancer
+```
+
+**Security group vs NACL:**
+
+| Feature          | Security Group           | NACL                            |
+| ---------------- | ------------------------ | ------------------------------- |
+| Level            | Instance (ENI)           | Subnet                          |
+| Stateful         | Yes                      | No                              |
+| Deny rules       | No                       | Yes                             |
+| Evaluation       | All rules evaluated      | Rules evaluated in number order |
+
+**Notes:**
+
+- Never open port 22 to `0.0.0.0/0` in production. Use EC2 Instance Connect, Session Manager, or restrict to a bastion host IP.
+- Security groups are **free** — create as many granular groups as needed. Consolidating all rules into one SG makes auditing harder.
+
+---
+
+### EBS — Elastic Block Store
+
+**Description:** EBS provides persistent **block storage** volumes that attach to EC2 instances over the network. Unlike instance store (ephemeral, physically attached), EBS volumes persist independently of the instance lifecycle — data survives instance stops and volumes can be detached and reattached.
+
+**EBS volume types:**
+
+| Type                          | Use case                   | Max IOPS   | Max throughput | Notes                                            |
+| ----------------------------- | -------------------------- | ---------- | -------------- | ------------------------------------------------ |
+| **gp3** (General Purpose SSD) | Most workloads             | 16,000     | 1,000 MB/s     | Default; IOPS independent of size; cheaper than gp2 |
+| **gp2** (General Purpose SSD) | Legacy default             | 16,000     | 250 MB/s       | IOPS tied to volume size (3 IOPS/GB)             |
+| **io2 Block Express**         | Mission-critical DBs       | 256,000    | 4,000 MB/s     | 99.999% durability; sub-millisecond latency      |
+| **io1**                       | I/O-intensive workloads    | 64,000     | 1,000 MB/s     | Legacy provisioned IOPS                          |
+| **st1** (Throughput HDD)      | Big data, log processing   | 500        | 500 MB/s       | Sequential read/write; cannot be boot volume     |
+| **sc1** (Cold HDD)            | Infrequently accessed      | 250        | 250 MB/s       | Lowest cost; cannot be boot volume               |
+
+**Key EBS concepts:**
+
+| Concept            | Detail                                                                                                         |
+| ------------------ | -------------------------------------------------------------------------------------------------------------- |
+| **Snapshot**       | Point-in-time backup stored in S3; incremental; used to create new volumes or AMIs                             |
+| **Encryption**     | AES-256 via AWS KMS; optional but low-overhead — enable at creation                                            |
+| **Multi-attach**   | io1/io2 volumes can attach to up to 16 Nitro instances simultaneously (same AZ)                               |
+| **AZ-bound**       | A volume exists in one AZ; to move, snapshot it and create a new volume in the target AZ                      |
+
+**Common operations:**
+
+```bash
+# Create a gp3 volume
+aws ec2 create-volume --volume-type gp3 --size 100 \
+  --availability-zone us-east-1a
+
+# Attach to an instance
+aws ec2 attach-volume --volume-id vol-0abc1234 \
+  --instance-id i-0efgh5678 --device /dev/sdf
+
+# Create a snapshot for backup
+aws ec2 create-snapshot --volume-id vol-0abc1234 \
+  --description "Pre-deployment backup"
+```
+
+**Notes:**
+
+- **Prefer gp3 over gp2** for new volumes — gp3 lets you provision IOPS and throughput independently and costs ~20% less per GB.
+- Enable **EBS encryption by default** at the account level so all new volumes and snapshots are encrypted automatically: `aws ec2 enable-ebs-encryption-by-default`.
+- Use **Amazon Data Lifecycle Manager (DLM)** to automate snapshot schedules and retention.
+
+---
+
+### Key Pairs & SSH Access
+
+**Description:** EC2 uses asymmetric key pairs for initial authentication. AWS stores the public key; you store the private key. At launch, EC2 injects the public key into the instance's `~/.ssh/authorized_keys`. You use the private key to SSH in.
+
+**Creating and using a key pair:**
+
+```bash
+# Create a key pair and save the private key
+aws ec2 create-key-pair --key-name my-key \
+  --query 'KeyMaterial' --output text > my-key.pem
+
+# Set permissions (SSH refuses keys readable by others)
+chmod 400 my-key.pem
+
+# Connect to a Linux instance
+ssh -i my-key.pem ec2-user@<public-ip-or-dns>
+```
+
+**Default usernames by OS:**
+
+| AMI                          | Default username         |
+| ---------------------------- | ------------------------ |
+| Amazon Linux 2 / 2023        | `ec2-user`               |
+| Ubuntu                       | `ubuntu`                 |
+| RHEL                         | `ec2-user` or `root`     |
+| SUSE                         | `ec2-user`               |
+| Debian                       | `admin`                  |
+| Windows                      | Decrypt password via console or CLI |
+
+**Modern alternatives to key pairs:**
+
+| Method                     | How                                              | Advantage                                                |
+| -------------------------- | ------------------------------------------------ | -------------------------------------------------------- |
+| **EC2 Instance Connect**   | Browser/CLI one-time SSH certificate             | No long-lived key needed; IAM-controlled                 |
+| **Session Manager (SSM)**  | WebSocket tunnel via SSM agent                   | No port 22 open; fully audited; works from private subnet |
+
+```bash
+# Start a Session Manager session (no key pair or port 22 required)
+aws ssm start-session --target i-0abcd1234efgh5678
+```
+
+**Notes:**
+
+- Key pairs are **regional** — a key pair created in `us-east-1` is not visible in `eu-west-1`.
+- The private key is shown **only once** at creation time; AWS does not store it. If you lose it, you must create a new pair and update the instance.
+- For production, prefer **Session Manager** — it removes the need for port 22 and creates a full audit trail in CloudTrail.
 
 ---
 
