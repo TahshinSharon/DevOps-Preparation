@@ -106,6 +106,11 @@
 - [AWS Lambda](#aws-lambda)
   - [One Shot Revision](#one-shot-revision-8)
   - [Lambda Overview](#lambda-overview)
+  - [Lambda Versions & Aliases](#lambda-versions--aliases)
+  - [Lambda Destinations & DLQ](#lambda-destinations--dlq)
+  - [Function URLs](#function-urls)
+  - [Lambda VPC Configuration](#lambda-vpc-configuration)
+  - [Lambda Monitoring & Observability](#lambda-monitoring--observability)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -2826,9 +2831,14 @@ AWS Lambda is a **serverless compute service** that runs your code in response t
 
 ### One Shot Revision
 
-| Topic                                 | Short Description                                                                                    |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| [Lambda Overview](#lambda-overview)   | Functions, handlers, event sources, runtimes, execution environment, cold starts, concurrency, pricing |
+| Topic                                                                         | Short Description                                                                                    |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [Lambda Overview](#lambda-overview)                                           | Functions, handlers, invocation types, runtimes, cold starts, concurrency, pricing                  |
+| [Lambda Versions & Aliases](#lambda-versions--aliases)                        | Immutable published versions, aliases as named pointers, weighted routing for canary deployments     |
+| [Lambda Destinations & DLQ](#lambda-destinations--dlq)                        | Async retry behaviour, on-success/on-failure destinations, Dead Letter Queues                        |
+| [Function URLs](#function-urls)                                               | Direct HTTPS endpoints on a Lambda function without API Gateway                                      |
+| [Lambda VPC Configuration](#lambda-vpc-configuration)                         | Connecting Lambda to private VPC resources, internet access, cold-start impact                       |
+| [Lambda Monitoring & Observability](#lambda-monitoring--observability)         | CloudWatch metrics, X-Ray active tracing, Lambda Insights                                            |
 
 ### Lambda Overview
 
@@ -2950,6 +2960,304 @@ aws lambda put-function-concurrency \
 - Place the **Lambda function inside a VPC** only when it genuinely needs private resource access (e.g. RDS). VPC attachment increases cold start time due to ENI provisioning; mitigate with Provisioned Concurrency or the Hyperplane ENI model (available in newer runtimes).
 - Use **Lambda Layers** to keep deployment packages small and share common libraries (e.g. `boto3`, `requests`) across functions without bundling them in every zip.
 - Lambda integrates natively with **CloudWatch Logs** — every invocation's stdout/stderr is automatically streamed to a log group named `/aws/lambda/<function-name>`.
+
+### Lambda Versions & Aliases
+
+**Description:** Lambda lets you publish immutable numbered versions of a function and create named aliases that point to a version. Aliases decouple callers from the underlying version and enable safe canary or blue/green deployments via weighted routing.
+
+**Versions:**
+
+| Concept               | Detail                                                                                                   |
+| --------------------- | -------------------------------------------------------------------------------------------------------- |
+| **`$LATEST`**         | The mutable, unpublished version; always reflects the most recent deployment                             |
+| **Published version** | An immutable snapshot of code + configuration, numbered sequentially (1, 2, 3 …)                        |
+| **Qualified ARN**     | Includes the version/alias suffix: `arn:aws:lambda:…:function:my-fn:3`                                  |
+| **Unqualified ARN**   | Points to `$LATEST`: `arn:aws:lambda:…:function:my-fn`                                                  |
+
+- Published versions are **immutable** — code, runtime, memory, timeout, and environment variables are frozen.
+- You cannot delete a version that an alias currently points to.
+
+**Aliases:**
+
+An alias is a named pointer (e.g. `prod`, `staging`) to a specific version. Callers invoke the alias; you update the alias to shift traffic to a new version with zero code changes in the caller.
+
+**Weighted routing (canary/linear deployments):**
+
+An alias can split traffic between two versions:
+
+```bash
+# Publish a new version
+aws lambda publish-version --function-name my-function
+
+# Create an alias pointing to version 5
+aws lambda create-alias \
+  --function-name my-function \
+  --name prod \
+  --function-version 5
+
+# Shift 10% of prod traffic to version 6 (canary)
+aws lambda update-alias \
+  --function-name my-function \
+  --name prod \
+  --function-version 5 \
+  --routing-config AdditionalVersionWeights={"6"=0.1}
+```
+
+**Notes:**
+
+- Use **CodeDeploy** (integrated via AWS SAM) to automate canary or linear traffic shifting with automatic rollback on CloudWatch alarms.
+- Aliases work with **provisioned concurrency** — attach provisioned concurrency to an alias, not to `$LATEST`.
+- Event source mappings and triggers should always reference an alias ARN, never `$LATEST`, so deployments don't cause unexpected behaviour in consumers.
+
+---
+
+### Lambda Destinations & DLQ
+
+**Description:** Lambda provides two mechanisms to handle the outcomes of **asynchronous** invocations — Destinations (modern, recommended) and Dead Letter Queues (legacy). Both capture events that could not be successfully processed.
+
+**Async invocation retry behaviour:**
+
+```
+Invocation fails
+  → Retry 1 (after ~1 min)
+  → Retry 2 (after ~2 min)
+  → If still failing → send to on-failure destination or DLQ
+```
+
+- AWS queues async events for up to **6 hours** (maximum event age). If retries exceed the configured maximum age or attempt count, the event is discarded or sent to a failure destination.
+- You can configure **Maximum retry attempts** (0–2) and **Maximum event age** (60 s–6 h) per function.
+
+**Lambda Destinations:**
+
+| Destination type    | Supported targets                               | When triggered                    |
+| ------------------- | ----------------------------------------------- | --------------------------------- |
+| **On-success**      | SNS, SQS, EventBridge, another Lambda function  | Invocation succeeds               |
+| **On-failure**      | SNS, SQS, EventBridge, another Lambda function  | All retries exhausted             |
+
+Destinations pass the full event, response, and metadata (request ID, condition, timestamps) to the target — richer than a DLQ.
+
+```bash
+# Configure an on-failure destination (SQS)
+aws lambda put-function-event-invoke-config \
+  --function-name my-function \
+  --maximum-retry-attempts 1 \
+  --destination-config '{"OnFailure":{"Destination":"arn:aws:sqs:us-east-1:123456789012:my-dlq"}}'
+
+# Configure both success and failure destinations
+aws lambda put-function-event-invoke-config \
+  --function-name my-function \
+  --destination-config '{
+    "OnSuccess":{"Destination":"arn:aws:sns:us-east-1:123456789012:success-topic"},
+    "OnFailure":{"Destination":"arn:aws:sqs:us-east-1:123456789012:failure-queue"}
+  }'
+```
+
+**Dead Letter Queue (DLQ) — legacy:**
+
+A DLQ is an SQS queue or SNS topic where Lambda sends the raw event payload after all retries fail. It only handles **failures**, carries no response metadata, and is configured per function.
+
+```bash
+aws lambda update-function-configuration \
+  --function-name my-function \
+  --dead-letter-config TargetArn=arn:aws:sqs:us-east-1:123456789012:my-dlq
+```
+
+**Destinations vs DLQ:**
+
+| Feature                    | Destinations              | DLQ                    |
+| -------------------------- | ------------------------- | ---------------------- |
+| Success routing            | Yes                       | No                     |
+| Failure routing            | Yes                       | Yes                    |
+| Payload enrichment         | Full event + metadata     | Raw event only         |
+| Supported targets          | SNS, SQS, EventBridge, Lambda | SNS, SQS only      |
+| Recommendation             | **Preferred**             | Legacy; still supported |
+
+**Notes:**
+
+- **Poll-based sources** (SQS, Kinesis, DynamoDB Streams) have their own error handling: bisect-on-error, maximum retry attempts, and destination for discarded records — configured on the **event source mapping**, not on the function.
+- Ensure the Lambda execution role has `sqs:SendMessage` or `sns:Publish` permission on the destination resource.
+
+---
+
+### Function URLs
+
+**Description:** A Function URL is a dedicated, static HTTPS endpoint attached directly to a Lambda function or alias. It allows you to invoke a Lambda function over HTTP without needing API Gateway.
+
+**Auth types:**
+
+| Auth type   | How it works                                                                          | When to use                                |
+| ----------- | ------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `NONE`      | Public — anyone with the URL can invoke the function                                  | Webhooks, public APIs, testing             |
+| `AWS_IAM`   | Requests must be signed with SigV4 (IAM credentials); supports `aws:SourceVpc` conditions | Internal services, secure integrations |
+
+**Characteristics:**
+
+| Property              | Detail                                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| **Endpoint format**   | `https://<url-id>.lambda-url.<region>.on.aws/`                                                  |
+| **Invocation type**   | Always synchronous (RequestResponse)                                                            |
+| **Concurrency**       | Throttled by the function's reserved/unreserved concurrency                                     |
+| **CORS**              | Configurable — set allowed origins, methods, and headers directly on the URL                    |
+| **Attachment scope**  | Per function or per alias (e.g. only `prod` alias has a URL)                                    |
+
+**CLI examples:**
+
+```bash
+# Create a public Function URL for the prod alias
+aws lambda create-function-url-config \
+  --function-name my-function \
+  --qualifier prod \
+  --auth-type NONE \
+  --cors '{"AllowOrigins":["*"],"AllowMethods":["GET","POST"]}'
+
+# Retrieve the URL
+aws lambda get-function-url-config \
+  --function-name my-function \
+  --qualifier prod
+
+# Add resource-based policy to allow public invocation (required for NONE auth)
+aws lambda add-permission \
+  --function-name my-function \
+  --qualifier prod \
+  --statement-id allow-public-url \
+  --action lambda:InvokeFunctionUrl \
+  --principal "*" \
+  --function-url-auth-type NONE
+```
+
+**Notes:**
+
+- Function URLs are **free** — you pay only for Lambda invocations and duration, with no API Gateway charges.
+- For advanced features (request validation, usage plans, throttling per route, custom domains with ACM), use **API Gateway** instead.
+- A Function URL always invokes the function **synchronously**. For async invocations over HTTP, use API Gateway with a `X-Amz-Invocation-Type: Event` header or send the event to SQS/SNS.
+
+---
+
+### Lambda VPC Configuration
+
+**Description:** By default, Lambda runs inside an AWS-managed VPC with internet access but no access to your private VPC resources. To reach RDS, ElastiCache, internal microservices, or other private resources, you must attach the function to your own VPC.
+
+**How VPC attachment works:**
+
+Lambda creates an **Elastic Network Interface (ENI)** in your specified subnets and attaches it to your function's execution environment. The Hyperplane ENI model (current default) shares ENIs across functions, greatly reducing ENI provisioning time compared to the legacy model.
+
+**VPC configuration parameters:**
+
+| Parameter          | Detail                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------- |
+| **Subnets**        | One or more private subnets (across AZs for resilience); Lambda places ENIs in each                |
+| **Security groups**| Attached to the ENI; controls what the Lambda function can reach (outbound) and what can reach it  |
+
+**Internet access from a VPC-attached Lambda:**
+
+A Lambda in a private subnet has **no internet access by default**. To reach the internet or public AWS endpoints:
+
+```
+VPC Lambda (private subnet)
+  → NAT Gateway (public subnet)
+    → Internet Gateway
+      → Internet / public AWS APIs
+```
+
+Alternatively, use **VPC Endpoints (AWS PrivateLink)** to reach S3, DynamoDB, SSM, Secrets Manager, and other AWS services without a NAT Gateway.
+
+```bash
+# Attach a function to a VPC
+aws lambda update-function-configuration \
+  --function-name my-function \
+  --vpc-config SubnetIds=subnet-aaa,subnet-bbb,SecurityGroupIds=sg-0abc1234
+```
+
+**Common mistakes:**
+
+| Mistake                                         | Effect                                                    | Fix                                              |
+| ----------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------ |
+| Only private subnets, no NAT Gateway            | Cannot reach internet or public AWS APIs                  | Add NAT Gateway or VPC Endpoints                 |
+| Security group blocks outbound to RDS port 5432 | Function cannot connect to database                       | Add outbound rule for port 5432 to RDS SG        |
+| Single subnet (one AZ)                          | AZ failure leaves function unable to create ENI           | Use at least two subnets in different AZs        |
+
+**Notes:**
+
+- Only attach Lambda to a VPC when it **genuinely** needs private resource access. VPC attachment adds ENI management overhead and historically increased cold start time (mitigated by Hyperplane but not eliminated).
+- Use **Provisioned Concurrency** if cold starts are unacceptable for a VPC-attached function.
+- The Lambda execution role needs `ec2:CreateNetworkInterface`, `ec2:DescribeNetworkInterfaces`, and `ec2:DeleteNetworkInterface` — the **AWSLambdaVPCAccessExecutionRole** managed policy includes these.
+
+---
+
+### Lambda Monitoring & Observability
+
+**Description:** Lambda emits logs, metrics, and traces automatically. Understanding these signals is essential for debugging failures, measuring performance, and setting alarms.
+
+**CloudWatch Logs:**
+
+Every Lambda invocation writes stdout/stderr to a CloudWatch Logs log group named `/aws/lambda/<function-name>`. Each execution environment writes to its own log stream.
+
+Each invocation emits a **REPORT** line:
+
+```
+REPORT RequestId: abc123  Duration: 123.45 ms  Billed Duration: 124 ms
+       Memory Size: 512 MB  Max Memory Used: 87 MB  Init Duration: 312.10 ms
+```
+
+- `Init Duration` appears only on cold starts.
+- `Max Memory Used` helps you right-size memory allocation.
+
+**Key CloudWatch metrics:**
+
+| Metric                        | What it measures                                                             |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| **Invocations**               | Total number of function invocations (including retries)                     |
+| **Errors**                    | Invocations that resulted in a function error (unhandled exceptions, timeouts) |
+| **Duration**                  | Execution time in milliseconds; view as Average, P50, P99                    |
+| **Throttles**                 | Invocations rejected because concurrency limit was reached                   |
+| **ConcurrentExecutions**      | Simultaneous executions at a point in time                                   |
+| **UnreservedConcurrentExecutions** | Concurrent executions consuming the shared pool                         |
+| **IteratorAge** (streams)     | Milliseconds since record was written to Kinesis/DynamoDB Stream; measures lag |
+| **DeadLetterErrors**          | Failed attempts to write to a DLQ                                            |
+
+**X-Ray active tracing:**
+
+AWS X-Ray traces requests end-to-end across services. Enabling active tracing on Lambda adds a trace to every sampled invocation.
+
+```bash
+# Enable active tracing
+aws lambda update-function-configuration \
+  --function-name my-function \
+  --tracing-config Mode=Active
+```
+
+- Lambda automatically creates an **Initialisation** and **Invocation** segment.
+- Use the X-Ray SDK inside your function to create custom subsegments (e.g. for downstream DynamoDB calls).
+- X-Ray generates a **Service Map** showing latency and error rates between Lambda, DynamoDB, API Gateway, etc.
+
+**Lambda Insights:**
+
+Lambda Insights is an enhanced monitoring feature delivered as a Lambda Layer. It collects system-level metrics (CPU, memory, disk, network) not available in standard CloudWatch metrics.
+
+```bash
+# Attach the Lambda Insights extension layer (Python 3.12, x86_64, us-east-1 example)
+aws lambda update-function-configuration \
+  --function-name my-function \
+  --layers arn:aws:lambda:us-east-1:580247275435:layer:LambdaInsightsExtension:38
+```
+
+- Requires the **CloudWatchLambdaInsightsExecutionRolePolicy** permission on the execution role.
+- Visible in CloudWatch → Lambda Insights dashboard.
+
+**Recommended alarms:**
+
+| Alarm                    | Condition                        | Why                                              |
+| ------------------------ | -------------------------------- | ------------------------------------------------ |
+| Error rate               | `Errors / Invocations > 1%`      | Catch silent failures in async invocations       |
+| Throttles                | `Throttles > 0` for 5 minutes    | Reserved concurrency too low or burst limit hit  |
+| Duration approaching timeout | P99 Duration > 80% of timeout | Risk of silent truncation                        |
+| IteratorAge (streams)    | `IteratorAge > 60,000 ms`        | Consumer falling behind; may need more concurrency |
+
+**Notes:**
+
+- Set a **log retention policy** on `/aws/lambda/<function-name>` log groups — by default logs are retained indefinitely and incur storage costs.
+- Use **structured logging** (JSON) in your function so CloudWatch Logs Insights queries can filter on fields like `level`, `requestId`, and `userId`.
+- Lambda metrics are published per-function and per-resource (alias/version). Always monitor the alias that production traffic hits, not `$LATEST`.
 
 ---
 

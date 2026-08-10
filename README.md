@@ -178,7 +178,7 @@ Cloud-native services on AWS (and equivalents on other providers) used to build,
 - **IAM (Identity and Access Management)** — the global identity plane for AWS — users, groups, roles, policies, trust relationships, and policy evaluation logic.
 - **Amazon S3** — object storage — buckets, objects, keys, storage classes (Standard, IA, Glacier, Intelligent-Tiering), security (bucket policies, encryption, Block Public Access), and lifecycle policies.
 - **Elastic Compute Cloud (EC2)** — resizable virtual servers in AWS — instances, AMIs, instance types, security groups, EBS volumes, key pairs, and SSH access.
-- **AWS Lambda** — serverless compute — functions, handlers, invocation types (synchronous, asynchronous, poll-based), supported runtimes, execution environment lifecycle, cold starts vs warm starts, concurrency (unreserved, reserved, provisioned), and pay-per-GB-second pricing.
+- **AWS Lambda** — serverless compute — functions, handlers, invocation types (synchronous, asynchronous, poll-based), runtimes, cold starts, concurrency (unreserved, reserved, provisioned), versions & aliases, async destinations & DLQ, Function URLs, VPC configuration, CloudWatch metrics, X-Ray tracing, and Lambda Insights.
 
 → [Open the Cloud Engineering notes](./Cloud-Engineering/README.md)
 
