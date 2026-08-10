@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-10-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-11-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -119,6 +119,14 @@
   - [Output Formats & Query Syntax](#output-formats--query-syntax)
   - [Common Service Commands](#common-service-commands)
   - [Advanced CLI Techniques](#advanced-cli-techniques)
+- [CloudWatch](#cloudwatch)
+  - [One Shot Revision](#one-shot-revision-10)
+  - [CloudWatch Overview](#cloudwatch-overview)
+  - [CloudWatch Logs](#cloudwatch-logs)
+  - [CloudWatch Metrics](#cloudwatch-metrics)
+  - [CloudWatch Alarms](#cloudwatch-alarms)
+  - [CloudWatch Dashboards](#cloudwatch-dashboards)
+  - [CloudWatch Log Insights](#cloudwatch-log-insights)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -3720,6 +3728,528 @@ aws ec2 describe-instances \
 - When scripting, prefer **environment variables** or **AWS Systems Manager Parameter Store** over config files to avoid versioning secrets.
 - Use **`--output text`** with `xargs` for batch processing; **`--output json`** when piping to tools like `jq`.
 - The CLI supports **credential caching** — temporary credentials from `sts assume-role` are automatically cached in `~/.aws/cli/cache/`.
+
+---
+
+## CloudWatch
+
+**CloudWatch** is AWS's native monitoring and observability service. It collects, stores, and provides access to metrics, logs, and traces from AWS resources and applications. It's the foundation for operational visibility — tracking resource health, application performance, and troubleshooting issues.
+
+### One Shot Revision
+
+| Topic                                                           | Short Description                                                                         |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [CloudWatch Overview](#cloudwatch-overview)                    | What CloudWatch is, core concepts (metrics, logs, alarms), namespaces, units            |
+| [CloudWatch Logs](#cloudwatch-logs)                            | Log groups, log streams, retention, filtering, streaming to other services               |
+| [CloudWatch Metrics](#cloudwatch-metrics)                      | Built-in metrics, custom metrics, dimensions, aggregation statistics                     |
+| [CloudWatch Alarms](#cloudwatch-alarms)                        | Alarm states, thresholds, actions (SNS, EC2, Lambda), anomaly detection                  |
+| [CloudWatch Dashboards](#cloudwatch-dashboards)                | Building custom visualizations, widgets, auto-refresh, JSON configuration                |
+| [CloudWatch Log Insights](#cloudwatch-log-insights)            | Query syntax, aggregation, statistics, common queries, performance optimization           |
+
+### CloudWatch Overview
+
+**Description:** CloudWatch is AWS's integrated monitoring and observability service. It collects metrics from AWS services and applications, ingests logs from EC2 instances and custom sources, and enables alarms that trigger actions when thresholds are breached. All AWS services publish metrics to CloudWatch automatically; you can also publish custom metrics from applications.
+
+**Core concepts:**
+
+| Term                  | What it is                                                                                           |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Metric**            | A time-stamped data point representing a measurement (e.g. CPU utilization, request count)          |
+| **Namespace**         | A logical grouping for metrics (e.g. `AWS/EC2`, `AWS/Lambda`, custom app namespaces)               |
+| **Dimension**         | A key-value pair that identifies a specific instance of a metric (e.g. InstanceId, FunctionName)    |
+| **Statistic**         | An aggregation of metric data points (Sum, Average, Maximum, Minimum, SampleCount)                  |
+| **Log group**         | A container for log streams from a single source (e.g. `/aws/lambda/my-function`)                   |
+| **Log stream**        | A sequence of log events from a specific source (e.g. `/aws/lambda/my-function/[$LATEST]abcd1234`) |
+| **Alarm**             | A rule that triggers an action when a metric crosses a threshold                                    |
+| **Dashboard**         | A custom visualization combining multiple widgets (graphs, numbers, logs)                           |
+
+**Metric characteristics:**
+
+| Attribute        | Details                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| **Data retention** | 15 months at minute resolution; older data aggregated to 5-minute then 1-hour intervals               |
+| **Resolution**   | 1 second (high-resolution) or 1 minute (standard)                                                    |
+| **Granularity**  | Data stored at the same granularity submitted; queries can aggregate further                          |
+| **Dimensions**   | Up to 10 key-value pairs per metric for filtering/grouping                                            |
+| **Unit**         | Optional; CloudWatch understands standard units (Seconds, Bytes, Count, Percent, etc.)                |
+
+**Pricing overview:**
+
+| Component         | Free tier (always free)      | Paid tier                         |
+| ----------------- | ---------------------------- | --------------------------------- |
+| **Metrics**       | 10 custom metrics per month  | $0.30 per metric per month        |
+| **Log ingestion** | 5 GB per month               | $0.50 per GB ingested             |
+| **Log storage**   | 5 GB per month               | $0.03 per GB-month                |
+| **API requests**  | 1 million requests per month | $0.01 per 1,000 requests (some)  |
+| **Alarms**        | 10 alarms per month          | $0.10 per alarm per month         |
+| **Dashboards**    | 3 dashboards per month       | $3.00 per dashboard per month     |
+
+### CloudWatch Logs
+
+**Description:** CloudWatch Logs is the log storage and analysis service within CloudWatch. You can stream logs from EC2 instances, Lambda functions, on-premises servers, and any application that sends data to the CloudWatch Logs API. Logs are organized hierarchically: log groups contain log streams; log streams contain log events.
+
+**Log group and log stream structure:**
+
+```
+Log Group: /aws/lambda/my-function
+├── Log Stream: 2024/08/10/[$LATEST]a1b2c3d4
+│   ├── Event: [timestamp] message 1
+│   ├── Event: [timestamp] message 2
+│   └── Event: [timestamp] message 3
+└── Log Stream: 2024/08/10/[$LATEST]e5f6g7h8
+    ├── Event: [timestamp] message 4
+    └── Event: [timestamp] message 5
+```
+
+**Log retention and storage:**
+
+```bash
+# Set log retention policy (1 day to 10 years or indefinite)
+aws logs put-retention-policy \
+  --log-group-name /aws/lambda/my-function \
+  --retention-in-days 30
+
+# List log groups
+aws logs describe-log-groups --output table
+
+# Create a log group manually
+aws logs create-log-group --log-group-name /myapp/api
+
+# Delete a log group (removes all log streams and events)
+aws logs delete-log-group --log-group-name /myapp/api
+```
+
+**Log group structure and costs:**
+
+- **Unbounded ingestion** — all logs are stored as-is; storage is billed by volume and retention duration.
+- **Retention policy** — apply retention to avoid indefinite (and costly) log storage.
+- **Log group cost** — incurs per-GB-month storage cost after the free tier is exhausted.
+
+**Filtering and searching logs:**
+
+```bash
+# Filter log events by pattern (simple text match)
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/my-function \
+  --filter-pattern "ERROR" \
+  --output table
+
+# Filter for a specific field value (JSON logs)
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/my-function \
+  --filter-pattern "{ $.level = \"ERROR\" }" \
+  --output table
+
+# Get log events from a specific stream
+aws logs get-log-events \
+  --log-group-name /aws/lambda/my-function \
+  --log-stream-name '2024/08/10/[$LATEST]a1b2c3d4' \
+  --output table
+```
+
+**Log streaming to other services:**
+
+```bash
+# Create a subscription filter (stream logs to Lambda, Kinesis, or Firehose)
+aws logs put-subscription-filter \
+  --log-group-name /aws/lambda/my-function \
+  --filter-name my-filter \
+  --filter-pattern "" \
+  --destination-arn arn:aws:lambda:us-east-1:123456789012:function:log-processor
+```
+
+### CloudWatch Metrics
+
+**Description:** Metrics are the heartbeat of CloudWatch — time-stamped data points representing measurements. AWS services automatically publish built-in metrics; applications can publish custom metrics via the CloudWatch Metrics API or agent.
+
+**Built-in metrics by service:**
+
+| Service | Key Metrics                                                                      |
+| ------- | -------------------------------------------------------------------------------- |
+| **EC2** | CPUUtilization, NetworkIn, NetworkOut, DiskReadBytes, DiskWriteBytes, StatusCheck* |
+| **RDS** | DatabaseConnections, CPUUtilization, ReadThroughput, WriteThroughput, DiskQueueDepth |
+| **Lambda** | Invocations, Duration, Errors, Throttles, ConcurrentExecutions, UnreservedConcurrentExecutions |
+| **S3** | NumberOfObjects, BucketSizeBytes (stored in separate `AWS/S3` namespace)        |
+| **DynamoDB** | ConsumedReadCapacityUnits, ConsumedWriteCapacityUnits, UserErrors, SystemErrors |
+| **ELB** | TargetResponseTime, RequestCount, HTTPCode_Target_5XX, UnHealthyHostCount      |
+
+**Publish custom metrics:**
+
+```bash
+# Publish a single metric data point
+aws cloudwatch put-metric-data \
+  --namespace MyApplication \
+  --metric-name ProcessingTime \
+  --value 123.45 \
+  --unit Milliseconds \
+  --timestamp 2024-08-10T12:00:00Z
+
+# Publish a metric with dimensions
+aws cloudwatch put-metric-data \
+  --namespace MyApplication \
+  --metric-name RequestCount \
+  --dimensions Environment=prod,Service=api \
+  --value 1234 \
+  --unit Count
+
+# Batch publish multiple metrics
+aws cloudwatch put-metric-data \
+  --namespace MyApplication \
+  --metric-data '[
+    {"MetricName":"CPUUsage","Value":45.5,"Unit":"Percent","Dimensions":[{"Name":"Host","Value":"server-1"}]},
+    {"MetricName":"MemoryUsage","Value":3072,"Unit":"Megabytes","Dimensions":[{"Name":"Host","Value":"server-1"}]}
+  ]'
+```
+
+**Retrieve and analyze metrics:**
+
+```bash
+# Get metric statistics (aggregations over a time period)
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/EC2 \
+  --metric-name CPUUtilization \
+  --dimensions Name=InstanceId,Value=i-1234567890abcdef0 \
+  --start-time 2024-08-10T00:00:00Z \
+  --end-time 2024-08-10T01:00:00Z \
+  --period 300 \
+  --statistics Average,Maximum,Minimum \
+  --output table
+
+# List all metrics in a namespace
+aws cloudwatch list-metrics \
+  --namespace AWS/Lambda \
+  --output table
+
+# List metrics with specific dimension
+aws cloudwatch list-metrics \
+  --namespace AWS/Lambda \
+  --dimensions Name=FunctionName,Value=my-function \
+  --output table
+```
+
+**Metric aggregation (statistics):**
+
+| Statistic   | What it means                                                  |
+| ----------- | -------------------------------------------------------------- |
+| **Average** | Mean value across all data points in the period                |
+| **Sum**     | Total of all data points (for counters: total requests)        |
+| **Maximum** | Highest value in the period                                    |
+| **Minimum** | Lowest value in the period                                     |
+| **SampleCount** | Number of data points included in the calculation             |
+
+### CloudWatch Alarms
+
+**Description:** Alarms monitor metric values and trigger actions (SNS notifications, Auto Scaling, EC2 actions, Lambda invocations) when thresholds are crossed. An alarm has three states: OK (metric is healthy), ALARM (threshold breached), and INSUFFICIENT_DATA (not enough data to evaluate).
+
+**Alarm states:**
+
+```
+┌─────────────────────┐
+│    ALARM            │  Threshold breached; actions triggered
+├─────────────────────┤
+│    OK               │  Metric is within threshold
+├─────────────────────┤
+│ INSUFFICIENT_DATA   │  Not enough data to evaluate yet
+└─────────────────────┘
+```
+
+**Create an alarm:**
+
+```bash
+# Create an alarm for high CPU utilization
+aws cloudwatch put-metric-alarm \
+  --alarm-name high-cpu-alarm \
+  --alarm-description "Alert when CPU > 80%" \
+  --metric-name CPUUtilization \
+  --namespace AWS/EC2 \
+  --statistic Average \
+  --period 300 \
+  --threshold 80 \
+  --comparison-operator GreaterThanThreshold \
+  --evaluation-periods 2 \
+  --dimensions Name=InstanceId,Value=i-1234567890abcdef0 \
+  --alarm-actions arn:aws:sns:us-east-1:123456789012:my-topic
+
+# Create an alarm with two thresholds (high and low)
+aws cloudwatch put-metric-alarm \
+  --alarm-name cpu-normal-alarm \
+  --metric-name CPUUtilization \
+  --namespace AWS/EC2 \
+  --statistic Average \
+  --period 300 \
+  --threshold 30 \
+  --comparison-operator LessThanOrEqualToThreshold \
+  --evaluation-periods 1 \
+  --dimensions Name=InstanceId,Value=i-1234567890abcdef0 \
+  --alarm-actions arn:aws:sns:us-east-1:123456789012:scale-down-topic
+```
+
+**Alarm configuration:**
+
+| Parameter            | Meaning                                                              |
+| -------------------- | -------------------------------------------------------------------- |
+| **Period**           | Time window for metric aggregation (60, 300, 3600 seconds typical)   |
+| **Evaluation periods** | Number of periods that must breach threshold before triggering       |
+| **Threshold**        | The value the metric is compared against                              |
+| **Comparison**       | GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual           |
+| **Statistic**        | How to aggregate the metric (Average, Sum, Maximum, Minimum)         |
+
+**Alarm actions:**
+
+```bash
+# SNS notification (most common)
+--alarm-actions arn:aws:sns:us-east-1:123456789012:alerts
+
+# Auto Scaling action (scale up or down)
+--alarm-actions arn:aws:autoscaling:us-east-1:123456789012:scalingPolicy:...
+
+# EC2 action (reboot, stop, terminate instance)
+--alarm-actions arn:aws:autoscaling:us-east-1:123456789012:action:...
+
+# Lambda action (trigger a function)
+--alarm-actions arn:aws:lambda:us-east-1:123456789012:function:my-handler
+
+# Systems Manager action (execute automation)
+--alarm-actions arn:aws:ssm:us-east-1:123456789012:automation-definition:...
+```
+
+**Manage alarms:**
+
+```bash
+# List alarms
+aws cloudwatch describe-alarms --output table
+
+# Describe a specific alarm
+aws cloudwatch describe-alarms --alarm-names high-cpu-alarm --output table
+
+# Set alarm state manually (for testing)
+aws cloudwatch set-alarm-state \
+  --alarm-name high-cpu-alarm \
+  --state-value ALARM \
+  --state-reason "Testing alarm action"
+
+# Disable an alarm temporarily
+aws cloudwatch disable-alarm-actions --alarm-names high-cpu-alarm
+
+# Re-enable an alarm
+aws cloudwatch enable-alarm-actions --alarm-names high-cpu-alarm
+
+# Delete an alarm
+aws cloudwatch delete-alarms --alarm-names high-cpu-alarm
+```
+
+**Anomaly detection:**
+
+```bash
+# Create an alarm based on anomaly detection (Machine Learning)
+aws cloudwatch put-metric-alarm \
+  --alarm-name anomaly-detection-alarm \
+  --alarm-description "Alert on anomalous CPU behavior" \
+  --metric-name CPUUtilization \
+  --namespace AWS/EC2 \
+  --statistic Average \
+  --period 300 \
+  --evaluation-periods 1 \
+  --threshold-metric-id e1 \
+  --metrics '[
+    {
+      "Id": "e1",
+      "Expression": "ANOMALY_DETECTION_BAND(m1, 2)",
+      "Label": "CPUUtilization (Expected)"
+    },
+    {
+      "Id": "m1",
+      "ReturnData": true,
+      "MetricStat": {
+        "Metric": {
+          "Namespace": "AWS/EC2",
+          "MetricName": "CPUUtilization",
+          "Dimensions": [{"Name": "InstanceId", "Value": "i-1234567890abcdef0"}]
+        },
+        "Period": 300,
+        "Stat": "Average"
+      }
+    }
+  ]'
+```
+
+### CloudWatch Dashboards
+
+**Description:** Dashboards provide custom visualizations of metrics and logs. You can create multiple dashboards to monitor different aspects of your infrastructure — one for application health, another for cost, another for security.
+
+**Create a dashboard:**
+
+```bash
+# Create a dashboard via CLI (using JSON body)
+aws cloudwatch put-dashboard \
+  --dashboard-name MyApplicationDashboard \
+  --dashboard-body file://dashboard.json
+```
+
+**Dashboard JSON structure:**
+
+```json
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "properties": {
+        "metrics": [
+          ["AWS/Lambda", "Invocations", {"stat": "Sum"}],
+          ["AWS/Lambda", "Duration", {"stat": "Average"}],
+          ["AWS/Lambda", "Errors", {"stat": "Sum"}]
+        ],
+        "period": 300,
+        "stat": "Average",
+        "region": "us-east-1",
+        "title": "Lambda Function Metrics",
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "log",
+      "properties": {
+        "query": "fields @timestamp, @message | filter @message like /ERROR/ | stats count() by @message",
+        "region": "us-east-1",
+        "title": "Error Logs"
+      }
+    }
+  ]
+}
+```
+
+**Dashboard widget types:**
+
+| Type       | Purpose                                                          |
+| ---------- | ---------------------------------------------------------------- |
+| **metric** | Line graph, stacked area, bar chart of metrics over time         |
+| **log**    | Results of CloudWatch Logs Insights queries                     |
+| **number** | Single metric value (e.g. "5,234 requests in last hour")         |
+| **text**   | Static text for documentation or headers                         |
+
+**Manage dashboards:**
+
+```bash
+# List dashboards
+aws cloudwatch list-dashboards --output table
+
+# Get dashboard details
+aws cloudwatch get-dashboard --dashboard-name MyApplicationDashboard
+
+# Update a dashboard
+aws cloudwatch put-dashboard \
+  --dashboard-name MyApplicationDashboard \
+  --dashboard-body file://updated-dashboard.json
+
+# Delete a dashboard
+aws cloudwatch delete-dashboards --dashboard-names MyApplicationDashboard
+```
+
+### CloudWatch Log Insights
+
+**Description:** CloudWatch Logs Insights is a query language and engine for analyzing logs. You write queries in a SQL-like syntax to search, filter, aggregate, and visualize log data across millions of log events in seconds.
+
+**Query syntax basics:**
+
+```
+fields <fields>      # Select which fields to return
+| filter <condition> # Filter log events by condition
+| stats <aggregation> # Aggregate results (count, sum, avg, max, min)
+| sort <field>       # Sort results by field
+| limit <n>          # Limit results to N rows
+```
+
+**Common queries:**
+
+```bash
+# Count total log events
+fields @timestamp, @message | stats count()
+
+# Filter for errors and count by error message
+fields @message | filter @message like /ERROR/ | stats count() as ErrorCount by @message
+
+# Calculate average response time
+fields @duration | stats avg(@duration), max(@duration), min(@duration)
+
+# Count requests by status code (JSON logs)
+fields @timestamp, status | stats count() as RequestCount by status
+
+# Top 10 slowest requests
+fields @timestamp, @duration, @request_id | sort @duration desc | limit 10
+
+# Errors in the last hour with context
+fields @timestamp, @message, @stack_trace | filter @message like /Exception/ | limit 100
+
+# Hourly request distribution
+fields @timestamp | stats count() as RequestCount by bin(5m)
+
+# Memory usage trend
+fields @memory_usage | stats avg(@memory_usage) as AvgMemory by bin(1m)
+
+# Multi-field aggregation (errors by service and region)
+fields @timestamp, service, region, @message | filter @message like /ERROR/ | stats count() as ErrorCount by service, region
+```
+
+**Advanced query techniques:**
+
+```
+# Pattern matching
+filter @message like /pattern/           # Regex match
+filter @message = "exact string"         # Exact match
+filter field in [value1, value2]         # Match multiple values
+
+# Numeric comparisons
+filter @duration > 1000                  # Greater than
+filter status >= 400 AND status < 500    # Range
+
+# Type conversion and functions
+filter ispresent(@error_id)              # Field exists
+filter isempty(@error_id)                # Field is empty
+strlen(field)                            # String length
+sqrt(field)                              # Square root
+toNumber(field)                          # Convert to number
+```
+
+**Execute Logs Insights query via CLI:**
+
+```bash
+# Start a query
+QUERY_ID=$(aws logs start-query \
+  --log-group-name /aws/lambda/my-function \
+  --start-time $(date -d '1 hour ago' +%s) \
+  --end-time $(date +%s) \
+  --query-string 'fields @timestamp, @message | filter @message like /ERROR/ | stats count()' \
+  --query 'queryId' \
+  --output text)
+
+# Wait for query to complete and get results
+sleep 2
+aws logs get-query-results --query-id "$QUERY_ID" --output table
+```
+
+**Query performance tips:**
+
+- Use **time filters** to narrow the search window (faster than scanning all logs).
+- Include **specific fields** in `fields` clause instead of `fields *` (reduces data processing).
+- Filter as early as possible (`filter` after `fields` reduces downstream processing).
+- Use **stats** instead of manually aggregating in post-processing.
+- Test queries on smaller time windows first, then expand once working.
+
+**Learn from the official source:**
+
+→ [CloudWatch Documentation](https://docs.aws.amazon.com/cloudwatch/)
+
+**Notes:**
+
+- CloudWatch Logs **ingestion is real-time** — logs appear in the console within seconds of being sent.
+- **Log Insights queries cost** — you pay per GB of log data scanned; use retention policies and filters to control costs.
+- **Alarm state transitions** are not retroactive — alarms check thresholds going forward. Backfilling historical alarm data requires manual state management.
+- Use **metric filters** to extract metrics from log patterns (e.g. count ERROR entries as a custom metric), then alarm on the derived metric.
+- CloudWatch integrates with **AWS X-Ray** for distributed tracing; use X-Ray insights for end-to-end request tracking across services.
 
 ---
 
