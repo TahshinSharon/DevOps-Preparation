@@ -2826,21 +2826,130 @@ AWS Lambda is a **serverless compute service** that runs your code in response t
 
 ### One Shot Revision
 
-| Topic                                 | Short Description                                                       |
-| ------------------------------------- | ----------------------------------------------------------------------- |
-| [Lambda Overview](#lambda-overview)   | Core Lambda concepts — functions, event sources, runtimes, triggers, execution model |
+| Topic                                 | Short Description                                                                                    |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [Lambda Overview](#lambda-overview)   | Functions, handlers, event sources, runtimes, execution environment, cold starts, concurrency, pricing |
 
 ### Lambda Overview
 
-**Description:** A primer on the building blocks of AWS Lambda — what a function is, how event sources and triggers invoke it, supported runtimes, execution environment, concurrency, and how Lambda fits into serverless architectures.
+**Description:** AWS Lambda runs your code in response to events without you provisioning or managing servers. You provide a deployment package, Lambda handles the runtime environment, auto-scaling, and high availability. You are billed only for the duration your function executes.
+
+**Core concepts:**
+
+| Term                   | What it is                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Function**           | The unit of deployment — code + configuration (runtime, memory, timeout, IAM role)                    |
+| **Handler**            | The entry-point method Lambda calls; format is `file.method` (e.g. `index.handler`)                   |
+| **Event**              | A JSON document passed to the handler describing what triggered the invocation                         |
+| **Context**            | An object Lambda passes alongside the event; contains request ID, remaining time, log stream name      |
+| **Execution role**     | An IAM role Lambda assumes on every invocation; grants permissions to call other AWS services          |
+| **Deployment package** | A `.zip` archive or container image containing your function code and dependencies                     |
+| **Layer**              | A reusable `.zip` archive attached to a function; used to share libraries across functions             |
+| **Environment variable** | Key-value pairs injected into the runtime; use for config and secrets references (SSM/Secrets Manager) |
+
+**Invocation types:**
+
+| Type            | Behaviour                                                                                         | Common triggers                              |
+| --------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| **Synchronous** | Caller waits; Lambda returns the response directly                                                | API Gateway, ALB, SDK direct invocation      |
+| **Asynchronous**| Caller gets `202 Accepted`; Lambda retries up to 2 times on error; DLQ captures final failures   | S3 events, SNS, EventBridge, SES             |
+| **Poll-based**  | Lambda polls the source, batches records, invokes function; managed by Lambda's event source mapping | SQS, Kinesis, DynamoDB Streams, MSK        |
+
+**Supported runtimes:**
+
+| Runtime                     | Identifier examples                           |
+| --------------------------- | --------------------------------------------- |
+| **Node.js**                 | `nodejs20.x`, `nodejs22.x`                    |
+| **Python**                  | `python3.12`, `python3.13`                    |
+| **Java**                    | `java17`, `java21`                            |
+| **Go**                      | `provided.al2023` (compiled binary)           |
+| **Ruby**                    | `ruby3.3`                                     |
+| **.NET**                    | `dotnet8`                                     |
+| **Custom runtime**          | `provided.al2023` — bring your own runtime via `bootstrap` |
+| **Container image**         | Any base image up to 10 GB; must implement Lambda Runtime API |
+
+**Function configuration:**
+
+| Setting               | Default   | Limit / Notes                                                     |
+| --------------------- | --------- | ----------------------------------------------------------------- |
+| **Memory**            | 128 MB    | 128 MB – 10,240 MB in 1 MB steps; CPU scales proportionally      |
+| **Timeout**           | 3 seconds | Maximum 15 minutes (900 seconds)                                  |
+| **Ephemeral storage** | 512 MB    | Up to 10,240 MB at `/tmp`; billed like memory-seconds             |
+| **Package size**      | —         | 50 MB zipped (direct upload); 250 MB unzipped; 10 GB container    |
+| **Concurrency**       | 1,000     | Soft limit per region; raise via Support                          |
+
+**Execution environment lifecycle (cold start vs warm start):**
+
+```
+First invocation (cold start):
+  Download code → Start runtime → Run init code → Run handler
+
+Subsequent invocations (warm start — container reused):
+  Run handler  ← init code is NOT re-executed
+```
+
+- **Cold start** adds 100 ms – several seconds of latency depending on runtime, package size, and VPC attachment.
+- The execution environment persists between invocations for a short period. Objects initialised outside the handler (DB connections, SDK clients) are reused on warm invocations — place them outside the handler to benefit from reuse.
+- **Provisioned Concurrency** pre-warms a specified number of execution environments, eliminating cold starts for latency-sensitive workloads.
+
+**Concurrency model:**
+
+| Mode                       | How it works                                                                                  |
+| -------------------------- | --------------------------------------------------------------------------------------------- |
+| **Unreserved concurrency** | Shared pool across all functions in the account/region (default)                              |
+| **Reserved concurrency**   | Guarantees up to N concurrent executions for a function; also caps it at N — acts as throttle |
+| **Provisioned concurrency**| Pre-initialises N environments; eliminates cold starts; billed whether invoked or not         |
+
+**Lambda pricing:**
+
+| Dimension         | Free tier (always free)        | Paid tier                                      |
+| ----------------- | ------------------------------ | ---------------------------------------------- |
+| **Requests**      | 1,000,000 requests/month       | $0.20 per 1 million requests                   |
+| **Compute**       | 400,000 GB-seconds/month       | $0.0000166667 per GB-second                    |
+| **Ephemeral storage** | 512 MB included per function | $0.0000000309 per GB-second above 512 MB    |
+
+> **GB-second** = memory allocated (in GB) × duration (in seconds). A 512 MB function running for 1 second = 0.5 GB-seconds.
+
+**CLI examples:**
+
+```bash
+# Create a function
+aws lambda create-function \
+  --function-name my-function \
+  --runtime python3.12 \
+  --handler index.handler \
+  --role arn:aws:iam::123456789012:role/lambda-exec-role \
+  --zip-file fileb://function.zip
+
+# Invoke synchronously and capture response
+aws lambda invoke \
+  --function-name my-function \
+  --payload '{"key": "value"}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json
+
+# Update function code
+aws lambda update-function-code \
+  --function-name my-function \
+  --zip-file fileb://function.zip
+
+# Configure reserved concurrency
+aws lambda put-function-concurrency \
+  --function-name my-function \
+  --reserved-concurrent-executions 50
+```
 
 **Learn from the official source:**
 
-→ [AWS Lambda — Official AWS Documentation](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html)
+→ [AWS Lambda Developer Guide](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html)
 
 **Notes:**
 
-- _To be filled in after reading the official documentation._
+- Lambda functions must be **stateless** — store any state that needs to survive invocations in S3, DynamoDB, ElastiCache, or another external store.
+- Attach an **execution role** with least-privilege permissions. Never embed AWS credentials inside function code.
+- Place the **Lambda function inside a VPC** only when it genuinely needs private resource access (e.g. RDS). VPC attachment increases cold start time due to ENI provisioning; mitigate with Provisioned Concurrency or the Hyperplane ENI model (available in newer runtimes).
+- Use **Lambda Layers** to keep deployment packages small and share common libraries (e.g. `boto3`, `requests`) across functions without bundling them in every zip.
+- Lambda integrates natively with **CloudWatch Logs** — every invocation's stdout/stderr is automatically streamed to a log group named `/aws/lambda/<function-name>`.
 
 ---
 
