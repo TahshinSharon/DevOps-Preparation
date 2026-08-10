@@ -124,9 +124,12 @@
   - [CloudWatch Overview](#cloudwatch-overview)
   - [CloudWatch Logs](#cloudwatch-logs)
   - [CloudWatch Metrics](#cloudwatch-metrics)
+  - [Install CloudWatch Agent](#install-cloudwatch-agent)
   - [CloudWatch Alarms](#cloudwatch-alarms)
   - [CloudWatch Dashboards](#cloudwatch-dashboards)
   - [CloudWatch Log Insights](#cloudwatch-log-insights)
+  - [Container Insights](#container-insights)
+  - [CloudWatch Synthetics](#cloudwatch-synthetics)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -3739,12 +3742,15 @@ aws ec2 describe-instances \
 
 | Topic                                                           | Short Description                                                                         |
 | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| [CloudWatch Overview](#cloudwatch-overview)                    | What CloudWatch is, core concepts (metrics, logs, alarms), namespaces, units            |
-| [CloudWatch Logs](#cloudwatch-logs)                            | Log groups, log streams, retention, filtering, streaming to other services               |
-| [CloudWatch Metrics](#cloudwatch-metrics)                      | Built-in metrics, custom metrics, dimensions, aggregation statistics                     |
-| [CloudWatch Alarms](#cloudwatch-alarms)                        | Alarm states, thresholds, actions (SNS, EC2, Lambda), anomaly detection                  |
-| [CloudWatch Dashboards](#cloudwatch-dashboards)                | Building custom visualizations, widgets, auto-refresh, JSON configuration                |
+| [CloudWatch Overview](#cloudwatch-overview)                    | What CloudWatch is, core concepts (metrics, logs, alarms), namespaces, units, pricing   |
+| [CloudWatch Logs](#cloudwatch-logs)                            | Log groups, log streams, retention, filtering, streaming, log agents                     |
+| [CloudWatch Metrics](#cloudwatch-metrics)                      | Built-in metrics, custom metrics, dimensions, aggregation, statistics, retrieval          |
+| [Install CloudWatch Agent](#install-cloudwatch-agent)          | CloudWatch Agent installation, configuration, metrics & logs collection from instances    |
+| [CloudWatch Alarms](#cloudwatch-alarms)                        | Alarm states, thresholds, actions (SNS, EC2, Lambda), anomaly detection, composite alarms |
+| [CloudWatch Dashboards](#cloudwatch-dashboards)                | Building custom visualizations, widgets, JSON configuration, dashboard management         |
 | [CloudWatch Log Insights](#cloudwatch-log-insights)            | Query syntax, aggregation, statistics, common queries, performance optimization           |
+| [Container Insights](#container-insights)                      | ECS and EKS monitoring, container metrics, performance dashboards                         |
+| [CloudWatch Synthetics](#cloudwatch-synthetics)                | Canary tests, endpoint monitoring, availability checks, synthetic transactions            |
 
 ### CloudWatch Overview
 
@@ -3856,7 +3862,42 @@ aws logs put-subscription-filter \
   --filter-name my-filter \
   --filter-pattern "" \
   --destination-arn arn:aws:lambda:us-east-1:123456789012:function:log-processor
+
+# List subscription filters on a log group
+aws logs describe-subscription-filters \
+  --log-group-name /aws/lambda/my-function
+
+# Delete a subscription filter
+aws logs delete-subscription-filter \
+  --log-group-name /aws/lambda/my-function \
+  --filter-name my-filter
 ```
+
+**Log agents — send logs from EC2 instances:**
+
+CloudWatch Logs Agent and CloudWatch Agent both collect logs from EC2 instances and on-premises servers:
+
+| Agent                    | Use case                                                         |
+| ------------------------ | ---------------------------------------------------------------- |
+| **CloudWatch Logs Agent** | Legacy; logs-only; simpler for basic use cases                   |
+| **CloudWatch Agent**      | Modern; logs + metrics; more flexible; recommended for new setup  |
+
+**Structured logging (JSON):**
+
+```bash
+# Log as JSON so Log Insights can query specific fields
+echo '{"timestamp":"2024-08-10T12:00:00Z","level":"ERROR","requestId":"abc123","message":"Database connection failed","duration_ms":5000}' | \
+aws logs put-log-events \
+  --log-group-name /myapp/api \
+  --log-stream-name prod \
+  --log-events timestamp=$(date +%s000),message='{"level":"ERROR","requestId":"abc123"}'
+```
+
+**CloudWatch Logs insights integration:**
+
+- When you send **structured JSON logs**, Log Insights automatically extracts fields.
+- Query using field names: `fields @timestamp, @message, level, requestId`
+- Filter by specific fields: `filter level = "ERROR" and duration_ms > 1000`
 
 ### CloudWatch Metrics
 
@@ -3929,13 +3970,361 @@ aws cloudwatch list-metrics \
 
 **Metric aggregation (statistics):**
 
-| Statistic   | What it means                                                  |
-| ----------- | -------------------------------------------------------------- |
-| **Average** | Mean value across all data points in the period                |
-| **Sum**     | Total of all data points (for counters: total requests)        |
-| **Maximum** | Highest value in the period                                    |
-| **Minimum** | Lowest value in the period                                     |
-| **SampleCount** | Number of data points included in the calculation             |
+| Statistic   | What it means                                                  | Use case                                              |
+| ----------- | -------------------------------------------------------------- | ----------------------------------------------------- |
+| **Average** | Mean value across all data points in the period                | CPU avg, response time avg, memory usage              |
+| **Sum**     | Total of all data points (for counters: total requests)        | Request count, total throughput, total errors         |
+| **Maximum** | Highest value in the period                                    | Peak CPU, max response time, highest memory spike     |
+| **Minimum** | Lowest value in the period                                     | Min response time, lowest throughput                  |
+| **SampleCount** | Number of data points included in the calculation             | How many measurements were aggregated                 |
+
+**Metric naming conventions:**
+
+```
+Namespace: AWS/ServiceName or CustomNamespace
+MetricName: DescriptiveNameInPascalCase
+Dimensions: Key=Value pairs identifying the resource
+
+Example:
+  Namespace: MyApplication/API
+  MetricName: RequestLatency
+  Dimensions: Environment=prod, Service=auth-service, Region=us-east-1
+```
+
+**Metric math and composite metrics:**
+
+```bash
+# Create an alarm based on multiple metrics (metric math)
+aws cloudwatch put-metric-alarm \
+  --alarm-name app-health-alarm \
+  --metrics '[
+    {
+      "Id": "e1",
+      "Expression": "(m1 + m2) / 2",
+      "Label": "Average across services"
+    },
+    {
+      "Id": "m1",
+      "ReturnData": false,
+      "MetricStat": {
+        "Metric": {
+          "Namespace": "MyApp",
+          "MetricName": "RequestCount",
+          "Dimensions": [{"Name": "Service", "Value": "api"}]
+        },
+        "Period": 300,
+        "Stat": "Sum"
+      }
+    },
+    {
+      "Id": "m2",
+      "ReturnData": false,
+      "MetricStat": {
+        "Metric": {
+          "Namespace": "MyApp",
+          "MetricName": "RequestCount",
+          "Dimensions": [{"Name": "Service", "Value": "worker"}]
+        },
+        "Period": 300,
+        "Stat": "Sum"
+      }
+    }
+  ]' \
+  --comparison-operator GreaterThanThreshold \
+  --threshold 1000 \
+  --evaluation-periods 2
+```
+
+**Metric filters — derive metrics from logs:**
+
+```bash
+# Extract error count from logs as a custom metric
+aws logs put-metric-filter \
+  --log-group-name /aws/lambda/my-function \
+  --filter-name error-count \
+  --filter-pattern "[ERROR]" \
+  --metric-transformations \
+    metricName=ErrorCount,metricNamespace=MyApp,metricValue=1,defaultValue=0
+
+# Now query the derived metric
+aws cloudwatch get-metric-statistics \
+  --namespace MyApp \
+  --metric-name ErrorCount \
+  --start-time 2024-08-10T00:00:00Z \
+  --end-time 2024-08-10T01:00:00Z \
+  --period 300 \
+  --statistics Sum
+```
+
+**High-resolution metrics:**
+
+```bash
+# Publish high-resolution metric (1-second granularity, costs more)
+aws cloudwatch put-metric-data \
+  --namespace MyApplication \
+  --metric-data '[
+    {
+      "MetricName": "HighResolutionCounter",
+      "Value": 123,
+      "StorageResolution": 1,
+      "Timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+    }
+  ]'
+
+# Query high-resolution metrics with 1-second period
+aws cloudwatch get-metric-statistics \
+  --namespace MyApplication \
+  --metric-name HighResolutionCounter \
+  --start-time 2024-08-10T12:00:00Z \
+  --end-time 2024-08-10T12:01:00Z \
+  --period 1 \
+  --statistics Average
+```
+
+### Install CloudWatch Agent
+
+**Description:** The CloudWatch Agent is a standalone application that collects both metrics and logs from EC2 instances and on-premises servers. Unlike built-in EC2 metrics (which are limited), the agent enables detailed OS-level metrics (memory, disk, processes) and custom application logs.
+
+**Why use CloudWatch Agent:**
+
+| Need                              | Solution                                                    |
+| --------------------------------- | ----------------------------------------------------------- |
+| **Memory/disk metrics from EC2**  | Built-in EC2 metrics don't include these; use the agent    |
+| **Process-level metrics**         | Monitor specific application processes (CPU, memory)        |
+| **Custom application logs**       | Forward logs from /var/log to CloudWatch                    |
+| **On-premises servers**           | CloudWatch Agent works on non-AWS servers too               |
+| **Centralized log aggregation**   | Collect logs from multiple instances to one log group       |
+
+**Agent vs. Built-in EC2 metrics:**
+
+| Metric                | Built-in EC2 | CloudWatch Agent |
+| --------------------- | ------------ | ---------------- |
+| CPU Utilization       | ✅           | ✅               |
+| Network In/Out        | ✅           | ✅               |
+| Disk Read/Write Bytes | ✅           | ✅               |
+| **Memory Usage**       | ❌           | ✅               |
+| **Disk Space Used**    | ❌           | ✅               |
+| **Process Metrics**    | ❌           | ✅               |
+| **Custom Logs**        | ❌           | ✅               |
+
+**Installation on EC2:**
+
+```bash
+# Step 1: Create IAM role for EC2 instance (one-time setup)
+# Trust relationship: allow EC2 service
+# Permissions: AmazonSSMManagedInstanceCore + CloudWatchAgentServerPolicy
+
+# Step 2: Attach IAM role to EC2 instance
+aws ec2 associate-iam-instance-profile \
+  --iam-instance-profile Name=CloudWatchAgentRole \
+  --instance-id i-1234567890abcdef0
+
+# Step 3: Download and install CloudWatch Agent on EC2
+# SSH into the instance first, then:
+wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+sudo rpm -U ./amazon-cloudwatch-agent.rpm
+
+# For Ubuntu:
+wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
+
+# Step 4: Configure the agent using wizard
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-config-wizard
+
+# Step 5: Start the agent
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config \
+  -m ec2 \
+  -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+```
+
+**Agent configuration file (JSON):**
+
+```json
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root"
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/application.log",
+            "log_group_name": "/myapp/application",
+            "log_stream_name": "{instance_id}",
+            "timestamp_format": "%Y-%m-%d %H:%M:%S"
+          },
+          {
+            "file_path": "/var/log/secure",
+            "log_group_name": "/system/secure",
+            "log_stream_name": "{instance_id}"
+          }
+        ]
+      }
+    }
+  },
+  "metrics": {
+    "namespace": "CustomMetrics",
+    "metrics_collected": {
+      "mem": {
+        "measurement": [
+          {
+            "name": "mem_used_percent",
+            "rename": "MemoryUtilization",
+            "unit": "Percent"
+          }
+        ],
+        "metrics_collection_interval": 60
+      },
+      "disk": {
+        "measurement": [
+          {
+            "name": "used_percent",
+            "rename": "DiskUtilization",
+            "unit": "Percent"
+          }
+        ],
+        "metrics_collection_interval": 60,
+        "resources": [
+          "/"
+        ]
+      },
+      "cpu": {
+        "measurement": [
+          {
+            "name": "cpu_usage_active",
+            "rename": "CPUUtilization",
+            "unit": "Percent"
+          }
+        ],
+        "metrics_collection_interval": 60
+      },
+      "processes": {
+        "measurement": [
+          {
+            "name": "running",
+            "rename": "ProcessCount",
+            "unit": "Count"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+**Common agent commands:**
+
+```bash
+# Check agent status
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -m ec2 \
+  -a query
+
+# Restart agent
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -m ec2 \
+  -a stop
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -m ec2 \
+  -a start
+
+# Fetch configuration from Parameter Store
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config \
+  -m ec2 \
+  -c ssm:AmazonCloudWatch-Config \
+  -s
+
+# View agent logs
+tail -f /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log
+```
+
+**Deploy agent via AWS Systems Manager:**
+
+```bash
+# Store configuration in Parameter Store
+aws ssm put-parameter \
+  --name AmazonCloudWatch-Config \
+  --type String \
+  --value file://amazon-cloudwatch-agent.json
+
+# Run agent installation command on multiple instances (via Systems Manager)
+aws ssm send-command \
+  --instance-ids i-1234567890abcdef0 i-0987654321fedcba0 \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=[
+    "wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm",
+    "sudo rpm -U ./amazon-cloudwatch-agent.rpm",
+    "sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c ssm:AmazonCloudWatch-Config -s"
+  ]'
+```
+
+**Agent IAM permissions required:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricData",
+        "ec2:DescribeVolumes",
+        "ec2:DescribeTags",
+        "logs:PutLogEvents",
+        "logs:CreateLogStream",
+        "logs:CreateLogGroup"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter"
+      ],
+      "Resource": "arn:aws:ssm:*:*:parameter/AmazonCloudWatch-*"
+    }
+  ]
+}
+```
+
+**Troubleshooting agent issues:**
+
+```bash
+# Agent not sending metrics?
+# 1. Check IAM role has CloudWatchAgentServerPolicy
+# 2. Verify configuration file is valid JSON
+# 3. Check agent status: sudo systemctl status amazon-cloudwatch-agent
+# 4. Review agent logs: tail -f /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log
+
+# Test metric publication
+aws cloudwatch get-metric-statistics \
+  --namespace CustomMetrics \
+  --metric-name MemoryUtilization \
+  --start-time 2024-08-10T00:00:00Z \
+  --end-time 2024-08-10T01:00:00Z \
+  --period 300 \
+  --statistics Average
+
+# Logs not appearing?
+# 1. Verify log group and stream exist
+# 2. Check file paths in config are correct and readable
+# 3. Verify agent has read permission on log files
+# 4. Check agent error logs for file access issues
+```
+
+**Cost considerations:**
+
+| Component          | Cost                                                   | Optimization                                |
+| ------------------ | ------------------------------------------------------ | ------------------------------------------- |
+| **Custom metrics** | $0.30 per metric per month (after free tier)           | Aggregate multiple metrics if possible     |
+| **Log ingestion**  | $0.50 per GB ingested (after 5 GB free tier)           | Filter unnecessary logs, enable retention  |
+| **Log storage**    | $0.03 per GB-month (after 5 GB free tier)              | Set retention policies to auto-delete      |
+
+---
 
 ### CloudWatch Alarms
 
@@ -4250,6 +4639,396 @@ aws logs get-query-results --query-id "$QUERY_ID" --output table
 - **Alarm state transitions** are not retroactive — alarms check thresholds going forward. Backfilling historical alarm data requires manual state management.
 - Use **metric filters** to extract metrics from log patterns (e.g. count ERROR entries as a custom metric), then alarm on the derived metric.
 - CloudWatch integrates with **AWS X-Ray** for distributed tracing; use X-Ray insights for end-to-end request tracking across services.
+
+---
+
+### Container Insights
+
+**Description:** Container Insights provides deep visibility into containerized applications running on ECS and EKS. It collects container-level and pod-level metrics (CPU, memory, network), organizes them hierarchically by cluster, service, and container, and provides built-in dashboards for quick troubleshooting.
+
+**When to use Container Insights:**
+
+| Scenario                          | Benefit                                                     |
+| --------------------------------- | ----------------------------------------------------------- |
+| **ECS/EKS cluster monitoring**    | Single view across all containers and pods                  |
+| **Performance troubleshooting**   | Identify high CPU/memory containers; find bottlenecks       |
+| **Resource optimization**         | Right-size container requests based on actual usage         |
+| **Multi-cluster visibility**      | Monitor multiple EKS/ECS clusters from one dashboard         |
+| **Compliance tracking**           | Audit container resource usage and health                   |
+
+**Container Insights metrics hierarchy:**
+
+```
+Cluster (e.g. production-eks)
+├── Node (e.g. ip-10-0-1-100)
+│   ├── Container metrics: cpu_utilization, memory_utilization, network_io
+│   └── Pod (Kubernetes): pod-name
+│       └── Container: container-name
+├── Service (e.g. api-service)
+│   └── Task/Pod instance
+│       └── Container metrics
+└── Task Metadata (ECS)
+```
+
+**Enable Container Insights on ECS:**
+
+```bash
+# For ECS EC2 launch type
+# 1. Install CloudWatch Agent on EC2 instances (as shown above)
+# 2. Add agent config to task definition:
+
+{
+  "containerDefinitions": [
+    {
+      "name": "my-app",
+      "image": "my-image:latest"
+    },
+    {
+      "name": "cloudwatch-agent",
+      "image": "amazon/cloudwatch-agent:latest",
+      "mountPoints": [
+        {
+          "sourceVolume": "proc",
+          "containerPath": "/proc"
+        },
+        {
+          "sourceVolume": "devdisk",
+          "containerPath": "/dev"
+        }
+      ]
+    }
+  ],
+  "volumes": [
+    {
+      "name": "proc",
+      "host": {
+        "sourcePath": "/proc"
+      }
+    },
+    {
+      "name": "devdisk",
+      "host": {
+        "sourcePath": "/dev"
+      }
+    }
+  ]
+}
+
+# For ECS Fargate launch type
+# Use awsfirelens log router with CloudWatch agent
+
+# Check Container Insights is enabled
+aws ecs describe-clusters --clusters my-cluster \
+  --query 'clusters[0].settings'
+```
+
+**Enable Container Insights on EKS:**
+
+```bash
+# Install CloudWatch Agent DaemonSet on EKS
+# 1. Create namespace
+kubectl create namespace amazon-cloudwatch
+
+# 2. Deploy CloudWatch Agent via Helm (recommended)
+helm repo add eks https://aws.github.io/eks-charts
+helm install aws-cloudwatch-metrics eks/aws-cloudwatch-metrics -n amazon-cloudwatch
+
+# 3. Verify metrics are flowing
+aws cloudwatch get-metric-statistics \
+  --namespace ContainerInsights \
+  --metric-name ContainerInstanceCount \
+  --dimensions Name=ClusterName,Value=my-cluster \
+  --start-time 2024-08-10T00:00:00Z \
+  --end-time 2024-08-10T01:00:00Z \
+  --period 300 \
+  --statistics Average
+```
+
+**Common Container Insights queries:**
+
+```bash
+# List all metrics in Container Insights namespace
+aws cloudwatch list-metrics --namespace ContainerInsights
+
+# Get CPU utilization by container
+aws cloudwatch get-metric-statistics \
+  --namespace ContainerInsights \
+  --metric-name ContainerCpuUtilized \
+  --dimensions Name=ClusterName,Value=prod-cluster Name=ServiceName,Value=api \
+  --start-time 2024-08-10T00:00:00Z \
+  --end-time 2024-08-10T01:00:00Z \
+  --period 300 \
+  --statistics Average,Maximum
+
+# Memory pressure by cluster
+aws cloudwatch get-metric-statistics \
+  --namespace ContainerInsights \
+  --metric-name ContainerMemoryUtilized \
+  --dimensions Name=ClusterName,Value=prod-cluster \
+  --start-time 2024-08-10T00:00:00Z \
+  --end-time 2024-08-10T01:00:00Z \
+  --period 300 \
+  --statistics Average
+```
+
+**Container Insights dashboard includes:**
+
+- **Cluster overview** — node count, running tasks/pods, CPU/memory aggregates
+- **Service performance** — per-service CPU, memory, network I/O
+- **Node health** — per-node resource utilization and status
+- **Container drill-down** — individual container metrics and logs
+
+**Pricing:**
+
+Container Insights charges per metric published:
+
+```
+First 1,000 metrics: Free (per month)
+Additional metrics: $0.30 per metric per month
+```
+
+Cost optimization:
+
+- Use **metrics filters** to reduce high-cardinality metrics (e.g. limit to key services).
+- **Aggregate metrics** where possible (cluster-level vs service-level vs pod-level).
+- Set **log retention** to control log storage costs alongside metrics.
+
+---
+
+### CloudWatch Synthetics
+
+**Description:** CloudWatch Synthetics lets you create canary tests that periodically run synthetic transactions against your application endpoints, APIs, and workflows. Canaries verify availability, latency, and correctness of critical paths before users detect problems.
+
+**When to use CloudWatch Synthetics:**
+
+| Use case                              | Benefit                                                          |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| **Endpoint availability monitoring**  | Verify API/website is reachable 24/7; alert on outage           |
+| **SSL/TLS certificate expiration**    | Monitor certificate validity; avoid certificate expiration      |
+| **API response validation**           | Check that API returns expected status codes and response body   |
+| **User workflow simulation**          | Create synthetic users performing login, purchase, etc.         |
+| **Multi-region availability**         | Run same canary from multiple AWS regions; detect regional issues |
+| **Latency SLO monitoring**            | Track p99 latency; trigger alarms when SLO is breached          |
+
+**Canary types:**
+
+| Type                  | Purpose                                                      |
+| --------------------- | ------------------------------------------------------------ |
+| **API Canary**        | Calls REST API, checks status code and response body         |
+| **Endpoint Check**    | HTTP GET request; validates response code and timing         |
+| **Broken Link Check** | Crawls website; finds broken links and missing resources     |
+| **Visual Regression** | Compares screenshots; detects UI changes                     |
+| **Canary Script**     | Custom Node.js script; full control over test logic          |
+
+**Create a simple API canary:**
+
+```bash
+# Create a canary that checks an API endpoint
+aws synthetics create-canary \
+  --name api-health-check \
+  --artifact-s3-location s3://my-bucket/canary-artifacts/ \
+  --execution-role-arn arn:aws:iam::123456789012:role/CloudWatchSyntheticsRole \
+  --schedule-expression "rate(5 minutes)" \
+  --run-config MemoryInMB=960,TimeoutInSeconds=60 \
+  --code Handler=apiCanary.handler,Script='
+const synthetics = require("Synthetics");
+const http = require("http");
+
+const apiCanary = async function() {
+  const url = "https://api.example.com/health";
+  let response = await http.get(url);
+  
+  if (response.statusCode !== 200) {
+    throw new Error(`API returned ${response.statusCode}`);
+  }
+  
+  const body = JSON.parse(response.body);
+  if (body.status !== "healthy") {
+    throw new Error("API status is not healthy");
+  }
+};
+
+exports.handler = apiCanary;
+'
+```
+
+**Create a canary via CloudFormation/CDK:**
+
+```json
+{
+  "Type": "AWS::Synthetics::Canary",
+  "Properties": {
+    "Name": "website-availability",
+    "ArtifactS3Location": "s3://my-bucket/canary-results/",
+    "ExecutionRoleArn": "arn:aws:iam::123456789012:role/CloudWatchSyntheticsRole",
+    "Handler": "apiCanary.handler",
+    "Code": {
+      "S3Bucket": "my-bucket",
+      "S3Key": "canary-scripts/apiCanary.zip"
+    },
+    "RunConfig": {
+      "TimeoutInSeconds": 60,
+      "MemoryInMB": 960,
+      "ActiveTracing": true
+    },
+    "Schedule": {
+      "Expression": "rate(5 minutes)"
+    },
+    "FailureRetentionPeriod": 31,
+    "SuccessRetentionPeriod": 31,
+    "Tags": {
+      "Environment": "production"
+    }
+  }
+}
+```
+
+**Canary metrics and alarms:**
+
+```bash
+# List canary results
+aws synthetics list-runs \
+  --canary-name api-health-check
+
+# Get canary metrics (success/failure rate)
+aws cloudwatch get-metric-statistics \
+  --namespace CloudWatchSynthetics \
+  --metric-name SuccessPercent \
+  --dimensions Name=CanaryName,Value=api-health-check \
+  --start-time 2024-08-10T00:00:00Z \
+  --end-time 2024-08-10T01:00:00Z \
+  --period 300 \
+  --statistics Average
+
+# Get canary latency
+aws cloudwatch get-metric-statistics \
+  --namespace CloudWatchSynthetics \
+  --metric-name Duration \
+  --dimensions Name=CanaryName,Value=api-health-check \
+  --start-time 2024-08-10T00:00:00Z \
+  --end-time 2024-08-10T01:00:00Z \
+  --period 300 \
+  --statistics Average,Maximum
+
+# Create alarm: canary failure
+aws cloudwatch put-metric-alarm \
+  --alarm-name canary-failure-alarm \
+  --metric-name SuccessPercent \
+  --namespace CloudWatchSynthetics \
+  --statistic Average \
+  --period 300 \
+  --threshold 90 \
+  --comparison-operator LessThanThreshold \
+  --evaluation-periods 1 \
+  --dimensions Name=CanaryName,Value=api-health-check \
+  --alarm-actions arn:aws:sns:us-east-1:123456789012:alerts
+```
+
+**Canary script examples:**
+
+```javascript
+// Example 1: Check API response with validation
+const synthetics = require("Synthetics");
+const http = require("http");
+
+const validateAPI = async function() {
+  const url = "https://api.example.com/users";
+  const response = await http.get(url);
+  
+  if (response.statusCode !== 200) {
+    throw new Error(`Expected 200, got ${response.statusCode}`);
+  }
+  
+  const data = JSON.parse(response.body);
+  if (!Array.isArray(data.users)) {
+    throw new Error("Response does not contain users array");
+  }
+};
+
+exports.handler = validateAPI;
+
+// Example 2: Verify certificate expiration
+const synthetics = require("Synthetics");
+const tls = require("tls");
+
+const checkCert = async function() {
+  const options = {
+    host: "api.example.com",
+    port: 443,
+    method: "HEAD"
+  };
+  
+  let cert = await new Promise((resolve, reject) => {
+    const req = tls.connect(options, () => {
+      resolve(req.getPeerCertificate());
+      req.destroy();
+    });
+    req.on("error", reject);
+  });
+  
+  const expiryDate = new Date(cert.valid_to);
+  const daysUntilExpiry = (expiryDate - new Date()) / (1000 * 60 * 60 * 24);
+  
+  if (daysUntilExpiry < 30) {
+    throw new Error(`Certificate expires in ${daysUntilExpiry.toFixed(1)} days`);
+  }
+};
+
+exports.handler = checkCert;
+```
+
+**Manage canaries:**
+
+```bash
+# List all canaries
+aws synthetics list-canaries --output table
+
+# Get canary details
+aws synthetics get-canary --name api-health-check
+
+# Update canary schedule
+aws synthetics update-canary \
+  --name api-health-check \
+  --schedule-expression "rate(10 minutes)"
+
+# Start a canary (begin running scheduled tests)
+aws synthetics start-canary --name api-health-check
+
+# Stop a canary (pause scheduled tests)
+aws synthetics stop-canary --name api-health-check
+
+# Delete a canary
+aws synthetics delete-canary --name api-health-check
+
+# View canary logs
+aws logs tail /aws/lambda/cwsyn-api-health-check-abc123 --follow
+```
+
+**Canary best practices:**
+
+| Best Practice                    | Why                                                         |
+| -------------------------------- | ----------------------------------------------------------- |
+| **Test critical paths only**     | Minimize cost; focus on user-facing workflows               |
+| **Run from multiple regions**    | Detect regional outages; verify global availability         |
+| **Set realistic thresholds**     | Avoid alert fatigue; tune for actual SLOs                   |
+| **Validate response content**    | Check not just availability but also correctness            |
+| **Use VPC endpoints in Synthetics** | Test private endpoints; ensure canary can reach internal APIs |
+| **Monitor canary metrics**       | Create alarms on SuccessPercent and Duration                |
+| **Version control scripts**      | Track canary code changes in Git                            |
+| **Test from CloudWatch Console** | Run canary once before scheduling to verify config          |
+
+**Cost considerations:**
+
+```
+Canary executions: $0.0015 per execution (runs count as API calls)
+Example: 5-minute schedule × 288/day × 30 days = 4,320 executions = $6.48/month
+```
+
+Optimize cost by:
+
+- Increasing run frequency (e.g. every 15 minutes vs every 1 minute).
+- Limiting number of canaries to critical workflows only.
+- Using simpler checks (endpoint check vs full script).
 
 ---
 
