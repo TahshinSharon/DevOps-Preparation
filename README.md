@@ -179,6 +179,7 @@ Cloud-native services on AWS (and equivalents on other providers) used to build,
 - **Amazon S3** — object storage — buckets, objects, keys, storage classes (Standard, IA, Glacier, Intelligent-Tiering), security (bucket policies, encryption, Block Public Access), and lifecycle policies.
 - **Elastic Compute Cloud (EC2)** — resizable virtual servers in AWS — instances, AMIs, instance types, security groups, EBS volumes, key pairs, and SSH access.
 - **AWS Lambda** — serverless compute — functions, handlers, invocation types (synchronous, asynchronous, poll-based), runtimes, cold starts, concurrency (unreserved, reserved, provisioned), versions & aliases, async destinations & DLQ, Function URLs, VPC configuration, CloudWatch metrics, X-Ray tracing, and Lambda Insights.
+- **AWS CLI** — the command-line tool for AWS — installation and configuration, named profiles and credentials, output formats and JMESPath querying, common service commands (S3, EC2, IAM, Lambda), pagination, waiters, batch operations, scripting best practices, and credential security.
 
 → [Open the Cloud Engineering notes](./Cloud-Engineering/README.md)
 

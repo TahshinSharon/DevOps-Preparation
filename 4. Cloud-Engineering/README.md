@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-9-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-10-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -111,6 +111,14 @@
   - [Function URLs](#function-urls)
   - [Lambda VPC Configuration](#lambda-vpc-configuration)
   - [Lambda Monitoring & Observability](#lambda-monitoring--observability)
+- [AWS CLI](#aws-cli-1)
+  - [One Shot Revision](#one-shot-revision-9)
+  - [AWS CLI Overview](#aws-cli-overview)
+  - [Installation & Configuration](#installation--configuration)
+  - [CLI Profiles & Credentials](#cli-profiles--credentials)
+  - [Output Formats & Query Syntax](#output-formats--query-syntax)
+  - [Common Service Commands](#common-service-commands)
+  - [Advanced CLI Techniques](#advanced-cli-techniques)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -3258,6 +3266,460 @@ aws lambda update-function-configuration \
 - Set a **log retention policy** on `/aws/lambda/<function-name>` log groups — by default logs are retained indefinitely and incur storage costs.
 - Use **structured logging** (JSON) in your function so CloudWatch Logs Insights queries can filter on fields like `level`, `requestId`, and `userId`.
 - Lambda metrics are published per-function and per-resource (alias/version). Always monitor the alias that production traffic hits, not `$LATEST`.
+
+---
+
+## AWS CLI
+
+The **AWS CLI (Command Line Interface)** is the primary tool for interacting with AWS services from the terminal. It wraps AWS REST APIs into easy-to-remember commands with structured output, filtering, and multi-account support via named profiles.
+
+### One Shot Revision
+
+| Topic                                                        | Short Description                                                                          |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| [AWS CLI Overview](#aws-cli-overview)                        | What is the CLI, when to use it, v2 vs v1                                                 |
+| [Installation & Configuration](#installation--configuration) | Installing AWS CLI v2, initial setup, credentials storage, verification                   |
+| [CLI Profiles & Credentials](#cli-profiles--credentials)     | Named profiles, credential precedence, environment variables, credential chain             |
+| [Output Formats & Query Syntax](#output-formats--query-syntax) | JSON, table, text output; JMESPath filtering and querying; column/tree output             |
+| [Common Service Commands](#common-service-commands)          | Core patterns for S3, EC2, IAM, Lambda, and generic operations                            |
+| [Advanced CLI Techniques](#advanced-cli-techniques)          | Pagination, waiters, dry-runs, batch operations, scripting best practices                 |
+
+### AWS CLI Overview
+
+**Description:** The AWS CLI is the canonical command-line tool for AWS. Available in versions 1 and 2 (v2 recommended for new setups). It provides typed, consistent access to AWS service APIs with output formatting, querying, and credential management.
+
+**When to use the AWS CLI:**
+
+| Use Case                              | Why CLI is ideal                                                      |
+| ------------------------------------- | --------------------------------------------------------------------- |
+| **Ad-hoc operations** (manual testing)| Quick one-off commands; no boilerplate                                |
+| **Scripting & automation**            | Shell scripts, CI/CD pipelines, Lambda initialisation                 |
+| **DevOps workflows**                  | Deploying infra, managing resources, monitoring                       |
+| **Exploring services**                | `describe-*` commands to list resources and understand configuration  |
+| **Batch operations**                  | Processing multiple resources in a loop or via xargs                  |
+
+**Why not CLI:**
+
+- **Infrastructure as Code:** Use CloudFormation, Terraform, or CDK for reproducible, versionable infrastructure.
+- **Complex multi-step workflows:** Use AWS Step Functions or orchestration tools.
+- **GUI management:** AWS Console for learning, permissions audits, cost analysis.
+
+**CLI versions:**
+
+| Version | Status                | When to use                          |
+| ------- | --------------------- | ------------------------------------ |
+| **v2**  | Current & recommended | All new setups; Python 3.7+          |
+| **v1**  | Deprecated            | Legacy scripts; avoid new projects   |
+
+### Installation & Configuration
+
+**Installation steps:**
+
+```bash
+# macOS (Homebrew)
+brew install awscli
+
+# Linux (latest v2)
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip && sudo ./aws/install
+
+# Windows (MSI or Chocolatey)
+# Download: https://awscli.amazonaws.com/AWSCLIV2.msi
+# OR: choco install awscli
+
+# Verify installation
+aws --version
+# aws-cli/2.15.x Python/3.11.x ...
+```
+
+**Initial setup with `aws configure`:**
+
+```bash
+aws configure
+# AWS Access Key ID [None]: AKIA...
+# AWS Secret Access Key [None]: (paste secret key)
+# Default region name [None]: us-east-1
+# Default output format [None]: json
+```
+
+This writes credentials and config to:
+
+```
+~/.aws/credentials  # Access Key ID and Secret Access Key
+~/.aws/config       # Region, output format, profiles
+```
+
+**Verify credentials:**
+
+```bash
+aws sts get-caller-identity
+# {
+#   "UserId": "AIDAI...",
+#   "Account": "123456789012",
+#   "Arn": "arn:aws:iam::123456789012:user/john"
+# }
+```
+
+**Command structure:**
+
+```
+aws [--profile PROFILE] [--region REGION] <service> <operation> [--option VALUE] [--flag]
+    └─ global options                       └─ service       └─ operation
+```
+
+### CLI Profiles & Credentials
+
+**Named profiles** enable multi-account or multi-role workflows on a single machine:
+
+```bash
+# Create a profile for a different AWS account
+aws configure --profile dev
+# → stores credentials under [dev] in ~/.aws/credentials and config
+
+# Create a profile that assumes a role (advanced)
+# Edit ~/.aws/config:
+# [profile prod]
+# role_arn = arn:aws:iam::987654321098:role/CloudEngineer
+# source_profile = primary  # must have permissions to assume the role
+
+# Use a profile for a single command
+aws s3 ls --profile dev
+
+# Use a profile for a shell session
+export AWS_PROFILE=dev
+aws ec2 describe-instances  # uses dev profile
+
+# View all configured profiles
+cat ~/.aws/config
+```
+
+**Credential precedence** (highest to lowest):
+
+1. **Command-line flags:** `--access-key-id`, `--secret-access-key`
+2. **Environment variables:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
+3. **Named profile:** `$AWS_PROFILE` or `--profile`
+4. **Default profile** in `~/.aws/credentials`
+5. **EC2 instance IAM role:** if running on EC2 (highest on instances)
+
+**Credential security best practices:**
+
+```bash
+# ✅ Never commit credentials to git
+echo "~/.aws/credentials" >> ~/.gitignore
+
+# ✅ Use IAM roles on EC2/ECS/Lambda (no credentials needed)
+# ✅ Use temporary credentials from `sts assume-role`
+aws sts assume-role \
+  --role-arn arn:aws:iam::123456789012:role/MyRole \
+  --role-session-name my-session
+# → Returns: AccessKeyId, SecretAccessKey, SessionToken (valid 1 hour)
+
+# ✅ Store long-lived credentials in AWS Secrets Manager or Systems Manager Parameter Store
+# Then retrieve them at runtime:
+aws secretsmanager get-secret-value --secret-id my-secret \
+  --query 'SecretString' --output text
+```
+
+### Output Formats & Query Syntax
+
+**Output format options:**
+
+```bash
+aws ec2 describe-instances --output json   # Full JSON (default)
+aws ec2 describe-instances --output table  # Human-readable table
+aws ec2 describe-instances --output text   # Whitespace-separated values
+aws ec2 describe-instances --output yaml   # YAML format (also supported)
+```
+
+**Example responses:**
+
+```bash
+# JSON (default, best for scripting)
+aws s3 ls --output json
+# {
+#   "Buckets": [
+#     { "Name": "my-bucket", "CreationDate": "2023-01-15T10:30:00+00:00" }
+#   ]
+# }
+
+# Table (human-readable)
+aws s3 ls --output table
+# ────────────────────────────────────────────────────
+# |  ListBuckets                                      |
+# +──────────────────────────────────────────────────+
+# |  Name       |  CreationDate                       |
+# +─────────────+─────────────────────────────────────+
+# |  my-bucket  |  2023-01-15T10:30:00+00:00          |
+```
+
+**Query with JMESPath** (filter and extract fields):
+
+```bash
+# Get only instance IDs and states
+aws ec2 describe-instances \
+  --query 'Reservations[*].Instances[*].[InstanceId,State.Name]' \
+  --output table
+
+# Filter by instance state (running only)
+aws ec2 describe-instances \
+  --query 'Reservations[].Instances[?State.Name==`running`].InstanceId' \
+  --output text
+
+# Extract a single field (join with newlines)
+aws ec2 describe-instances \
+  --query 'Reservations[*].Instances[*].PublicIpAddress' \
+  --output text
+
+# Sort by name (JMESPath sort_by)
+aws ec2 describe-instances \
+  --query 'sort_by(Reservations[*].Instances[], &Tags[?Key==`Name`].Value | [0])' \
+  --output table
+```
+
+**JMESPath basics:**
+
+| Expression | Meaning |
+| --- | --- |
+| `Reservations[*]` | Select all items in the `Reservations` array |
+| `Reservations[0]` | Select the first reservation |
+| `Instances[?State.Name==\`running\`]` | Filter: only instances with state = running |
+| `&Tags[?Key==\`Name\`].Value` | Sort key: extract the Name tag value |
+| `[0]` | Get the first element |
+| `length(@)` | Count items |
+
+**Piping to `jq` for advanced filtering:**
+
+```bash
+# Get all running instance IPs (jq alternative to JMESPath)
+aws ec2 describe-instances --output json | \
+  jq '.Reservations[].Instances[] | select(.State.Name=="running") | .PublicIpAddress'
+
+# Extract tags into a flat key=value format
+aws ec2 describe-instances --output json | \
+  jq '.Reservations[].Instances[] | {InstanceId, Tags: ((.Tags // []) | map("\(.Key)=\(.Value)") | join(", "))}'
+```
+
+### Common Service Commands
+
+**Pattern for any service:**
+
+```
+aws <service> <operation> [--filters or --query-params] [--output format]
+```
+
+**S3 operations:**
+
+```bash
+# List buckets
+aws s3 ls
+
+# List objects in a bucket
+aws s3 ls s3://my-bucket/
+
+# Upload a file (high-level, multipart-aware)
+aws s3 cp myfile.txt s3://my-bucket/myfile.txt
+
+# Sync a directory
+aws s3 sync ./local-dir s3://my-bucket/remote-dir
+
+# Remove an object
+aws s3 rm s3://my-bucket/myfile.txt
+
+# Create a bucket (low-level api — region handling)
+aws s3api create-bucket \
+  --bucket my-new-bucket \
+  --region us-east-1
+  # For non-us-east-1: --create-bucket-configuration LocationConstraint=us-west-2
+
+# Get bucket versioning
+aws s3api get-bucket-versioning --bucket my-bucket
+```
+
+**EC2 operations:**
+
+```bash
+# Describe all instances
+aws ec2 describe-instances --output table
+
+# Describe running instances only
+aws ec2 describe-instances \
+  --filters "Name=instance-state-name,Values=running"
+
+# Get instance IDs and IPs (JMESPath)
+aws ec2 describe-instances \
+  --query 'Reservations[*].Instances[*].[InstanceId,PrivateIpAddress,PublicIpAddress]' \
+  --output table
+
+# Start/stop instances
+aws ec2 start-instances --instance-ids i-1234567890abcdef0
+aws ec2 stop-instances --instance-ids i-1234567890abcdef0
+
+# Terminate an instance
+aws ec2 terminate-instances --instance-ids i-1234567890abcdef0
+
+# Create a key pair (one-time setup)
+aws ec2 create-key-pair --key-name my-key \
+  --query 'KeyMaterial' --output text > my-key.pem
+chmod 400 my-key.pem
+```
+
+**IAM operations:**
+
+```bash
+# List users
+aws iam list-users --query 'Users[*].[UserName,Arn]' --output table
+
+# Create a user
+aws iam create-user --user-name john
+
+# Create and attach a policy
+aws iam put-user-policy \
+  --user-name john \
+  --policy-name S3ReadOnly \
+  --policy-document file://policy.json
+
+# List access keys for a user
+aws iam list-access-keys --user-name john
+
+# Assume a role (get temporary credentials)
+aws sts assume-role \
+  --role-arn arn:aws:iam::123456789012:role/MyRole \
+  --role-session-name my-session \
+  --duration-seconds 3600
+```
+
+**Lambda operations:**
+
+```bash
+# List functions
+aws lambda list-functions --output table
+
+# Invoke a function synchronously
+aws lambda invoke \
+  --function-name my-function \
+  --payload '{"key": "value"}' \
+  response.json && cat response.json
+
+# Update function code
+aws lambda update-function-code \
+  --function-name my-function \
+  --zip-file fileb://function.zip
+
+# Set environment variables
+aws lambda update-function-configuration \
+  --function-name my-function \
+  --environment Variables={ENV=prod,LOG_LEVEL=debug}
+
+# Get function details
+aws lambda get-function --function-name my-function
+```
+
+### Advanced CLI Techniques
+
+**Pagination** — handle large result sets:
+
+```bash
+# Manual pagination (returns one page; use --starting-token if results are truncated)
+aws s3api list-objects-v2 --bucket my-bucket --max-items 10
+
+# Auto-pagination (fetch all results)
+aws s3api list-objects-v2 --bucket my-bucket \
+  --query 'Contents[].Key' --output text | tr '\t' '\n'
+  # Tip: use `--page-iterator` for explicit control in scripts
+
+# Built-in pagination (some services)
+aws ec2 describe-instances --max-results 10  # Returns up to 10 per page
+```
+
+**Waiters** — poll until a condition is met:
+
+```bash
+# Wait for an instance to be running
+aws ec2 wait instance-running --instance-ids i-1234567890abcdef0
+
+# Wait for an instance to be terminated
+aws ec2 wait instance-terminated --instance-ids i-1234567890abcdef0
+
+# Available waiters depend on the service
+aws ec2 wait help
+```
+
+**Dry-run and validation:**
+
+```bash
+# Test a command without executing (auth + syntax check)
+aws ec2 run-instances \
+  --image-id ami-12345678 \
+  --instance-type t2.micro \
+  --dry-run
+# UnauthorizedOperation: You are not authorized to perform this operation. (if no permissions)
+
+# Validate a CloudFormation template
+aws cloudformation validate-template --template-body file://template.yaml
+```
+
+**Batch operations in shell loops:**
+
+```bash
+# Stop all running instances in a region
+aws ec2 describe-instances \
+  --filters "Name=instance-state-name,Values=running" \
+  --query 'Reservations[*].Instances[*].InstanceId' \
+  --output text | xargs -I {} aws ec2 stop-instances --instance-ids {}
+
+# Tag all buckets with a lifecycle rule
+for bucket in $(aws s3 ls --query 'Buckets[].Name' --output text); do
+  aws s3api put-bucket-tagging \
+    --bucket "$bucket" \
+    --tagging 'TagSet=[{Key=Environment,Value=prod}]'
+done
+
+# Delete multiple objects from S3
+aws s3api delete-objects \
+  --bucket my-bucket \
+  --delete "Objects=[{Key=file1.txt},{Key=file2.txt}]"
+```
+
+**Scripting best practices:**
+
+```bash
+#!/bin/bash
+set -euo pipefail  # Exit on error, undefined vars, pipe failures
+
+# Use --query to extract only what you need (faster, less parsing)
+INSTANCE_ID=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=my-server" \
+  --query 'Reservations[0].Instances[0].InstanceId' \
+  --output text)
+
+# Check if result is empty
+if [ -z "$INSTANCE_ID" ]; then
+  echo "No instance found" >&2
+  exit 1
+fi
+
+# Store the profile in a variable
+export AWS_PROFILE=dev
+
+# Use `--output text` for scripting; `--output json` for further processing
+aws ec2 describe-instances \
+  --instance-ids "$INSTANCE_ID" \
+  --query 'Reservations[0].Instances[0].State.Name' \
+  --output text
+```
+
+**Learn from the official source:**
+
+→ [AWS CLI User Guide v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+
+**Notes:**
+
+- The CLI is **stateless** — each command is independent. Use scripts or orchestration tools to manage multi-step workflows.
+- Always use **named profiles** for multi-account work; never hardcode account IDs in scripts.
+- Prefer **`--query`** over piping to `jq` when possible — it's faster and doesn't require external tools.
+- When scripting, prefer **environment variables** or **AWS Systems Manager Parameter Store** over config files to avoid versioning secrets.
+- Use **`--output text`** with `xargs` for batch processing; **`--output json`** when piping to tools like `jq`.
+- The CLI supports **credential caching** — temporary credentials from `sts assume-role` are automatically cached in `~/.aws/cli/cache/`.
 
 ---
 
