@@ -98,6 +98,24 @@ Before touching any command, it helps to build a clear mental picture of what Ku
 
 Without an orchestrator, running containers in production means manual restarts on failure, no automatic scaling under load, and hand-stitched networking between services. Kubernetes solves this by declaring the **desired state** (e.g., "run 3 replicas of my API") and continuously reconciling the cluster to match it.
 
+**Problem → Solution Flow:**
+
+```
+Without Kubernetes:
+  App Crashes → Manual Restart Needed → Downtime
+  Traffic Spike → Manual Scaling → Delay in Response
+  Service Update → Manual Coordination → Risk of Failure
+
+With Kubernetes:
+  App Crashes → Auto-restart via controller
+         ↓
+  Traffic Spike → Auto-scale via HPA
+         ↓
+  Service Update → Declarative YAML → Rolling update (zero downtime)
+         ↓
+  Continuous Reconciliation: Desired State ↔ Actual State
+```
+
 **Why it matters for DevOps:**
 
 - **Self-healing** — crashed containers restart automatically; unhealthy nodes are replaced.
@@ -113,6 +131,27 @@ Without an orchestrator, running containers in production means manual restarts 
 ### Kubernetes vs Docker
 
 Docker and Kubernetes are complementary, not competing, tools.
+
+**Architecture Comparison:**
+
+```
+Docker (Single Host):              Kubernetes (Multi-Host Cluster):
+┌──────────────────────┐           ┌────────────────────────────────┐
+│  Docker Host / VM    │           │   Control Plane                │
+│                      │           │  ┌──────────────────────────┐  │
+│  ┌────┐ ┌────┐       │           │  │ Orchestration, Scheduling│  │
+│  │C-1 │ │C-2 │       │    vs.    │  │ State Management         │  │
+│  └────┘ └────┘       │           │  └──────────────────────────┘  │
+│  (Manual restart)    │           │                                 │
+│  (Manual scale)      │           │  Worker Nodes (Many):           │
+└──────────────────────┘           │  ┌──────────┐ ┌──────────┐     │
+                                   │  │  Node 1  │ │  Node 2  │     │
+                                   │  │┌──┐┌──┐ │ │┌──┐┌──┐  │     │
+                                   │  │└──┘└──┘ │ │└──┘└──┘  │     │
+                                   │  └──────────┘ └──────────┘     │
+                                   │  (Auto restart, Auto scale)   │
+                                   └────────────────────────────────┘
+```
 
 | Aspect              | Docker                                              | Kubernetes                                               |
 | ------------------- | --------------------------------------------------- | -------------------------------------------------------- |
@@ -179,11 +218,78 @@ A Kubernetes **cluster** is made up of two logical layers:
 | **kube-controller-manager** | Runs built-in controllers: Node, Replication, Endpoints, ServiceAccount controllers, and more.   |
 | **cloud-controller-manager** | Optional; talks to cloud APIs to provision load balancers, persistent disks, and node objects.  |
 
+**Request Flow through Control Plane:**
+
+```
+User / CI/CD
+     │
+     │ kubectl apply -f deployment.yaml
+     ▼
+┌──────────────────────────────────────────────────────────┐
+│              API Server (Gatekeeper)                     │
+│  ├─ Validates request                                    │
+│  ├─ Stores in etcd (Source of Truth)                     │
+│  └─ Notifies watchers                                    │
+└─────────────┬──────────────────────────────────────────────┘
+              │
+        ┌─────▼─────┐
+        │   etcd     │
+        │ (Database) │
+        └─────┬──────┘
+              │
+      ┌───────┴────────┐
+      │                │
+      ▼                ▼
+ Scheduler      Controller Manager
+ (Watches for   (Watches for state
+  unscheduled   drift, fixes it)
+  pods)
+      │                │
+      └────────┬───────┘
+               │
+        ┌──────▼──────┐
+        │ kubelet on  │
+        │ Nodes       │
+        │ (Execute)   │
+        └─────────────┘
+```
+
 **Key insight:** Every component (except etcd) communicates only through the API Server — nothing talks to etcd directly. This makes the API Server the single point of consistency for the entire cluster.
 
 ---
 
 ### Worker Node Components
+
+**Pod Execution Flow on Worker Node:**
+
+```
+API Server sends PodSpec to kubelet
+              │
+              ▼
+         kubelet (Agent)
+         ├─ Receives spec
+         ├─ Validates
+         ├─ Requests container runtime
+         │
+         ▼
+    Container Runtime
+    (containerd / CRI-O)
+    ├─ Pulls image
+    ├─ Creates container
+    └─ Starts container
+         │
+         ▼
+      Pod (Container(s) + Network namespace)
+         │
+         ├─ Container A
+         ├─ Container B
+         └─ Shared networking
+              │
+              ▼
+         kube-proxy
+         (Routes traffic to pod
+          via iptables/ipvs rules)
+```
 
 | Component             | Role                                                                                                      |
 | --------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -207,6 +313,30 @@ Hands-on foundation — from spinning up a cluster to running your first workloa
 ### Create a Cluster
 
 Two tools dominate cluster creation depending on your context:
+
+**Cluster Creation Workflows:**
+
+```
+┌─────────────────────────────────────┐
+│  Choose Your Path                   │
+├─────────────────────────────────────┤
+│                                     │
+├─ kind (Kubernetes IN Docker)       │
+│  └─ Install kind                   │
+│     └─ kind create cluster         │
+│        └─ Cluster ready (secs)     │
+│                                     │
+├─ kubeadm (Production Setup)        │
+│  ├─ Setup nodes (Ubuntu/CentOS)    │
+│  ├─ Install containerd             │
+│  ├─ Install kubeadm/kubelet/kubectl│
+│  ├─ kubeadm init (control plane)   │
+│  ├─ Install CNI (Calico)           │
+│  ├─ kubeadm join (worker nodes)    │
+│  └─ Cluster ready (mins)           │
+│                                     │
+└─────────────────────────────────────┘
+```
 
 | Tool | Best For | What It Creates |
 | ---- | -------- | --------------- |
@@ -391,6 +521,50 @@ kubectl get pods -A      # all system pods should be Running or Completed
 
 Once the cluster is running, the fastest way to get a workload up is with `kubectl` imperative commands — no YAML required for a first run.
 
+**Deployment Lifecycle Flow:**
+
+```
+Step 1: Create Deployment
+        kubectl create deployment hello-app --image=nginx:latest
+              │
+              ▼
+        Deployment Created (desired replicas: 1)
+              │
+              ▼
+Step 2: Verify & Inspect
+        kubectl get deployments / pods
+              │
+              ▼
+        Pods are Running
+              │
+              ▼
+Step 3: Expose as Service
+        kubectl expose deployment hello-app --type=NodePort --port=80
+              │
+              ▼
+        Service Created (assigned a NodePort: 30XXX)
+              │
+              ▼
+Step 4: Scale (Optional)
+        kubectl scale deployment hello-app --replicas=3
+              │
+              ▼
+        3 Pods Running (auto-scheduled across nodes)
+              │
+              ▼
+Step 5: Monitor & Debug
+        kubectl logs <pod-name>
+        kubectl describe pod <pod-name>
+              │
+              ▼
+Step 6: Clean Up
+        kubectl delete service hello-app
+        kubectl delete deployment hello-app
+              │
+              ▼
+        Application Removed
+```
+
 **1 — Create a Deployment**
 
 A Deployment manages a set of identical Pods and keeps the desired replica count healthy.
@@ -449,6 +623,46 @@ kubectl delete deployment hello-app
 ## Conclusion
 
 Kubernetes is the industry-standard platform for running containerized workloads at scale. This section covers the mental model needed before writing a single YAML manifest.
+
+**The Complete Kubernetes Story:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Developer / DevOps Engineer                                 │
+│  kubectl apply -f deployment.yaml                            │
+└─────────────────┬──────────────────────────────────────────────┘
+                  │
+                  ▼
+        ┌─────────────────────┐
+        │  Kubernetes Cluster │
+        ├─────────────────────┤
+        │                     │
+        │  Control Plane:     │
+        │  ├─ API Server      │
+        │  ├─ Scheduler       │
+        │  ├─ Controller Mgr  │
+        │  └─ etcd (store)    │
+        │                     │
+        │  Worker Nodes:      │
+        │  ├─ Node 1          │
+        │  │  ├─ Pods         │
+        │  │  ├─ kubelet      │
+        │  │  └─ kube-proxy   │
+        │  ├─ Node 2          │
+        │  └─ Node 3          │
+        │                     │
+        │  Continuously:      │
+        │  Desired State ↔    │
+        │  Actual State       │
+        │  (Self-healing,     │
+        │   Auto-scaling,     │
+        │   Load-balancing)   │
+        │                     │
+        └─────────────────────┘
+                  │
+                  ▼
+        Application Running & Healthy
+```
 
 **Key takeaways so far:**
 
