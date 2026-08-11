@@ -51,6 +51,7 @@
   - [One Shot Revision](#one-shot-revision-1)
   - [Create a Cluster](#create-a-cluster)
   - [Deploy an App Using Kubectl](#deploy-an-app-using-kubectl)
+  - [Viewing Pods and Nodes](#viewing-pods-and-nodes)
 - [Conclusion](#conclusion)
 - [References](#references)
 
@@ -309,6 +310,7 @@ Hands-on foundation — from spinning up a cluster to running your first workloa
 | ----- | ----------------- |
 | [Create a Cluster](#create-a-cluster) | Bootstrap a real cluster with kubeadm or a local dev cluster with kind |
 | [Deploy an App Using Kubectl](#deploy-an-app-using-kubectl) | Run, expose, scale, and inspect a workload with kubectl imperatively |
+| [Viewing Pods and Nodes](#viewing-pods-and-nodes) | Inspect cluster state — list, describe, and debug pods and nodes with kubectl |
 
 ### Create a Cluster
 
@@ -617,6 +619,163 @@ kubectl logs -f <pod-name>       # follow (stream) logs live
 kubectl delete service hello-app
 kubectl delete deployment hello-app
 ```
+
+---
+
+### Viewing Pods and Nodes
+
+Once applications are running, inspecting cluster state is critical for debugging, monitoring, and understanding what's happening. This section covers the kubectl commands used to view pods and nodes.
+
+**Inspection Workflow Flow:**
+
+```
+Cluster Running with Pods/Nodes
+         │
+    ┌────┴────┐
+    │          │
+    ▼          ▼
+Get Overview  Describe Details
+    │          │
+    ├─┐      ├─┐
+    │ ├─ Nodes    │ ├─ Node details (capacity, taints, conditions)
+    │ ├─ Pods     │ ├─ Pod details (image, IP, events)
+    │ ├─ Services │ ├─ Service endpoints
+    │ └─ All (-A) │ └─ Resource status & history
+    │            │
+    ▼            ▼
+Quick Snapshot  Troubleshooting
+(List command)  (Describe command)
+    │            │
+    └─────┬──────┘
+          │
+    Debug & Resolve
+```
+
+**1 — Get Nodes**
+
+Display all nodes in the cluster with their status and resource info.
+
+```bash
+kubectl get nodes                           # list all nodes
+kubectl get nodes -o wide                   # show additional columns (Internal/External IP, OS Image)
+kubectl get nodes -o json                   # get raw JSON output
+kubectl describe node <node-name>           # detailed node info (capacity, allocated, taints, conditions)
+```
+
+**Example output:**
+
+```
+NAME             STATUS   ROLES           AGE     VERSION
+kind-control-plane   Ready    control-plane   5m2s    v1.30.0
+kind-worker          Ready    <none>          4m58s   v1.30.0
+kind-worker2         Ready    <none>          4m56s   v1.30.0
+```
+
+**2 — Get Pods**
+
+Display pods in the current namespace (default).
+
+```bash
+kubectl get pods                            # list pods in default namespace
+kubectl get pods -n <namespace>             # list pods in a specific namespace
+kubectl get pods -A                         # list pods in all namespaces
+kubectl get pods -o wide                    # show pod IPs, node assignments, and restart count
+kubectl get pods --selector=<label-key>=<label-value>    # filter by label
+kubectl get pods --field-selector=status.phase=Running   # filter by field
+```
+
+**Example output:**
+
+```
+NAME                        READY   STATUS    RESTARTS   AGE
+hello-app-8f8f8f8f8-abc12   1/1     Running   0          2m15s
+hello-app-8f8f8f8f8-def45   1/1     Running   0          2m12s
+hello-app-8f8f8f8f8-ghi78   1/1     Running   1          1m50s
+```
+
+**3 — Describe Pods**
+
+Get detailed information about a specific pod (useful for debugging).
+
+```bash
+kubectl describe pod <pod-name>             # detailed pod info (events, conditions, containers)
+kubectl describe pod <pod-name> -n <namespace>  # describe pod in specific namespace
+```
+
+**Helpful information from describe:**
+
+- **Status** — Current state (Pending, Running, Succeeded, Failed, Unknown)
+- **Conditions** — Ready, Initialized, etc., with timestamps
+- **Events** — Chronological log of what happened to the pod (pulls, starts, errors)
+- **Containers** — Image, port, resources requested/limited, environment
+
+**4 — Get Services**
+
+Display services and their cluster endpoints.
+
+```bash
+kubectl get services                        # list services in default namespace
+kubectl get services -A                     # list services in all namespaces
+kubectl get services -o wide                # show endpoint IPs and port mapping
+kubectl describe service <service-name>     # detailed service info (selector, endpoints, type)
+```
+
+**5 — Get All Resources**
+
+Display all resource types at once.
+
+```bash
+kubectl get all                             # pods, services, deployments, replicasets, statefulsets
+kubectl get all -A                          # all resources in all namespaces
+kubectl get all --field-selector=status.phase=Failed  # find failed resources
+```
+
+**6 — Pod Logs and Events**
+
+Stream logs and examine events for troubleshooting.
+
+```bash
+kubectl logs <pod-name>                     # show pod's stdout/stderr
+kubectl logs <pod-name> -f                  # follow logs live (like tail -f)
+kubectl logs <pod-name> -p                  # logs from previous container (useful if pod crashed)
+kubectl logs <pod-name> -c <container-name>    # logs from specific container in multi-container pod
+kubectl logs <deployment-name> -l app=<app-label>  # logs from all pods matching a label
+
+kubectl events                              # show cluster events (pod failures, node status changes)
+kubectl get events -A                       # events in all namespaces
+```
+
+**7 — Pod Status Phases**
+
+Understanding pod status phases helps you diagnose issues:
+
+| Phase      | Meaning |
+| ---------- | ------- |
+| **Pending** | Pod created but not yet scheduled; waiting for node resources or image pull |
+| **Running** | Pod scheduled and containers are running |
+| **Succeeded** | Pod completed successfully (usually batch/job pods) |
+| **Failed** | Pod crashed or one or more containers exited with non-zero code |
+| **Unknown** | Pod state cannot be determined (usually communication issue with kubelet) |
+
+**8 — Quick Debugging Commands**
+
+```bash
+kubectl describe pod <pod-name>             # check Events section for errors
+kubectl logs <pod-name> --tail=20           # last 20 lines of logs
+kubectl logs <pod-name> --timestamps=true   # add timestamps to log lines
+kubectl top nodes                           # show CPU/memory usage of nodes
+kubectl top pods                            # show CPU/memory usage of pods
+kubectl exec -it <pod-name> -- /bin/sh      # open shell in pod for interactive debugging
+```
+
+**Common Troubleshooting Scenarios:**
+
+| Issue | Investigation |
+| ----- | -------------- |
+| Pod stuck in **Pending** | `kubectl describe pod` → check Events for scheduling errors, node resource constraints |
+| Pod in **CrashLoopBackOff** | `kubectl logs <pod-name>` → check previous logs with `-p` flag |
+| Pod not receiving traffic | `kubectl get services` → verify endpoints are assigned; `kubectl describe service` → check selector matches pods |
+| Node **NotReady** | `kubectl describe node` → check conditions and events; SSH to node and check kubelet status |
 
 ---
 
