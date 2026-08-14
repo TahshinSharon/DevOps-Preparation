@@ -181,6 +181,7 @@ Cloud-native services on AWS (and equivalents on other providers) used to build,
 - **AWS Lambda** — serverless compute — functions, handlers, invocation types (synchronous, asynchronous, poll-based), runtimes, cold starts, concurrency (unreserved, reserved, provisioned), versions & aliases, async destinations & DLQ, Function URLs, VPC configuration, CloudWatch metrics, X-Ray tracing, and Lambda Insights.
 - **AWS CLI** — the command-line tool for AWS — installation and configuration, named profiles and credentials, output formats and JMESPath querying, common service commands (S3, EC2, IAM, Lambda), pagination, waiters, batch operations, scripting best practices, and credential security.
 - **CloudWatch** — AWS's native observability service — logs (log groups, streams, retention, filtering), metrics (built-in and custom), alarms (thresholds, actions, anomaly detection), dashboards (custom visualizations), and Log Insights (query language for log analysis).
+- **Elastic Load Balancer (ELB)** — managed traffic distribution across backends — load balancer types (ALB Layer 7, NLB Layer 4, GWLB Layer 3, CLB legacy), listeners and routing rules, target groups (instance / IP / Lambda), health checks, sticky sessions, and SSL/TLS termination with ACM.
 
 → [Open the Cloud Engineering notes](./Cloud-Engineering/README.md)
 

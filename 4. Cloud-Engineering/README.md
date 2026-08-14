@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-11-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-12-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -130,6 +130,17 @@
   - [CloudWatch Log Insights](#cloudwatch-log-insights)
   - [Container Insights](#container-insights)
   - [CloudWatch Synthetics](#cloudwatch-synthetics)
+- [Elastic Load Balancer (ELB)](#elastic-load-balancer-elb)
+  - [One Shot Revision](#one-shot-revision-11)
+  - [ELB Overview](#elb-overview)
+  - [Types of Load Balancers](#types-of-load-balancers)
+  - [ELB Architecture](#elb-architecture)
+  - [Listeners & Routing Rules](#listeners--routing-rules)
+  - [Target Groups](#target-groups)
+  - [Health Checks](#health-checks)
+  - [Sticky Sessions](#sticky-sessions)
+  - [SSL/TLS Termination](#ssltls-termination)
+  - [ELB Best Practices](#elb-best-practices)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -5032,6 +5043,522 @@ Optimize cost by:
 
 ---
 
+## Elastic Load Balancer (ELB)
+
+**Elastic Load Balancer (ELB)** is AWS's managed load-balancing service. It automatically distributes incoming application traffic across multiple targets — EC2 instances, containers, IP addresses, and Lambda functions — in one or more Availability Zones. ELB gives you a single stable endpoint (DNS name) that fronts a fleet of backends, providing high availability, elasticity, health-aware routing, and TLS termination without you having to run and patch your own proxies.
+
+### One Shot Revision
+
+| Topic                                                          | Short Description                                                                          |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [ELB Overview](#elb-overview)                                  | What ELB is, why it matters, core concepts, benefits, and pricing model                    |
+| [Types of Load Balancers](#types-of-load-balancers)            | ALB (Layer 7), NLB (Layer 4), GWLB (Layer 3), and CLB (legacy) — when to use each          |
+| [ELB Architecture](#elb-architecture)                          | End-to-end request flow: Client → Listener → Rules → Target Group → Target                 |
+| [Listeners & Routing Rules](#listeners--routing-rules)         | Listener protocols/ports, rule priority, host/path/header-based routing, redirects         |
+| [Target Groups](#target-groups)                                | Target types (instance, IP, Lambda, ALB), registration, cross-zone load balancing          |
+| [Health Checks](#health-checks)                                | Health check protocol, thresholds, intervals, success codes, healthy/unhealthy transitions |
+| [Sticky Sessions](#sticky-sessions)                            | Session affinity via duration-based and application-based cookies                          |
+| [SSL/TLS Termination](#ssltls-termination)                     | ACM certificates, HTTPS listeners, security policies, SNI for multi-cert listeners         |
+| [ELB Best Practices](#elb-best-practices)                      | Multi-AZ, deletion protection, access logs, security groups, cost optimisation             |
+
+---
+
+### ELB Overview
+
+**Description:** An Elastic Load Balancer is a managed reverse-proxy that accepts client traffic on one or more listeners and forwards it to healthy backend targets. AWS handles the load balancer's own capacity, patching, and Multi-AZ availability — you configure listeners, rules, target groups, and health checks. Because clients only ever see the load balancer's DNS name, you can scale, replace, or move backends without any client-side change.
+
+**Core concepts:**
+
+| Term                        | What it is                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Load Balancer**           | The managed entry-point resource with a stable DNS name (e.g. `my-alb-123.us-east-1.elb.amazonaws.com`) |
+| **Listener**                | A process that checks for connection requests on a configured protocol + port (e.g. HTTPS:443)          |
+| **Rule**                    | An ordered condition attached to a listener that decides which target group receives a request          |
+| **Target Group**            | A logical grouping of backend targets (EC2, IP, Lambda) that receive traffic from a listener            |
+| **Target**                  | An individual backend that serves requests — EC2 instance, IP, container, or Lambda function            |
+| **Health Check**            | A probe that decides whether a target is healthy enough to receive traffic                              |
+| **Availability Zone (AZ)**  | The physical location a load balancer node runs in — enable at least two AZs for high availability     |
+| **Cross-Zone Load Balancing** | If enabled, each LB node distributes traffic evenly across targets in **all** enabled AZs            |
+
+**Why use a load balancer:**
+
+- **High availability** — health-aware routing plus multi-AZ deployment survive instance and AZ failures.
+- **Elasticity** — pairs naturally with Auto Scaling; new instances register automatically, unhealthy ones are drained.
+- **Decoupled DNS** — clients hit one endpoint; backends can change without DNS churn.
+- **TLS offload** — terminate HTTPS at the LB with an ACM certificate; free automatic renewal.
+- **Security** — the LB is the public edge; backends can live in private subnets with a security-group reference from the LB.
+
+**Pricing overview:**
+
+| Component            | Detail                                                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| **Hourly charge**    | Per load balancer per hour (~$0.0225/hr for ALB in `us-east-1`)                                 |
+| **LCU / capacity**   | ALB/NLB bill an additional "Load Balancer Capacity Unit" charge based on connections, bandwidth, and rule evaluations |
+| **Data transfer**    | Standard AWS data-transfer pricing for traffic leaving the load balancer                        |
+| **Free tier**        | 750 hours/month of a Classic or Application Load Balancer for 12 months (new accounts only)     |
+
+**Learn from the official source:**
+
+→ [Elastic Load Balancing — Official AWS Documentation](https://docs.aws.amazon.com/elasticloadbalancing/latest/userguide/what-is-load-balancing.html)
+
+---
+
+### Types of Load Balancers
+
+**Description:** AWS offers four load-balancer types. Pick the one that matches the OSI layer, protocol, and use case of your workload.
+
+| Type                              | OSI Layer | Protocols                     | Best for                                                          | Notes                                                        |
+| --------------------------------- | --------- | ----------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
+| **Application Load Balancer (ALB)** | Layer 7   | HTTP, HTTPS, gRPC, WebSocket  | Microservices, container workloads, path/host-based routing        | Rich rules; supports Lambda targets; integrates with WAF     |
+| **Network Load Balancer (NLB)**     | Layer 4   | TCP, UDP, TLS                 | Extreme low latency, static IPs, non-HTTP workloads                | Millions of req/sec; preserves source IP; supports Elastic IP |
+| **Gateway Load Balancer (GWLB)**    | Layer 3/4 | IP (all protocols via GENEVE) | Deploying third-party virtual appliances (firewalls, IDS/IPS, DPI) | Transparent bump-in-the-wire; used with GWLB endpoints       |
+| **Classic Load Balancer (CLB)**     | Layer 4/7 | HTTP, HTTPS, TCP, SSL         | Legacy EC2-Classic apps — do not use for new workloads             | Superseded by ALB and NLB; kept only for backward compat.     |
+
+**Quick decision guide:**
+
+```
+Is it HTTP/HTTPS/gRPC and you need path or host routing?  ──Yes──→ ALB
+Do you need TCP/UDP, static IP, or extreme performance?   ──Yes──→ NLB
+Are you fronting a third-party network appliance?          ──Yes──→ GWLB
+Legacy VPC-Classic workload only?                          ──Yes──→ CLB (avoid)
+```
+
+**Feature comparison highlights:**
+
+| Feature                          | ALB              | NLB                     | GWLB                        | CLB          |
+| -------------------------------- | ---------------- | ----------------------- | --------------------------- | ------------ |
+| **Static IP / Elastic IP**       | No               | Yes                     | No                          | No           |
+| **Preserves client IP by default** | Via `X-Forwarded-For` header | Yes (source IP preserved) | Yes (GENEVE encapsulated) | Via header   |
+| **Lambda as target**             | Yes              | No                      | No                          | No           |
+| **Container/IP targets**         | Yes              | Yes                     | Yes                         | No           |
+| **HTTP/2, WebSocket, gRPC**      | Yes              | No (Layer 4 only)       | No                          | HTTP/1.1 only |
+| **WAF integration**              | Yes              | No                      | No                          | No           |
+| **Slow start mode**              | Yes              | No                      | No                          | No           |
+
+**Notes:**
+
+- **Prefer ALB** for anything HTTP-based — the rule engine, WAF integration, and Lambda targets are only available here.
+- **Prefer NLB** when you need static IPs (PrivateLink, third-party allow-lists) or extremely high connection rates with low latency.
+
+---
+
+### ELB Architecture
+
+**Description:** Every ELB request flows through the same layered pipeline: the client resolves the load balancer's DNS name to an LB node in an AZ, the listener accepts the connection, its rules pick a target group, and one healthy target is chosen based on the routing algorithm.
+
+**End-to-end request flow:**
+
+```
+                                 ┌─────────────────────────────────────────┐
+                                 │           Route 53 DNS                  │
+                                 │   my-alb-123.us-east-1.elb.amazonaws… │
+                                 └──────────────────┬──────────────────────┘
+                                                    │  resolves to LB node IPs
+                                                    ▼
+                                 ┌─────────────────────────────────────────┐
+    ┌────────┐   Request         │       Elastic Load Balancer (ALB)       │
+    │ Client │ ────────────────► │  ┌───────────────────────────────────┐  │
+    └────────┘                   │  │ Listener :443 (HTTPS)             │  │
+                                 │  │  ├── Rule 1: host = api.acme.com  │──┼──► Target Group A
+                                 │  │  ├── Rule 2: path = /images/*     │──┼──► Target Group B
+                                 │  │  └── Default action                │──┼──► Target Group C
+                                 │  └───────────────────────────────────┘  │
+                                 │      (also listener :80 → redirect 443) │
+                                 └─────────────────────────────────────────┘
+                                                    │
+                    ┌───────────────────────────────┼───────────────────────────────┐
+                    ▼                               ▼                               ▼
+        ┌───────────────────────┐       ┌───────────────────────┐       ┌───────────────────────┐
+        │  Target Group A       │       │  Target Group B       │       │  Target Group C       │
+        │  (api service)        │       │  (static images)      │       │  (default web)        │
+        │  Health check /health │       │  Health check /ping   │       │  Health check /       │
+        └──────────┬────────────┘       └──────────┬────────────┘       └──────────┬────────────┘
+                   │                               │                               │
+        ┌──────────┼──────────┐          ┌─────────┼─────────┐            ┌────────┼─────────┐
+        ▼          ▼          ▼          ▼         ▼         ▼            ▼        ▼         ▼
+    ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
+    │ EC2 A1 │ │ EC2 A2 │ │ EC2 A3 │ │ Lambda │ │ IP tgt │ │ IP tgt │ │ EC2 C1 │ │ EC2 C2 │ │ EC2 C3 │
+    │  AZ-a  │ │  AZ-b  │ │  AZ-c  │ │        │ │  AZ-a  │ │  AZ-b  │ │  AZ-a  │ │  AZ-b  │ │  AZ-c  │
+    └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘
+```
+
+**How a single request is handled:**
+
+1. **DNS resolution** — client resolves the LB's DNS name; Route 53 returns one IP per enabled AZ.
+2. **Listener** — the LB node in that AZ accepts the connection on the listener's protocol/port.
+3. **TLS termination** (if HTTPS) — LB decrypts using its ACM certificate.
+4. **Rule evaluation** — listener rules are evaluated in priority order; the first match wins.
+5. **Target selection** — a target is picked from the matched target group using the routing algorithm (round-robin, least outstanding requests, or flow hash).
+6. **Health check filter** — only targets in the `healthy` state are considered.
+7. **Forwarding** — the LB opens/reuses a connection to the target and streams the request/response.
+
+**Common CLI operations:**
+
+```bash
+# Create an Application Load Balancer
+aws elbv2 create-load-balancer \
+  --name my-web-alb \
+  --subnets subnet-0abc1234 subnet-0def5678 \
+  --security-groups sg-0alb1234 \
+  --scheme internet-facing \
+  --type application \
+  --ip-address-type ipv4
+
+# List load balancers
+aws elbv2 describe-load-balancers --output table
+
+# Describe a specific load balancer
+aws elbv2 describe-load-balancers --names my-web-alb
+
+# Delete a load balancer
+aws elbv2 delete-load-balancer \
+  --load-balancer-arn arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-web-alb/abc123
+```
+
+---
+
+### Listeners & Routing Rules
+
+**Description:** A **listener** is a per-load-balancer process that accepts client connections on a protocol + port combination. On ALB/NLB, a listener holds **rules** — ordered conditions that decide which target group (or non-forward action) handles the request.
+
+**Listener protocol/port combinations:**
+
+| Load Balancer | Listener protocols     | Typical ports         |
+| ------------- | ---------------------- | --------------------- |
+| **ALB**       | HTTP, HTTPS            | 80, 443, custom       |
+| **NLB**       | TCP, UDP, TCP_UDP, TLS | 22, 25, 53, 80, 443, custom |
+| **GWLB**      | GENEVE                 | 6081 (fixed)          |
+
+**ALB rule condition types:**
+
+| Condition type       | Example                                             |
+| -------------------- | --------------------------------------------------- |
+| **Host header**      | `api.example.com`, `*.example.com`                  |
+| **Path pattern**     | `/api/*`, `/images/*.jpg`                           |
+| **HTTP header**      | Match on any header value (e.g. `X-Version: 2`)    |
+| **HTTP method**      | `GET`, `POST`, `PUT`, ...                           |
+| **Query string**     | `?env=staging`                                      |
+| **Source IP**        | CIDR-based (e.g. `10.0.0.0/8`)                      |
+
+**ALB rule actions:**
+
+| Action           | What it does                                                   |
+| ---------------- | -------------------------------------------------------------- |
+| **forward**      | Send the request to one or more target groups (weighted)       |
+| **redirect**     | HTTP 301/302 to another URL — e.g. force HTTP → HTTPS          |
+| **fixed-response** | Return a static status code and body (e.g. 503 maintenance)  |
+| **authenticate-cognito / -oidc** | Require user auth via Cognito or an OIDC IdP     |
+
+**Create a listener with a default rule:**
+
+```bash
+# Create an HTTPS listener that forwards to a target group
+aws elbv2 create-listener \
+  --load-balancer-arn arn:aws:elasticloadbalancing:...:loadbalancer/app/my-web-alb/abc \
+  --protocol HTTPS --port 443 \
+  --certificates CertificateArn=arn:aws:acm:us-east-1:123456789012:certificate/xyz \
+  --ssl-policy ELBSecurityPolicy-TLS13-1-2-2021-06 \
+  --default-actions Type=forward,TargetGroupArn=arn:aws:elasticloadbalancing:...:targetgroup/my-tg/def
+
+# Add a path-based routing rule (priority = 10, lower runs first)
+aws elbv2 create-rule \
+  --listener-arn arn:aws:elasticloadbalancing:...:listener/app/my-web-alb/abc/def \
+  --priority 10 \
+  --conditions Field=path-pattern,Values='/api/*' \
+  --actions Type=forward,TargetGroupArn=arn:aws:elasticloadbalancing:...:targetgroup/api-tg/ghi
+
+# Add a redirect rule: force HTTP → HTTPS
+aws elbv2 create-listener \
+  --load-balancer-arn arn:aws:elasticloadbalancing:...:loadbalancer/app/my-web-alb/abc \
+  --protocol HTTP --port 80 \
+  --default-actions '[{"Type":"redirect","RedirectConfig":{"Protocol":"HTTPS","Port":"443","StatusCode":"HTTP_301"}}]'
+```
+
+**Notes:**
+
+- Rules are evaluated in **priority order** (lower number wins); the listener's **default action** runs if no rule matches.
+- On ALB, you can attach multiple conditions to a rule — all conditions must match (AND semantics).
+- **Weighted target groups** let you shift traffic (e.g. 90/10 blue/green) without DNS changes.
+
+---
+
+### Target Groups
+
+**Description:** A **target group** is the routing destination for a listener rule. It groups similar backends together, owns the health-check configuration, and decides how a single connection is routed among its registered targets.
+
+**Target types:**
+
+| Target type    | What it is                                                                     | Supported on         |
+| -------------- | ------------------------------------------------------------------------------ | -------------------- |
+| **instance**   | An EC2 instance registered by Instance ID                                      | ALB, NLB, CLB        |
+| **ip**         | An IP address (VPC, on-prem via Direct Connect/VPN, EKS pod IPs)               | ALB, NLB, GWLB       |
+| **lambda**     | A Lambda function invoked with an ALB event payload                            | ALB only             |
+| **alb**        | Another Application Load Balancer (front an ALB behind an NLB for static IPs)  | NLB only             |
+
+**Routing algorithms (ALB):**
+
+| Algorithm                       | Behaviour                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------- |
+| **Round robin** (default)       | Iterate targets in order — good when targets have similar capacity        |
+| **Least outstanding requests**  | Pick the target with fewest in-flight requests — good for uneven latency  |
+| **Weighted random**             | Random by weight — used to distribute across two target groups            |
+
+**Cross-zone load balancing:**
+
+```
+Cross-zone OFF:                              Cross-zone ON:
+LB node in AZ-a → only targets in AZ-a       LB node in AZ-a → targets in AZ-a, AZ-b, AZ-c
+LB node in AZ-b → only targets in AZ-b       LB node in AZ-b → targets in AZ-a, AZ-b, AZ-c
+LB node in AZ-c → only targets in AZ-c       LB node in AZ-c → targets in AZ-a, AZ-b, AZ-c
+```
+
+| Load Balancer | Cross-zone default | Data-transfer cost across AZs |
+| ------------- | ------------------ | ----------------------------- |
+| **ALB**       | Always **on** (free) | Included                    |
+| **NLB**       | **Off** by default | Charged if enabled            |
+| **GWLB**      | **Off** by default | Charged if enabled            |
+
+**Common CLI operations:**
+
+```bash
+# Create a target group (HTTP on port 8080, targeting instances)
+aws elbv2 create-target-group \
+  --name my-api-tg \
+  --protocol HTTP --port 8080 \
+  --target-type instance \
+  --vpc-id vpc-0abc1234 \
+  --health-check-protocol HTTP \
+  --health-check-path /health \
+  --health-check-interval-seconds 15 \
+  --healthy-threshold-count 2 \
+  --unhealthy-threshold-count 3
+
+# Register targets
+aws elbv2 register-targets \
+  --target-group-arn arn:aws:elasticloadbalancing:...:targetgroup/my-api-tg/abc \
+  --targets Id=i-0abc1234 Id=i-0def5678
+
+# Check target health
+aws elbv2 describe-target-health \
+  --target-group-arn arn:aws:elasticloadbalancing:...:targetgroup/my-api-tg/abc \
+  --output table
+
+# Deregister a target (drains in-flight connections first)
+aws elbv2 deregister-targets \
+  --target-group-arn arn:aws:elasticloadbalancing:...:targetgroup/my-api-tg/abc \
+  --targets Id=i-0abc1234
+```
+
+**Notes:**
+
+- **Deregistration delay** (default 300 s) lets in-flight requests finish before a target is fully removed — critical for zero-downtime deploys.
+- **Slow start** (0–900 s, ALB only) gives new targets a ramp-up period so they receive traffic gradually as caches warm up.
+
+---
+
+### Health Checks
+
+**Description:** A health check is a periodic probe from the load balancer to each target. Only targets in the `healthy` state receive new requests. Health checks are configured per **target group** and run continuously in the background.
+
+**Health check parameters:**
+
+| Parameter                     | Detail                                                                     |
+| ----------------------------- | -------------------------------------------------------------------------- |
+| **Protocol**                  | HTTP, HTTPS (ALB); TCP, HTTP, HTTPS (NLB)                                  |
+| **Path**                      | HTTP(S) only — e.g. `/health`, `/status`                                  |
+| **Port**                      | Same as traffic port (default) or a specific override                      |
+| **Interval**                  | Seconds between checks (5–300; default 30 for ALB, 30 for NLB)             |
+| **Timeout**                   | Seconds to wait for a response (2–120; must be < interval)                 |
+| **Healthy threshold**         | Consecutive successes before target is marked healthy (2–10; default 5)    |
+| **Unhealthy threshold**       | Consecutive failures before target is marked unhealthy (2–10; default 2)   |
+| **Success codes**             | HTTP status codes considered healthy (default `200`; ranges allowed)       |
+
+**Health check state transitions:**
+
+```
+   ┌──────────────┐    N failures      ┌────────────┐
+   │  healthy     │ ─────────────────► │ unhealthy  │
+   │  (in use)    │                    │ (drained)  │
+   └──────┬───────┘                    └─────┬──────┘
+          │                                  │
+          │       M successes                │
+          └──────────────────────────────────┘
+```
+
+**Additional target states:**
+
+| State        | Meaning                                                                     |
+| ------------ | --------------------------------------------------------------------------- |
+| `initial`    | Target just registered; first check hasn't run yet                          |
+| `healthy`    | Passing health checks; receiving traffic                                    |
+| `unhealthy`  | Failing health checks; not receiving traffic                                |
+| `unused`     | Registered but not in a matched target group / no listener attached         |
+| `draining`   | Being deregistered; in-flight requests still complete but no new traffic    |
+| `unavailable`| Cannot be reached (e.g. bad security group, terminated instance)            |
+
+**Update a target group's health check:**
+
+```bash
+aws elbv2 modify-target-group \
+  --target-group-arn arn:aws:elasticloadbalancing:...:targetgroup/my-api-tg/abc \
+  --health-check-protocol HTTPS \
+  --health-check-path /health \
+  --health-check-interval-seconds 10 \
+  --health-check-timeout-seconds 5 \
+  --healthy-threshold-count 2 \
+  --unhealthy-threshold-count 2 \
+  --matcher HttpCode=200-299
+```
+
+**Notes:**
+
+- The health-check endpoint should be **cheap and dependency-free** — do not check downstream databases in it, or a database blip will remove every target.
+- Ensure the **target's security group** allows inbound traffic from the **load balancer's security group** on the health-check port.
+- On NLB with `preserve_client_ip` enabled, targets see the client IP directly; health checks still come from the LB node IPs.
+
+---
+
+### Sticky Sessions
+
+**Description:** Sticky sessions (session affinity) route a given client's requests to the **same target** for a defined duration. Enable this only when the application keeps in-memory session state per instance and you cannot externalise it (Redis, DynamoDB, JWT).
+
+**Stickiness options on ALB:**
+
+| Type                     | Cookie name          | Duration       | Managed by |
+| ------------------------ | -------------------- | -------------- | ---------- |
+| **Duration-based**       | `AWSALB`             | 1 s – 7 days   | ALB itself |
+| **Application-based**    | Custom (your choice) | Set by your app | Your app   |
+
+**Stickiness on NLB (TCP/UDP):**
+
+- Uses **source-IP affinity** — same client IP is routed to the same target as long as it stays healthy.
+- No cookie because NLB is Layer 4.
+
+**Enable duration-based stickiness:**
+
+```bash
+aws elbv2 modify-target-group-attributes \
+  --target-group-arn arn:aws:elasticloadbalancing:...:targetgroup/my-tg/abc \
+  --attributes \
+      Key=stickiness.enabled,Value=true \
+      Key=stickiness.type,Value=lb_cookie \
+      Key=stickiness.lb_cookie.duration_seconds,Value=3600
+```
+
+**Notes:**
+
+- Stickiness **breaks even load distribution** — if a hot user lands on one target, that target stays hot.
+- Prefer **stateless targets** with an external session store; treat stickiness as a last resort or a bridge during migration.
+- Application-based cookies survive target replacements (your app controls the cookie); duration-based cookies are tied to the ALB instance.
+
+---
+
+### SSL/TLS Termination
+
+**Description:** With HTTPS/TLS listeners, the load balancer terminates the encrypted connection using an X.509 certificate, then forwards a plaintext (or re-encrypted) request to the backend. This offloads CPU-heavy TLS from your instances and centralises certificate management.
+
+**Certificate sources:**
+
+| Source                              | Detail                                                            |
+| ----------------------------------- | ----------------------------------------------------------------- |
+| **AWS Certificate Manager (ACM)**   | Free public certs; automatic renewal; recommended default         |
+| **ACM Private CA**                  | Internal PKI for private/mTLS use cases                           |
+| **IAM certificate store**           | Legacy — upload your own certificate/key                          |
+
+**Listener security policies:**
+
+Security policies define which TLS versions and ciphers the LB accepts. Prefer the newest policy your clients support:
+
+| Policy                                        | Notes                                    |
+| --------------------------------------------- | ---------------------------------------- |
+| `ELBSecurityPolicy-TLS13-1-2-2021-06`         | Modern default — TLS 1.2 and 1.3         |
+| `ELBSecurityPolicy-TLS13-1-3-2021-06`         | TLS 1.3 only — strictest                 |
+| `ELBSecurityPolicy-FS-1-2-Res-2020-10`        | Forward-secrecy-only ciphers             |
+| `ELBSecurityPolicy-2016-08`                   | Legacy — avoid                           |
+
+**Multi-certificate listeners (SNI):**
+
+An ALB or NLB HTTPS listener can present different certificates for different hostnames using **Server Name Indication (SNI)** — attach up to 25 certificates per listener:
+
+```bash
+# Attach an additional certificate for another domain to the HTTPS listener
+aws elbv2 add-listener-certificates \
+  --listener-arn arn:aws:elasticloadbalancing:...:listener/app/my-web-alb/abc/def \
+  --certificates CertificateArn=arn:aws:acm:us-east-1:123456789012:certificate/api-example-com
+```
+
+**End-to-end vs. termination-only:**
+
+```
+Termination-only:  Client ──HTTPS──► ALB ──HTTP──► Target
+End-to-end (re-encrypt):  Client ──HTTPS──► ALB ──HTTPS──► Target
+```
+
+- **Termination-only** — simplest; the LB is inside a trusted VPC, backend runs HTTP on a private subnet.
+- **End-to-end** — compliance/PCI/HIPAA requires encryption in transit even inside the VPC.
+
+**Notes:**
+
+- **ACM certificates are free** for use with ELB, CloudFront, and API Gateway — always prefer ACM over self-managed certs.
+- ACM certificates auto-renew 60 days before expiry as long as DNS validation records stay in place.
+- To enforce HTTPS, add an HTTP:80 listener whose default action **redirects** to HTTPS:443 with status `HTTP_301`.
+
+---
+
+### ELB Best Practices
+
+**Description:** These are the load-balancer configurations that pay off in reliability, security, and cost over the life of a workload.
+
+| Best Practice                                | Why                                                                             |
+| -------------------------------------------- | ------------------------------------------------------------------------------- |
+| **Enable at least 2 AZs**                    | Single-AZ LB = single-AZ outage. Always pick two subnets in different AZs       |
+| **Enable deletion protection**               | Prevents accidental `delete-load-balancer` from wiping the public endpoint      |
+| **Enable access logs to S3**                 | Free (except S3 storage); essential for debugging 4xx/5xx and DDoS forensics    |
+| **Terminate TLS at the LB with ACM**         | Offloads CPU from targets; certificates auto-rotate at no cost                  |
+| **Force HTTPS with an HTTP → HTTPS redirect** | Never serve plaintext HTTP in production                                       |
+| **Restrict target security groups to the LB SG** | Backends should only accept traffic from the LB, not the internet             |
+| **Set a sensible deregistration delay**      | 30–120 s for stateless HTTP; up to 3600 s for long-lived WebSocket connections  |
+| **Cheap, dependency-free health-check path** | Do not query the database inside `/health` — one blip drains every target       |
+| **Enable cross-zone LB on NLB (if cost allows)** | Prevents traffic imbalance when AZs have different target counts             |
+| **Use path/host routing instead of many LBs** | One ALB with rules is cheaper and simpler than a fleet of tiny LBs             |
+| **Alarm on 5xx and TargetResponseTime**      | Fast signal for backend regressions before customers report them                |
+| **Delete unused CLBs**                       | The Classic LB is legacy; migrate to ALB/NLB and stop paying for both          |
+
+**Key CloudWatch metrics to alarm on:**
+
+| Metric                     | Load Balancer | What it tells you                                             |
+| -------------------------- | ------------- | ------------------------------------------------------------- |
+| `HTTPCode_Target_5XX_Count` | ALB           | Backend is throwing errors                                    |
+| `HTTPCode_ELB_5XX_Count`   | ALB           | LB itself couldn't reach a healthy target                     |
+| `TargetResponseTime`       | ALB           | Backend latency (P50/P90/P99)                                 |
+| `UnHealthyHostCount`       | ALB / NLB     | Targets currently failing health checks                       |
+| `RejectedConnectionCount`  | ALB           | Connections dropped because the LB hit its capacity limit     |
+| `TargetTLSNegotiationErrorCount` | ALB     | Cert / cipher mismatch when re-encrypting to targets          |
+| `ActiveFlowCount`          | NLB           | Live TCP/UDP flows through the LB                             |
+| `ProcessedBytes`           | ALB / NLB     | Traffic volume — pairs with cost estimation                   |
+
+**Enable access logs:**
+
+```bash
+# Create a bucket policy that allows ELB service account to write logs, then:
+aws elbv2 modify-load-balancer-attributes \
+  --load-balancer-arn arn:aws:elasticloadbalancing:...:loadbalancer/app/my-web-alb/abc \
+  --attributes \
+      Key=access_logs.s3.enabled,Value=true \
+      Key=access_logs.s3.bucket,Value=my-elb-access-logs \
+      Key=access_logs.s3.prefix,Value=prod/my-web-alb
+```
+
+**Enable deletion protection:**
+
+```bash
+aws elbv2 modify-load-balancer-attributes \
+  --load-balancer-arn arn:aws:elasticloadbalancing:...:loadbalancer/app/my-web-alb/abc \
+  --attributes Key=deletion_protection.enabled,Value=true
+```
+
+---
+
 ## Useful Tips & Tricks
 
 - _To be filled in._
@@ -5060,6 +5587,11 @@ Optimize cost by:
 - [AWS IAM — Security Best Practices](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)
 - [AWS EC2 User Guide — Concepts](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/concepts.html)
 - [AWS Lambda Developer Guide — Welcome](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html)
+- [Elastic Load Balancing — What is Elastic Load Balancing](https://docs.aws.amazon.com/elasticloadbalancing/latest/userguide/what-is-load-balancing.html)
+- [Application Load Balancer — User Guide](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html)
+- [Network Load Balancer — User Guide](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html)
+- [Gateway Load Balancer — User Guide](https://docs.aws.amazon.com/elasticloadbalancing/latest/gateway/introduction.html)
+- [ELB — Comparison of Load Balancer Types](https://aws.amazon.com/elasticloadbalancing/features/)
 - [AWS Documentation Home](https://docs.aws.amazon.com/)
 - [BongoDev](https://www.bongodev.com/)
 - [BongoDev on GitHub](https://github.com/bongodev)
