@@ -141,6 +141,7 @@
   - [Sticky Sessions](#sticky-sessions)
   - [SSL/TLS Termination](#ssltls-termination)
   - [ELB Best Practices](#elb-best-practices)
+  - [Reference](#reference)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -5060,6 +5061,7 @@ Optimize cost by:
 | [Sticky Sessions](#sticky-sessions)                            | Session affinity via duration-based and application-based cookies                          |
 | [SSL/TLS Termination](#ssltls-termination)                     | ACM certificates, HTTPS listeners, security policies, SNI for multi-cert listeners         |
 | [ELB Best Practices](#elb-best-practices)                      | Multi-AZ, deletion protection, access logs, security groups, cost optimisation             |
+| [Reference](#reference)                                        | Canonical AWS documentation entry-point for Elastic Load Balancing                         |
 
 ---
 
@@ -5556,6 +5558,14 @@ aws elbv2 modify-load-balancer-attributes \
   --load-balancer-arn arn:aws:elasticloadbalancing:...:loadbalancer/app/my-web-alb/abc \
   --attributes Key=deletion_protection.enabled,Value=true
 ```
+
+---
+
+### Reference
+
+**Description:** The canonical, always-up-to-date source for every ELB feature — Application, Network, Gateway, and Classic Load Balancer user guides, API references, pricing, and quotas. Start here when a flag, metric, or limit in these notes needs verification against the current AWS behaviour.
+
+→ [Elastic Load Balancing — Official AWS Documentation](https://docs.aws.amazon.com/elasticloadbalancing/)
 
 ---
 
