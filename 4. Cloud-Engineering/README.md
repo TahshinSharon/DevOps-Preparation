@@ -5582,276 +5582,675 @@ aws elbv2 modify-load-balancer-attributes \
 
 ## Auto Scaling
 
-**Amazon EC2 Auto Scaling** is AWS's managed service for keeping the right number of EC2 instances running to handle your workload. It launches new instances when demand rises, terminates them when demand falls, and automatically replaces unhealthy instances — all against a **Launch Template** you own and a set of scaling rules you define. Paired with an Elastic Load Balancer, an Auto Scaling Group (ASG) forms the backbone of every elastic, highly available AWS workload: the ELB fans traffic across a fleet, and the ASG keeps that fleet correctly sized, healthy, and spread across Availability Zones.
+**What you will build in this section:**
+You will create a self-healing, auto-scaling web server fleet entirely through the AWS Console. By the end you will have a real working system that:
+- Keeps 2 servers running at all times and replaces crashed ones automatically
+- Adds servers when CPU load is high, removes them when load drops
+- Pre-scales before business hours and scales down overnight
+
+**Architecture of what we're building:**
+
+```
+          Users
+            │
+            ▼
+  [Application Load Balancer]     ← distributes traffic evenly
+            │
+     ┌──────┴──────┐
+     ▼             ▼
+ [Server 1]    [Server 2]         ← Auto Scaling Group manages these
+   AZ-a          AZ-b
+     ▲             ▲
+     └──────┬──────┘
+            │
+   [Server 3] added automatically  ← ASG spins this up when CPU > 50%
+      AZ-a
+```
+
+**The five things we'll build — in order:**
+
+```
+1. Launch Template  →  2. Auto Scaling Group  →  3. Scaling Policy
+                                │
+                   4. Scheduled Action + 5. Lifecycle Hook
+```
+
+**Prerequisites — check these before starting:**
+- [ ] An AWS account with EC2 and CloudWatch access
+- [ ] A key pair already created *(EC2 → Key Pairs → Create key pair → download the `.pem` file)*
+- [ ] At least 2 subnets in different AZs *(VPC → Subnets — your default VPC has these)*
+
+---
 
 ### One Shot Revision
 
-| Topic                                                                    | Short Description                                                                              |
-| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| [Auto Scaling Overview](#auto-scaling-overview)                          | What EC2 Auto Scaling is, why it matters, core concepts, benefits, and pricing model           |
-| [Auto Scaling Groups (ASG)](#auto-scaling-groups-asg)                    | Min/desired/max capacity, AZ distribution, ELB attachment, and the ASG lifecycle               |
-| [Launch Templates & Launch Configurations](#launch-templates--launch-configurations) | Versioned instance blueprints — AMI, instance type, key pair, security groups, user data |
-| [Scaling Policies](#scaling-policies)                                    | Target tracking, step, simple, and predictive scaling — when to use each                       |
-| [Scheduled Actions](#scheduled-actions)                                  | Time-based scale-in/scale-out for predictable traffic patterns                                  |
-| [Lifecycle Hooks](#lifecycle-hooks)                                      | Pause instances during launch/terminate for bootstrapping, warm-up, and clean shutdown         |
-| [Health Checks & Instance Replacement](#health-checks--instance-replacement) | EC2 vs ELB health checks, unhealthy detection, and automatic replacement                    |
-| [Auto Scaling Best Practices](#auto-scaling-best-practices)              | Multi-AZ, warm pools, cool-downs, mixed instances, cost and reliability guidance               |
-| [Reference](#reference-1)                                                | Canonical AWS documentation entry-point for Amazon EC2 Auto Scaling                            |
+| Step | Topic | What you do |
+| ---- | ----- | ----------- |
+| 1 | [Auto Scaling Overview](#auto-scaling-overview) | Understand the moving parts before touching the console |
+| 2 | [Launch Templates & Launch Configurations](#launch-templates--launch-configurations) | Create the "recipe" that defines what every server looks like |
+| 3 | [Auto Scaling Groups (ASG)](#auto-scaling-groups-asg) | Create the fleet manager that uses your recipe — verify 2 servers launch |
+| 4 | [Health Checks & Instance Replacement](#health-checks--instance-replacement) | Terminate a server and watch the ASG replace it in real time |
+| 5 | [Scaling Policies](#scaling-policies) | Add CPU-based auto-scaling, then simulate load and watch it scale |
+| 6 | [Scheduled Actions](#scheduled-actions) | Set the fleet to pre-scale every morning and shrink every night |
+| 7 | [Lifecycle Hooks](#lifecycle-hooks) | Pause new servers before they go live so your app is fully ready |
+| 8 | [Auto Scaling Best Practices](#auto-scaling-best-practices) | Rules that prevent the most common production mistakes |
+| 9 | [Reference](#reference-1) | Clean up + official docs |
 
 ---
 
 ### Auto Scaling Overview
 
-**Description:** EC2 Auto Scaling continuously watches the size and health of a group of EC2 instances and takes action to keep it at the size you asked for. It compares the group's **desired capacity** against the number of currently running, healthy instances and adds or removes instances as needed. Because you never SSH in to size the fleet by hand, capacity tracks demand automatically, failed instances are replaced within minutes, and every new instance is provisioned from the same Launch Template — no drift.
+**Read this first — it maps out every concept before you touch the console.**
 
-**Core concepts:**
-
-| Term                          | What it is                                                                                                    |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| **Auto Scaling Group (ASG)**  | A logical group of EC2 instances treated as a single scaling unit, spread across one or more subnets/AZs      |
-| **Launch Template**           | The versioned "recipe" (AMI, instance type, key pair, SGs, user data) the ASG uses to launch new instances    |
-| **Desired Capacity**          | The number of instances the ASG will try to keep running right now                                            |
-| **Minimum / Maximum Size**    | The lower and upper bounds the ASG must never violate, regardless of scaling policy signals                   |
-| **Scaling Policy**            | A rule that changes desired capacity in response to a CloudWatch metric (e.g. average CPU > 60%)              |
-| **Cooldown**                  | A short pause after a scaling activity so metrics can settle before another one fires                         |
-| **Lifecycle Hook**            | A pause point in the launch or terminate flow where you can run bootstrap or drain logic before proceeding    |
-| **Warm Pool**                 | A pool of pre-initialised, stopped instances that can be brought online instantly during a scale-out          |
-
-**Why use Auto Scaling:**
-
-- **Elasticity** — capacity follows demand automatically; you pay for what you use, not peak-sized headroom.
-- **Self-healing** — unhealthy instances are terminated and replaced without human intervention.
-- **Multi-AZ balance** — the ASG spreads instances across AZs and rebalances after failures.
-- **Immutable fleets** — every new instance is launched from the same Launch Template, killing configuration drift.
-- **ELB integration** — new instances register with the target group automatically; terminating instances drain first.
-
-**Pricing overview:**
-
-| Component                         | Detail                                                                                          |
-| --------------------------------- | ----------------------------------------------------------------------------------------------- |
-| **EC2 Auto Scaling itself**       | Free — you only pay for the EC2 instances, EBS volumes, and data transfer the ASG creates       |
-| **CloudWatch alarms**             | Standard CloudWatch pricing for the alarms driving scaling policies                             |
-| **Warm pools**                    | Charged at the "stopped" EBS rate for volumes plus any Elastic IPs — no instance-hour billing   |
-| **Predictive scaling**            | No additional charge — uses CloudWatch metrics you already emit                                 |
-
-**Learn from the official source:**
-
-→ [Amazon EC2 Auto Scaling — Official AWS Documentation](https://docs.aws.amazon.com/autoscaling/ec2/userguide/what-is-amazon-ec2-auto-scaling.html)
-
----
-
-### Auto Scaling Groups (ASG)
-
-**Description:** An Auto Scaling Group is the resource that owns a fleet of EC2 instances and keeps that fleet at a size you configure. You give it three numbers — **min**, **desired**, and **max** — a Launch Template, and one or more subnets. From there, the ASG launches instances, spreads them across AZs, registers them with any attached ELB target groups, and replaces any instance that fails a health check.
-
-**Group capacity settings:**
-
-| Setting              | Meaning                                                                                          |
-| -------------------- | ------------------------------------------------------------------------------------------------ |
-| **Minimum size**     | Lowest allowed instance count. Scale-in will never take the group below this                     |
-| **Desired capacity** | Current target. Scaling policies adjust this value; the ASG then converges to it                 |
-| **Maximum size**     | Highest allowed instance count. Scale-out will never take the group above this                   |
-| **Subnets (VPC Zone Identifier)** | The subnets — and therefore AZs — the ASG may launch instances into                    |
-
-**AZ distribution & rebalancing:**
-
-- ASGs use an **AZ-balanced** placement strategy by default: instances are spread as evenly as possible across enabled AZs.
-- If an AZ becomes unavailable, the ASG launches replacement instances in the surviving AZs.
-- When the failed AZ recovers, the ASG **rebalances** — launching new instances in the recovered AZ before terminating extras in the others so capacity never dips.
-
-**ASG lifecycle at a glance:**
+Auto Scaling is not one thing — it's a system of five parts that work together. Understanding how they connect makes every console step make sense.
 
 ```
-                ┌──────────────────────────────────────────────────────┐
-                │            CloudWatch metric / schedule / manual     │
-                └──────────────────────────┬───────────────────────────┘
-                                           │  changes desired capacity
-                                           ▼
-   ┌───────────────────────────────────────────────────────────────────────┐
-   │                        Auto Scaling Group                              │
-   │   min = 2   desired = 4   max = 10   subnets = [az-a, az-b, az-c]     │
-   └───────────────────────────────────────────────────────────────────────┘
-                                           │
-                    ┌──────────────────────┼──────────────────────┐
-                    ▼                      ▼                      ▼
-             ┌───────────┐          ┌───────────┐          ┌───────────┐
-             │  Launch   │  ──────► │ Register  │  ──────► │  Healthy  │
-             │ (from LT) │          │ with ELB  │          │  serving  │
-             └───────────┘          └───────────┘          └───────────┘
-                    ▲                                              │
-                    │  replace                                     ▼ health check fails
-                    │                                       ┌───────────┐
-                    └───────────────────────────────────────┤ Terminate │
-                                                            └───────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                      Auto Scaling System                     │
+│                                                             │
+│  ┌──────────────────┐                                       │
+│  │  Launch Template │  ← "recipe": what each server looks like
+│  └────────┬─────────┘                                       │
+│           │ used by                                         │
+│           ▼                                                 │
+│  ┌──────────────────┐    ┌───────────────┐                  │
+│  │ Auto Scaling     │◄───│ Scaling Policy│  ← when to add/remove
+│  │ Group (ASG)      │    │ (CPU > 50%)   │                  │
+│  │                  │    └───────────────┘                  │
+│  │  min=2           │    ┌───────────────┐                  │
+│  │  desired=4       │◄───│Scheduled Action│ ← when by time   │
+│  │  max=10          │    │ (9am Mon-Fri) │                  │
+│  └──────────────────┘    └───────────────┘                  │
+│           │                                                 │
+│           │ creates/manages                                 │
+│           ▼                                                 │
+│  [server1] [server2] [server3] ...                          │
+│                                                             │
+│  Lifecycle Hook: pause server at startup/shutdown for setup │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Common CLI operations:**
+**All 7 concepts — plain English:**
 
-```bash
-# Create an Auto Scaling Group behind an ALB target group
-aws autoscaling create-auto-scaling-group \
-  --auto-scaling-group-name my-web-asg \
-  --launch-template LaunchTemplateName=my-web-lt,Version='$Latest' \
-  --min-size 2 \
-  --max-size 10 \
-  --desired-capacity 4 \
-  --vpc-zone-identifier "subnet-0abc1234,subnet-0def5678,subnet-0ghi9012" \
-  --target-group-arns arn:aws:elasticloadbalancing:...:targetgroup/my-web-tg/abc \
-  --health-check-type ELB \
-  --health-check-grace-period 120
+| Concept | Simple analogy | What it does |
+| ------- | -------------- | ------------ |
+| **Launch Template** | A cookie cutter or recipe — every server baked the same way | Stores AMI, instance type, security group, startup script |
+| **Auto Scaling Group (ASG)** | A manager who keeps the right number of staff | Owns the fleet; launches/terminates servers to match desired count |
+| **Desired / Min / Max** | "I want 4 staff, never below 2, never above 10" | Three numbers that bound the fleet size |
+| **Scaling Policy** | A thermostat — turns heat on when cold, off when warm | Watches a CloudWatch metric and changes desired count |
+| **Scheduled Action** | An alarm clock for servers | Changes capacity at a fixed time or cron schedule |
+| **Lifecycle Hook** | A "hold" button on a phone call | Pauses a server during launch/terminate so you can run a script first |
+| **Health Check** | A doctor's checkup, runs every 30 seconds | Detects bad servers and signals ASG to replace them |
 
-# List all ASGs in the current Region
-aws autoscaling describe-auto-scaling-groups \
-  --query 'AutoScalingGroups[].{Name:AutoScalingGroupName,Desired:DesiredCapacity,Min:MinSize,Max:MaxSize}' \
-  --output table
+**Why use it:**
 
-# Change desired capacity manually
-aws autoscaling set-desired-capacity \
-  --auto-scaling-group-name my-web-asg \
-  --desired-capacity 6
+| Pain without Auto Scaling | How Auto Scaling fixes it |
+| ------------------------- | ------------------------- |
+| You run 10 servers 24/7 for peak traffic, paying for idle servers at night | Scales in to 2 at night, out to 10 at peak — pay only for what runs |
+| A server crashes at 3am — nobody sees it until morning | ASG detects the unhealthy server and replaces it within 2 minutes |
+| You manually SSH into each server to configure it differently | Every server uses the same Launch Template — zero configuration drift |
+| Traffic spike → your app crashes before you can react | Scaling policy adds servers before the spike kills the app |
 
-# Attach an existing ALB target group
-aws autoscaling attach-load-balancer-target-groups \
-  --auto-scaling-group-name my-web-asg \
-  --target-group-arns arn:aws:elasticloadbalancing:...:targetgroup/my-web-tg/abc
+**Pricing:**
 
-# Delete the ASG (must be scaled to 0 or use --force-delete)
-aws autoscaling delete-auto-scaling-group \
-  --auto-scaling-group-name my-web-asg \
-  --force-delete
-```
-
-**Notes:**
-
-- Always list at least **two subnets in different AZs** — a single-AZ ASG offers no availability advantage over a single instance.
-- `--health-check-type ELB` makes the ASG trust the target group's health checks; without it, only EC2 status checks are used.
-- The `--health-check-grace-period` gives new instances time to boot and warm up before the ASG can mark them unhealthy.
+| What costs money | What is free |
+| ---------------- | ------------ |
+| The EC2 instances the ASG creates | The Auto Scaling service itself |
+| EBS volumes on those instances | Scaling policies |
+| CloudWatch alarms that drive policies | Scheduled actions |
+| Warm pool servers (EBS cost only, no instance-hours) | Predictive scaling |
 
 ---
 
 ### Launch Templates & Launch Configurations
 
-**Description:** A Launch Template is the versioned blueprint the ASG uses every time it launches a new instance. It bundles the AMI, instance type, key pair, security groups, IAM instance profile, EBS mappings, and user-data script into a single reusable resource. **Launch Configurations** are the older, immutable equivalent — AWS now recommends Launch Templates for every new workload because they support versions, mixed instance types, and Spot integration.
+**What it is:** A Launch Template is the recipe the ASG follows every time it needs to spin up a new server. Without it every new server could be different — different AMI, different packages, random config drift. With it every server is identical.
 
-**Launch Template vs Launch Configuration:**
+> Always use **Launch Templates**. Launch Configurations are the old equivalent — AWS stopped adding features to them.
 
-| Feature                              | Launch Template          | Launch Configuration      |
-| ------------------------------------ | ------------------------ | ------------------------- |
-| **Versioning**                       | Yes — multiple versions  | No — immutable            |
-| **Mixed instance types / Spot**      | Yes                      | No                        |
-| **T2/T3 Unlimited**                  | Yes                      | Yes                       |
-| **Elastic Inference / EFA / Nitro**  | Yes                      | Limited                   |
-| **Recommended for new ASGs**         | Yes                      | Deprecated for new use    |
+---
 
-**Anatomy of a Launch Template:**
+**HANDS-ON — Create a Launch Template (10 min)**
 
-| Field                    | Purpose                                                                          |
-| ------------------------ | -------------------------------------------------------------------------------- |
-| **AMI ID**               | The base image every instance boots from                                         |
-| **Instance type**        | Family + size (e.g. `t3.medium`) — or a list when using mixed instances policies  |
-| **Key pair**             | SSH key to embed for administrative access                                       |
-| **Security groups**      | Network policy applied to the ENI                                                |
-| **IAM instance profile** | Role attached so the instance can call AWS APIs                                  |
-| **User data**            | Shell script run on first boot to bootstrap the instance                         |
-| **EBS mappings**         | Root and additional volumes, sizes, types, encryption                            |
-| **Monitoring**           | Whether detailed (1-minute) CloudWatch monitoring is enabled                     |
+**Navigate:** AWS Console → EC2 → left sidebar → **Launch Templates** → **Create launch template**
 
-**Common CLI operations:**
+---
+
+**Section 1 — Name and description**
+
+| Field | What to type | Why |
+| ----- | ------------ | --- |
+| Launch template name | `my-web-server-lt` | Used to reference it in the ASG |
+| Template version description | `v1 - nginx web server` | Label what this version does |
+| Auto Scaling guidance checkbox | ✅ check it | Unlocks ASG-specific options |
+
+---
+
+**Section 2 — Application and OS Images (AMI)**
+
+1. Click **Quick Start**
+2. Select **Amazon Linux 2023** → the first result marked "Free tier eligible"
+3. Leave the AMI ID as-is — this is the "disk image" every server will boot from
+
+> **What is an AMI?** Think of it as a USB drive with an OS pre-loaded. Every server the ASG creates boots from this same USB drive.
+
+---
+
+**Section 3 — Instance type**
+
+- Select **t2.micro** (free tier eligible — enough for this lab)
+
+> **t2.micro = 1 vCPU, 1 GB RAM.** For production you'd pick something bigger, but this works fine for learning.
+
+---
+
+**Section 4 — Key pair (login)**
+
+- Select your existing key pair from the dropdown
+- No key pair yet? → Click **Create new key pair** → name it `my-lab-key` → **Create** → download the `.pem` file now (you can't download it again)
+
+---
+
+**Section 5 — Network settings**
+
+Under **Firewall (security groups)**:
+- Select: **Create security group**
+
+| Field | Value |
+| ----- | ----- |
+| Security group name | `web-server-sg` |
+| Description | `Allow HTTP and SSH` |
+
+Add two **inbound rules**:
+
+| Type | Port | Source | Why |
+| ---- | ---- | ------ | --- |
+| HTTP | 80 | Anywhere (0.0.0.0/0) | Users reach your web server |
+| SSH | 22 | My IP | You can log in for debugging |
+
+> Leave subnet blank — the ASG will decide which subnet to use at launch time.
+
+---
+
+**Section 6 — Advanced details → User data**
+
+Scroll all the way down to find the **User data** field. Paste this script:
 
 ```bash
-# Create a launch template
-aws ec2 create-launch-template \
-  --launch-template-name my-web-lt \
-  --version-description "v1 - baseline nginx" \
-  --launch-template-data '{
-    "ImageId": "ami-0abcdef1234567890",
-    "InstanceType": "t3.medium",
-    "KeyName": "my-key",
-    "SecurityGroupIds": ["sg-0webapp1234"],
-    "IamInstanceProfile": {"Name": "my-web-instance-profile"},
-    "UserData": "IyEvYmluL2Jhc2gKeXVtIC15IGluc3RhbGwgbmdpbngKc3lzdGVtY3RsIGVuYWJsZSAtLW5vdyBuZ2lueA==",
-    "TagSpecifications": [{
-      "ResourceType": "instance",
-      "Tags": [{"Key": "Name", "Value": "my-web-server"}]
-    }]
-  }'
+#!/bin/bash
+yum update -y
+yum install -y httpd
+systemctl start httpd
+systemctl enable httpd
+echo "<h1>Hello from: $(hostname -f)</h1>" > /var/www/html/index.html
+```
 
-# Create a new version (e.g. AMI bump) from the current default
+> **What this does:** Every time the ASG launches a new server from this template, this script runs automatically on first boot. It installs Apache (web server), starts it, and creates a simple page showing the server's hostname. You'll use this later to prove that the load balancer is distributing across multiple servers.
+
+---
+
+Click **Create launch template**
+
+**You should see:** `Successfully created launch template my-web-server-lt`
+
+---
+
+**Updating the template later — versioning:**
+
+When you need to change the AMI or config, never edit the existing version. Create a new one:
+
+```
+v1 (current) — AMI: ami-abc123, nginx
+    │
+    │  you want to upgrade the AMI
+    ▼
+v2 (new) — AMI: ami-xyz789, nginx
+    │
+    │  test in staging → set as default
+    ▼
+ASG uses v2 for all new launches from now on
+Old servers keep running v1 until they are naturally replaced
+```
+
+**Console steps to add a new version:**
+1. EC2 → Launch Templates → select `my-web-server-lt`
+2. Actions → **Modify template (Create new version)**
+3. Change only what you need (e.g. AMI ID)
+4. Add a version description → **Create template version**
+5. To make it default: Actions → **Set default version** → select the new version number
+
+**CLI equivalents (for reference):**
+
+```bash
+# Create a new version (e.g. AMI bump) from version 1
 aws ec2 create-launch-template-version \
-  --launch-template-name my-web-lt \
+  --launch-template-name my-web-server-lt \
   --source-version 1 \
   --version-description "v2 - new AMI" \
   --launch-template-data '{"ImageId": "ami-0newami9876543210"}'
 
-# Set the default version so new ASG launches pick it up
+# Set version 2 as the default
 aws ec2 modify-launch-template \
-  --launch-template-name my-web-lt \
+  --launch-template-name my-web-server-lt \
   --default-version 2
 
-# Point an ASG at a specific launch-template version
+# Point the ASG at a specific version
 aws autoscaling update-auto-scaling-group \
   --auto-scaling-group-name my-web-asg \
-  --launch-template LaunchTemplateName=my-web-lt,Version='2'
+  --launch-template LaunchTemplateName=my-web-server-lt,Version='2'
 ```
 
-**Notes:**
+**Key rules to remember:**
+- Use `$Latest` in the ASG only if you want every scale-out to automatically pick up new template versions
+- Pin to a specific version number (`Version='2'`) when you want explicit control over rollouts
+- New AWS features only land on Launch Templates — never migrate back to Launch Configurations
 
-- Reference `$Latest` or `$Default` in the ASG only when you actually want new launches to move automatically — otherwise pin a specific version so rollouts are explicit.
-- Encode `--user-data` as base64 when passing via the CLI JSON blob; the CLI shorthand form accepts plain text.
-- Migrate any surviving Launch Configurations to Launch Templates — new AWS features land on Launch Templates only.
+---
+
+### Auto Scaling Groups (ASG)
+
+**What it is:** An ASG is the fleet manager. You hand it a Launch Template and three numbers, and it keeps exactly the right number of healthy servers running at all times — across multiple availability zones, behind a load balancer, automatically.
+
+**The three numbers — a concrete example:**
+
+```
+Your e-commerce app scenario:
+  min = 2   →  Even at 3am, always keep 2 servers. Below this, scale-in stops.
+  desired = 2  →  Start with 2 servers right now.
+  max = 5   →  During a flash sale, never spin up more than 5.
+
+         min=2                                  max=5
+           │                                      │
+           ▼                                      ▼
+   ════════●──────────────────────────────────────●════════
+                        ▲
+                   desired=2
+                (ASG converges here)
+```
+
+Scaling policies adjust *desired* up or down. The ASG then adds/removes real servers to match it. Min and max are hard limits — no policy can cross them.
+
+---
+
+**HANDS-ON — Create the Auto Scaling Group (15 min)**
+
+**Navigate:** EC2 → left sidebar → **Auto Scaling Groups** → **Create Auto Scaling group**
+
+---
+
+**Page 1 — Choose launch template**
+
+| Field | Value |
+| ----- | ----- |
+| Auto Scaling group name | `my-web-asg` |
+| Launch template | `my-web-server-lt` (the one you just created) |
+| Version | `$Latest` |
+
+Click **Next**
+
+---
+
+**Page 2 — Choose instance launch options**
+
+**Network section:**
+- VPC: select your **Default VPC**
+- Availability Zones and subnets: **select at least 2 subnets in different AZs**
+  - e.g. tick `us-east-1a` and `us-east-1b`
+
+> **Why 2 AZs?** Think of AZs as separate buildings in a city. If one building loses power (AZ outage), your app keeps running in the other building. A single-AZ ASG gives you zero protection against this.
+
+Click **Next**
+
+---
+
+**Page 3 — Configure advanced options (Load balancer + Health checks)**
+
+**Load balancing:**
+- Select: **Attach to a new load balancer**
+- Load balancer type: **Application Load Balancer**
+- Load balancer name: `my-web-alb`
+- Load balancer scheme: **Internet-facing** ← users need to reach it from the internet
+- Availability Zones: the same subnets you chose above
+
+**Listeners and routing:**
+- Port: 80 (HTTP)
+- Default action: **Create a target group**
+  - Target group name: `my-web-tg`
+
+> **What just happened?** You created an ALB in front of your servers. Every new server the ASG creates will be automatically registered into `my-web-tg`, and the ALB will start sending it traffic.
+
+**Health checks section:**
+- ✅ Turn on: **Turn on Elastic Load Balancing health checks**
+- Health check grace period: `120` seconds
+
+> **Grace period explained:** When a new server boots, it needs ~60-90 seconds to run your startup script and start Apache. If health checks start too early, the server fails before it's ready and gets terminated in a loop. 120 seconds gives it breathing room.
+
+Click **Next**
+
+---
+
+**Page 4 — Configure group size and scaling**
+
+| Field | Value | What it means |
+| ----- | ----- | ------------- |
+| Desired capacity | `2` | Start with 2 servers |
+| Min desired capacity | `2` | Never go below 2 |
+| Max desired capacity | `5` | Never go above 5 |
+
+**Automatic scaling:**
+- Select: **No scaling policies** — we'll add this in Step 5
+
+Click **Next → Next → Next → Create Auto Scaling group**
+
+---
+
+**Verify it worked — what you should see:**
+
+**Check 1 — Instances launching:**
+1. EC2 → **Instances**
+2. You should see **2 new instances** with names containing `my-web-asg`
+3. Their state will say "Initializing" → wait ~2 minutes → they move to "Running"
+
+**Check 2 — ASG reports InService:**
+1. EC2 → Auto Scaling Groups → `my-web-asg` → **Instance management** tab
+2. Both instances should show **Health status: Healthy** and **Lifecycle: InService**
+
+**Check 3 — Load balancer is working:**
+1. EC2 → **Load Balancers** → `my-web-alb`
+2. Copy the **DNS name** (looks like `my-web-alb-123456789.us-east-1.elb.amazonaws.com`)
+3. Paste it into your browser
+4. You should see: `Hello from: ip-10-0-x-x.ec2.internal`
+5. Refresh a few times — the hostname changes as the ALB routes to different servers
+
+> **If you don't see anything:** Wait 3-5 minutes for the instances to fully boot and pass health checks. The ALB shows "unhealthy" targets while instances are still starting.
+
+---
+
+**How the ASG lifecycle works — what happens internally:**
+
+```
+Something changes desired capacity:
+  ├── CPU metric fires a scaling policy
+  ├── 9am scheduled action
+  └── you manually change desired in the console
+                    │
+                    ▼
+         ┌──────────────────────┐
+         │    Auto Scaling Group │
+         │  min=2 desired=2 max=5│
+         └──────────┬───────────┘
+                    │ launches new server
+                    ▼
+           [Pending]  ← booting
+                    │
+           [Pending:Wait]  ← if lifecycle hook is set
+                    │
+           [InService]  ← joins ELB, receives traffic
+                    │
+                    │ health check fails
+                    ▼
+           [Terminating]  ← removed from ELB first (drains)
+                    │
+           [Terminated]  ← gone, replaced automatically
+```
+
+**CLI equivalents (for reference):**
+
+```bash
+# Create ASG via CLI
+aws autoscaling create-auto-scaling-group \
+  --auto-scaling-group-name my-web-asg \
+  --launch-template LaunchTemplateName=my-web-server-lt,Version='$Latest' \
+  --min-size 2 --max-size 5 --desired-capacity 2 \
+  --vpc-zone-identifier "subnet-0abc1234,subnet-0def5678" \
+  --target-group-arns arn:aws:elasticloadbalancing:...:targetgroup/my-web-tg/abc \
+  --health-check-type ELB \
+  --health-check-grace-period 120
+
+# See all ASGs at a glance
+aws autoscaling describe-auto-scaling-groups \
+  --query 'AutoScalingGroups[].{Name:AutoScalingGroupName,Desired:DesiredCapacity,Min:MinSize,Max:MaxSize}' \
+  --output table
+
+# Manually change desired capacity
+aws autoscaling set-desired-capacity \
+  --auto-scaling-group-name my-web-asg \
+  --desired-capacity 4
+```
+
+---
+
+### Health Checks & Instance Replacement
+
+**What it is:** The ASG checks every server's health every 30 seconds. The moment a server fails, it is terminated and a brand-new one is launched from the Launch Template. This is the self-healing that makes ASG different from just having EC2 instances.
+
+**Two types of health checks — why both matter:**
+
+| Type | What it actually asks | Catches |
+| ---- | --------------------- | ------- |
+| **EC2** (always on) | "Is the server's hardware and OS reachable?" | Hardware failure, OS crash |
+| **ELB** (you must enable) | "Is the *app* returning healthy responses?" | App crash, 500 errors, hung process |
+| **Custom** | You send a manual signal | Your own monitoring logic |
+
+```
+EC2 check only (bad):               EC2 + ELB check (correct):
+──────────────────                  ──────────────────────────
+"Is the server on?" → YES ✓         "Is the server on?" → YES ✓
+App crashed → 500 errors            "Does app respond OK?" → NO ✗
+EC2 doesn't know → server           ASG marks it Unhealthy
+stays in load balancer              → terminates → launches replacement
+→ users see errors all day          → users unaffected
+```
+
+---
+
+**HANDS-ON — Test Self-Healing (5 min experiment)**
+
+You already enabled ELB health checks when creating the ASG. Now let's prove it works by deliberately killing a server.
+
+**Step 1 — Note the current instance IDs:**
+1. EC2 → Auto Scaling Groups → `my-web-asg` → **Instance management** tab
+2. Note both instance IDs (e.g. `i-0abc1234` and `i-0def5678`)
+
+**Step 2 — Terminate one instance:**
+1. EC2 → **Instances**
+2. Select **one** of your ASG instances
+3. **Instance state → Terminate instance** → confirm
+
+**Step 3 — Watch the Activity tab:**
+1. EC2 → Auto Scaling Groups → `my-web-asg` → **Activity** tab
+2. Within 60-90 seconds you should see a new entry appear:
+
+```
+Launching a new EC2 instance to replace: i-0abc1234
+Status: Successful
+Reason: Instance i-0abc1234 was taken out of service in response to
+        a user health-check request, changing the instance's health
+        status from Healthy to Unhealthy.
+```
+
+**Step 4 — Confirm the replacement:**
+1. EC2 → **Instances** — a brand-new instance with a different ID is now starting
+2. EC2 → Auto Scaling Groups → `my-web-asg` → **Instance management** tab
+3. Within ~2 minutes the new instance shows **InService** ✓
+
+> **What you just witnessed:** The ASG noticed the fleet dropped below desired=2, launched a replacement from your Launch Template, waited for it to pass health checks, then registered it with the load balancer. All automatic, all within 2 minutes. This happens 24/7.
+
+---
+
+**How the replacement flow works internally:**
+
+```
+1. Health check detects server is Unhealthy
+         │
+2. Server is deregistered from ALB first
+   (existing requests finish — "connection draining")
+         │
+3. Server is terminated
+         │
+4. ASG sees: actual count (1) < desired (2)
+         │
+5. ASG launches a new server from Launch Template
+         │
+6. New server boots, runs user-data script
+         │
+7. Grace period (120s) passes
+         │
+8. ELB health check passes
+         │
+9. Server joins ALB → back to 2 healthy servers
+```
+
+**Adjusting health check settings via CLI:**
+
+```bash
+# Switch to ELB health checks (if not done already)
+aws autoscaling update-auto-scaling-group \
+  --auto-scaling-group-name my-web-asg \
+  --health-check-type ELB \
+  --health-check-grace-period 180
+
+# Manually mark an instance unhealthy (forces replacement)
+aws autoscaling set-instance-health \
+  --instance-id i-0abc1234 \
+  --health-status Unhealthy
+
+# See health status of all instances in the ASG
+aws autoscaling describe-auto-scaling-instances \
+  --query 'AutoScalingInstances[].{Id:InstanceId,AZ:AvailabilityZone,Health:HealthStatus,State:LifecycleState}' \
+  --output table
+```
+
+**Common mistakes:**
+
+| Mistake | What happens | Fix |
+| ------- | ------------ | --- |
+| Grace period too short (e.g. 30s) | Server fails health check before app starts → endless replace loop | Set grace period ≥ your actual boot time |
+| Using EC2 health checks only | Crashed app stays in the load balancer → users get errors | Always enable ELB health checks |
+| Health check path returns 500 always | ASG replaces half the fleet constantly | Fix the health check endpoint first |
 
 ---
 
 ### Scaling Policies
 
-**Description:** A scaling policy is the rule that decides *when* and *by how much* the ASG's desired capacity changes. You attach one or more policies to the ASG; each policy watches a CloudWatch metric (CPU, request count, custom metric) and adjusts capacity in response.
+**What it is:** A scaling policy is the rule that decides when to add or remove servers based on a real metric — CPU, request count, memory. Without one, you manually adjust the desired count yourself. With one, it happens automatically in response to actual load.
 
-**Types of scaling policies:**
+**Analogy:** A thermostat. You set it to 22°C. If the room gets hotter, AC turns on. If it cools down, AC turns off. You never touch it. Target Tracking Scaling is a thermostat for your server count.
 
-| Policy Type              | How it works                                                                                     | Best for                                    |
-| ------------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------- |
-| **Target Tracking**      | Keep a metric (e.g. average CPU) at a target value; AWS calculates the exact capacity change     | Most workloads — start here                 |
-| **Step Scaling**         | Change capacity in defined steps based on how far the metric exceeds a threshold                 | Custom thresholds, non-linear responses     |
-| **Simple Scaling**       | Single change (e.g. +1) when the alarm fires, then cool down before another can fire             | Legacy; superseded by step scaling          |
-| **Predictive Scaling**   | Machine-learning forecast of traffic; pre-warms capacity ahead of predicted load                 | Highly cyclical (daily/weekly) workloads    |
+**Four types — pick the right one:**
 
-**Quick decision guide:**
+| Type | How it works | Use when |
+| ---- | ------------ | -------- |
+| **Target Tracking** | "Keep CPU at 50%" — AWS calculates exactly how many servers to add/remove | Default for most workloads |
+| **Step Scaling** | "+1 server at 70% CPU, +2 at 80%, +4 at 90%" — tiered response | You need proportionally bigger reactions to bigger spikes |
+| **Simple Scaling** | "+1 server when alarm fires, then wait" | Old/legacy — don't use for new setups |
+| **Predictive Scaling** | Uses ML to predict traffic patterns and adds servers *before* the spike | Traffic follows the same daily/weekly pattern |
 
 ```
-Steady metric you want to keep at a value?  ──Yes──→ Target Tracking
-Non-linear steps based on how far off?      ──Yes──→ Step Scaling
-Predictable daily/weekly load pattern?       ──Yes──→ Predictive Scaling (+ Target Tracking)
+Which policy should I use?
+─────────────────────────
+Traffic predictable every day/week?
+    Yes → Predictive Scaling + Target Tracking together
+    No  ↓
+
+Just want "keep metric at X"?
+    Yes → Target Tracking  ← use this for 90% of cases
+    No  ↓
+
+Need bigger jumps for bigger spikes?
+    Yes → Step Scaling
 ```
 
-**Common CLI operations:**
+---
+
+**HANDS-ON — Add Target Tracking Policy (5 min)**
+
+**Navigate:** EC2 → Auto Scaling Groups → `my-web-asg` → **Automatic scaling** tab → **Create dynamic scaling policy**
+
+| Field | Value | Why |
+| ----- | ----- | --- |
+| Policy type | **Target tracking scaling** | The thermostat type |
+| Scaling policy name | `cpu-target-50` | Descriptive name |
+| Metric type | **Average CPU utilization** | What we're tracking |
+| Target value | `50` | Keep average CPU at 50% |
+| Instance warmup | `60` seconds | Wait 60s before counting a new server in the average |
+
+Click **Create**
+
+**What AWS just did automatically:**
+1. EC2 → Auto Scaling Groups → `my-web-asg` → **Automatic scaling** tab — you see the policy listed
+2. CloudWatch → **Alarms** — AWS created 2 alarms for you:
+   - `TargetTracking-my-web-asg-AlarmHigh-...` → triggers scale-out (adds servers)
+   - `TargetTracking-my-web-asg-AlarmLow-...` → triggers scale-in (removes servers)
+
+> AWS manages these alarms for you — don't delete or modify them manually.
+
+---
+
+**HANDS-ON — Trigger the Policy and Watch Scaling (10 min)**
+
+**Step 1 — Find a server's public IP:**
+1. EC2 → Instances → click one of your ASG instances
+2. Copy the **Public IPv4 address**
+
+**Step 2 — SSH in and generate CPU load:**
 
 ```bash
-# Target tracking: keep average CPU at 50%
-aws autoscaling put-scaling-policy \
-  --auto-scaling-group-name my-web-asg \
-  --policy-name cpu50-target-tracking \
-  --policy-type TargetTrackingScaling \
-  --target-tracking-configuration '{
-    "PredefinedMetricSpecification": {
-      "PredefinedMetricType": "ASGAverageCPUUtilization"
-    },
-    "TargetValue": 50.0
-  }'
+ssh -i my-lab-key.pem ec2-user@<your-public-ip>
 
-# Target tracking: keep ALB request count per target at 1000
-aws autoscaling put-scaling-policy \
-  --auto-scaling-group-name my-web-asg \
-  --policy-name alb-rps-target \
-  --policy-type TargetTrackingScaling \
-  --target-tracking-configuration '{
-    "PredefinedMetricSpecification": {
-      "PredefinedMetricType": "ALBRequestCountPerTarget",
-      "ResourceLabel": "app/my-web-alb/abc/targetgroup/my-web-tg/def"
-    },
-    "TargetValue": 1000.0
-  }'
+# Run 4 background processes that max out the CPU
+yes > /dev/null &
+yes > /dev/null &
+yes > /dev/null &
+yes > /dev/null &
+```
 
-# Step scaling policy (used with a CloudWatch alarm)
+**Step 3 — Watch the alarm turn red:**
+1. CloudWatch → **Alarms**
+2. Wait 3-5 minutes
+3. `TargetTracking-my-web-asg-AlarmHigh-...` changes from OK (green) → **In alarm (red)**
+
+**Step 4 — Watch new servers launch:**
+1. EC2 → Auto Scaling Groups → `my-web-asg` → **Activity** tab
+2. You'll see entries appear:
+
+```
+Launching a new EC2 instance.
+Status: Successful
+Reason: An alarm triggered a scale-out activity.
+        Alarm: TargetTracking-my-web-asg-AlarmHigh-...
+```
+
+3. EC2 → Instances — you now have **3, 4, or 5 instances** running
+
+**Step 5 — Stop the load and watch scale-in:**
+```bash
+# In your SSH session:
+killall yes
+exit
+```
+
+Wait 5-10 minutes → alarm returns to OK → ASG gradually removes the extra servers → back to 2.
+
+> Scale-in is intentionally slower than scale-out. AWS waits to confirm the load is gone before removing servers — prevents thrashing.
+
+---
+
+**Step Scaling — when you need it:**
+
+Use Step Scaling when a small CPU breach should add 1 server, but a large spike should add 4 immediately:
+
+```
+CPU 70-80% above target → +1 server
+CPU 80-90% above target → +2 servers
+CPU 90%+   above target → +4 servers (emergency)
+```
+
+**Console:** EC2 → Auto Scaling Groups → Automatic scaling tab → Create dynamic scaling policy → **Step scaling**
+
+**CLI:**
+
+```bash
 aws autoscaling put-scaling-policy \
   --auto-scaling-group-name my-web-asg \
   --policy-name cpu-step-out \
@@ -5864,230 +6263,383 @@ aws autoscaling put-scaling-policy \
   ]'
 ```
 
-**Notes:**
-
-- **Prefer target tracking** for CPU, memory, and request-count workloads — the ASG picks capacity math for you and disables scale-in during a scale-out event to avoid flapping.
-- Attach at most **one target-tracking policy per metric**; multiple conflicting policies fight each other.
-- Use step scaling when you need a bigger jump for a bigger overshoot — for example, +1 for a small CPU breach, +4 for a spike.
+**Key rules:**
+- Use at most **one target-tracking policy per metric** — two policies on the same metric fight each other
+- Target tracking disables scale-in automatically during a scale-out event to prevent flapping
+- Step scaling requires you to create the CloudWatch alarm yourself; target tracking creates it for you
 
 ---
 
 ### Scheduled Actions
 
-**Description:** Scheduled actions change the ASG's min/max/desired capacity at a specific time or on a recurring cron. Use them when demand is predictable — for example, scale up before an 09:00 business rush and scale down at 22:00.
+**What it is:** A scheduled action is an alarm clock for your server fleet. Instead of reacting to traffic after it spikes, you predict it and scale *before* users arrive.
 
-**When to use:**
+**Why this beats relying on scaling policies alone:**
 
-- Predictable diurnal or weekly traffic — set the floor higher during business hours.
-- Batch jobs — pre-warm capacity 10 minutes before a scheduled workload starts.
-- Scheduled events (product launches, promotions) — force headroom regardless of current metrics.
+Scaling policies react *after* the metric threshold is crossed. That means:
+1. Traffic spikes at 9am
+2. CPU hits 80% → alarm fires → new server launches
+3. New server takes 90 seconds to boot
+4. **Your users waited 90 seconds on a slow/overloaded site**
 
-**Common CLI operations:**
+Scheduled actions fix this:
+1. At 8:50am every weekday: ASG pre-scales to 4 servers
+2. 9am traffic arrives → servers are already warm and ready
+3. **Zero slowdown for users**
 
-```bash
-# One-time scale-out on a specific UTC time
-aws autoscaling put-scheduled-update-group-action \
-  --auto-scaling-group-name my-web-asg \
-  --scheduled-action-name pre-launch-warmup \
-  --start-time "2026-08-16T13:30:00Z" \
-  --min-size 8 --desired-capacity 10 --max-size 20
-
-# Recurring: scale up every weekday at 08:30 UTC
-aws autoscaling put-scheduled-update-group-action \
-  --auto-scaling-group-name my-web-asg \
-  --scheduled-action-name workday-scale-out \
-  --recurrence "30 8 * * MON-FRI" \
-  --min-size 6 --desired-capacity 8
-
-# Recurring: scale down every night at 22:00 UTC
-aws autoscaling put-scheduled-update-group-action \
-  --auto-scaling-group-name my-web-asg \
-  --scheduled-action-name nightly-scale-in \
-  --recurrence "0 22 * * *" \
-  --min-size 2 --desired-capacity 2
-
-# List scheduled actions on an ASG
-aws autoscaling describe-scheduled-actions \
-  --auto-scaling-group-name my-web-asg
+```
+Timeline:
+──────────────────────────────────────────────────────►
+8:50am                 9am              10pm
+  │                    │                 │
+  │ scheduled          │ users           │ scheduled
+  │ action fires       │ arrive          │ action fires
+  ▼                    ▼                 ▼
+[2→4 servers]    [traffic handled]  [4→2 servers]
+                  with no lag        (save money overnight)
 ```
 
-**Notes:**
+---
 
-- Recurrence uses standard **cron syntax in UTC** — always double-check for your local time zone.
-- Scheduled actions **set** capacity, they do not add to it. Combine with target tracking so metrics still drive intra-window changes.
-- If both a scheduled action and a scaling policy fire at once, the scheduled action wins.
+**HANDS-ON — Add Scheduled Actions (5 min)**
+
+**Navigate:** EC2 → Auto Scaling Groups → `my-web-asg` → **Automatic scaling** tab → **Scheduled actions** → **Create scheduled action**
+
+---
+
+**Action 1 — Morning scale-out (weekday business hours)**
+
+| Field | Value |
+| ----- | ----- |
+| Name | `morning-scale-out` |
+| Desired capacity | `4` |
+| Min | `4` |
+| Max | `5` |
+| Recurrence | Custom — choose **Cron** |
+| Cron expression | `30 8 * * MON-FRI` |
+| Time zone | Your local time zone |
+
+> **Cron `30 8 * * MON-FRI` means:** At 8:30am, every Monday through Friday. The format is `minute hour day month weekday`.
+
+Click **Create**
+
+---
+
+**Action 2 — Nightly scale-in (save money overnight)**
+
+Create another scheduled action:
+
+| Field | Value |
+| ----- | ----- |
+| Name | `night-scale-in` |
+| Desired capacity | `2` |
+| Min | `2` |
+| Max | `5` |
+| Recurrence | Custom — choose **Cron** |
+| Cron expression | `0 22 * * *` |
+| Time zone | Your local time zone |
+
+> **Cron `0 22 * * *` means:** At 10:00pm, every day.
+
+Click **Create**
+
+---
+
+**Verify it worked:**
+
+EC2 → Auto Scaling Groups → `my-web-asg` → **Automatic scaling** tab → **Scheduled actions** section
+
+You should see both actions listed with their next scheduled run time.
+
+---
+
+**One-time scheduled action — for events like product launches:**
+
+When you know a big traffic event is coming (Black Friday, a marketing email going out), you can pre-scale just once:
+
+**Console:** Create scheduled action → same steps → set a specific **Start time** instead of recurrence
+
+**CLI:**
+```bash
+# One-time pre-scale before a product launch at 1:30pm UTC
+aws autoscaling put-scheduled-update-group-action \
+  --auto-scaling-group-name my-web-asg \
+  --scheduled-action-name product-launch-warmup \
+  --start-time "2026-09-01T13:30:00Z" \
+  --min-size 8 --desired-capacity 10 --max-size 20
+```
+
+**Cron quick reference:**
+
+```
+┌─────── minute (0-59)
+│ ┌───── hour (0-23, UTC)
+│ │ ┌─── day of month (1-31)
+│ │ │ ┌─ month (1-12)
+│ │ │ │ ┌ day of week (MON-FRI or 0-6)
+│ │ │ │ │
+0 9 * * MON-FRI   →  9:00am every weekday
+0 22 * * *        →  10:00pm every day
+30 8 * * MON-FRI  →  8:30am weekdays
+0 0 1 * *         →  midnight on the 1st of every month
+```
+
+**Key rules:**
+- All times are **UTC** — convert your local time before entering
+- Scheduled actions **set** the capacity value, they don't add to it. If desired=4 and the scaling policy already pushed it to 5, the scheduled action sets it to 4 — it won't add 4 on top
+- If a scheduled action and a scaling policy both fire at the same moment, the **scheduled action wins**
+- Always pair with target tracking so the scaling policy still reacts to unexpected load within the scheduled window
 
 ---
 
 ### Lifecycle Hooks
 
-**Description:** Lifecycle hooks pause an instance in the middle of a launch or terminate flow so you can run custom logic — bootstrap software, warm caches, drain connections, take a snapshot — before the ASG considers the transition complete. Without a hook, the ASG marks a launching instance `InService` as soon as the OS boots, which can add half-warm instances to the load balancer.
-
-**How a lifecycle hook works:**
+**What it is:** By default, the ASG adds a new server to the load balancer the moment the OS boots — even if your app needs another 60 seconds to fully start. Users hit errors during that gap. A lifecycle hook solves this by pausing the server in a "wait" state until you signal it's ready.
 
 ```
-   Scale-out                                              Scale-in
-   ─────────                                              ────────
-   [Pending]                                              [InService]
-        │                                                       │
-        │ launching hook fires                                  │ terminating hook fires
-        ▼                                                       ▼
-   [Pending:Wait]  ── you run bootstrap/warm-up ──► CompleteLifecycleAction
-        │                                                       │
-        ▼                                                       ▼
-   [InService]                                              [Terminating:Wait]
-                                                                │
-                                                                │ you drain / snapshot
-                                                                ▼
-                                                          CompleteLifecycleAction
-                                                                │
-                                                                ▼
-                                                          [Terminated]
+WITHOUT lifecycle hook:
+  OS boots → immediately joins load balancer
+               ↑
+        app still loading!  →  users get "503 Service Unavailable"
+
+WITH lifecycle hook (launching):
+  OS boots → PAUSE (Pending:Wait)
+               ↑
+        your script runs: install config, warm cache, health-check app
+        → signal CONTINUE
+                          → joins load balancer
+                            app is fully ready → zero errors
 ```
 
-**Common CLI operations:**
+**Two hook types:**
+
+| Hook | When it fires | Use it for |
+| ---- | ------------- | ---------- |
+| **Launching hook** | Server booting, before it joins the ELB | Run config, cache warm-up, app readiness check |
+| **Terminating hook** | Server shutting down, before it's killed | Drain in-flight requests, flush logs, take snapshot |
+
+**Full lifecycle with hooks:**
+
+```
+Scale-out                              Scale-in
+─────────                              ────────
+[Pending]                              [InService]
+     │                                       │
+     │  launching hook fires                 │  terminating hook fires
+     ▼                                       ▼
+[Pending:Wait] ← your script runs    [Terminating:Wait] ← your script drains
+     │         → signal CONTINUE           │              → signal CONTINUE
+     ▼                                     ▼
+[InService] → joins ELB              [Terminated]
+
+If timeout fires without a signal:
+  ABANDON → server is terminated (safe for launching)
+  CONTINUE → server proceeds anyway (safe for terminating)
+```
+
+---
+
+**HANDS-ON — Add a Launching Lifecycle Hook (5 min)**
+
+**Navigate:** EC2 → Auto Scaling Groups → `my-web-asg` → **Instance management** tab → **Lifecycle hooks** section → **Create lifecycle hook**
+
+| Field | Value | Why |
+| ----- | ----- | --- |
+| Lifecycle hook name | `wait-for-app-ready` | Descriptive |
+| Lifecycle transition | **Instance launch** | Fire when a new server starts |
+| Heartbeat timeout | `120` | Wait up to 120 seconds for your signal |
+| Default result | **ABANDON** | If nothing signals in time, terminate the server — safer than adding a broken one to the LB |
+
+Click **Create lifecycle hook**
+
+**Verify:** The hook appears in the **Lifecycle hooks** section of the Instance management tab.
+
+---
+
+**What happens next time the ASG launches a server:**
+
+1. EC2 → Auto Scaling Groups → `my-web-asg` → **Instance management** tab
+2. Force a new launch: increase desired to 3 temporarily
+3. You'll see the new instance stuck in **Lifecycle: Pending:Wait** instead of jumping straight to InService
+4. After 120 seconds, default result `ABANDON` fires → instance terminates
+
+> In production, your startup script (in user-data) would call `complete-lifecycle-action CONTINUE` when the app is ready. Here we let it timeout to see the behavior.
+
+---
+
+**Making the hook actually work in production:**
+
+Add this to the end of your user-data script so the server signals itself as ready:
 
 ```bash
-# Add a launching lifecycle hook (default 3600s timeout)
+#!/bin/bash
+yum update -y
+yum install -y httpd
+systemctl start httpd
+systemctl enable httpd
+echo "<h1>Hello from: $(hostname -f)</h1>" > /var/www/html/index.html
+
+# Wait for Apache to respond, then signal the lifecycle hook
+until curl -s http://localhost/ > /dev/null; do sleep 2; done
+
+# Get instance ID and region from instance metadata
+INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+
+# Signal the ASG: "I'm ready, let me into the load balancer"
+aws autoscaling complete-lifecycle-action \
+  --lifecycle-hook-name wait-for-app-ready \
+  --auto-scaling-group-name my-web-asg \
+  --lifecycle-action-result CONTINUE \
+  --instance-id "$INSTANCE_ID" \
+  --region "$REGION"
+```
+
+**CLI equivalents:**
+
+```bash
+# Add a launching hook (waits for your signal before joining ELB)
 aws autoscaling put-lifecycle-hook \
-  --lifecycle-hook-name warmup-before-serve \
+  --lifecycle-hook-name wait-for-app-ready \
   --auto-scaling-group-name my-web-asg \
   --lifecycle-transition autoscaling:EC2_INSTANCE_LAUNCHING \
-  --heartbeat-timeout 600 \
+  --heartbeat-timeout 120 \
   --default-result ABANDON
 
-# Add a terminating hook so we can drain in-flight requests
+# Add a terminating hook (waits before the server is killed)
 aws autoscaling put-lifecycle-hook \
   --lifecycle-hook-name drain-on-terminate \
   --auto-scaling-group-name my-web-asg \
   --lifecycle-transition autoscaling:EC2_INSTANCE_TERMINATING \
-  --heartbeat-timeout 300 \
+  --heartbeat-timeout 60 \
   --default-result CONTINUE
 
-# Signal the ASG that the hook is done and the instance can proceed
+# Manually signal a hook from your script or Lambda
 aws autoscaling complete-lifecycle-action \
   --auto-scaling-group-name my-web-asg \
-  --lifecycle-hook-name warmup-before-serve \
+  --lifecycle-hook-name wait-for-app-ready \
   --instance-id i-0abc1234 \
   --lifecycle-action-result CONTINUE
 ```
 
-**Notes:**
-
-- `--default-result ABANDON` on a launching hook fails the launch if the timeout fires — safer than promoting a half-configured instance.
-- `--default-result CONTINUE` on a terminating hook lets the shutdown proceed even if your drain logic times out — safer for scale-in.
-- Pair terminating hooks with the target group's **deregistration delay** so both the ELB and your app get time to finish in-flight work.
-
----
-
-### Health Checks & Instance Replacement
-
-**Description:** The ASG constantly evaluates each instance's health. Any instance marked `Unhealthy` is terminated and replaced from the Launch Template — this is the mechanism that makes an ASG self-healing.
-
-**Health check types:**
-
-| Health Check Type | What it checks                                                                                          |
-| ----------------- | ------------------------------------------------------------------------------------------------------- |
-| **EC2**           | AWS's own system + instance status checks — is the hardware and OS reachable?                            |
-| **ELB**           | The attached target group's health check — is the application actually serving?                          |
-| **Custom**        | You call `set-instance-health` yourself (e.g. from your own monitoring)                                  |
-
-**Health-check flow:**
-
-1. New instance launches → ASG waits out the **health-check grace period**.
-2. After the grace period, all enabled checks (EC2 + ELB + custom) must be `Healthy`.
-3. If any check reports `Unhealthy`, the ASG terminates the instance and launches a replacement.
-4. Instance is deregistered from the ELB target group before termination (draining runs first).
-
-**Common CLI operations:**
-
-```bash
-# Switch an ASG from EC2-only to EC2 + ELB health checks
-aws autoscaling update-auto-scaling-group \
-  --auto-scaling-group-name my-web-asg \
-  --health-check-type ELB \
-  --health-check-grace-period 180
-
-# Force an instance to be replaced (mark unhealthy manually)
-aws autoscaling set-instance-health \
-  --instance-id i-0abc1234 \
-  --health-status Unhealthy
-
-# See the health of every instance in the ASG
-aws autoscaling describe-auto-scaling-instances \
-  --query 'AutoScalingInstances[].{Id:InstanceId,AZ:AvailabilityZone,Health:HealthStatus,State:LifecycleState}' \
-  --output table
-```
-
-**Notes:**
-
-- Always turn on **ELB health checks** once the ASG is behind an ELB — EC2 checks alone will miss "the OS is up but the app returns 500s".
-- Set the **grace period** long enough for user-data, container pulls, and app warm-up to complete — a too-short grace loops in a "boot → fail → replace" cycle.
-- If half the fleet is being replaced constantly, the target group's health-check path is almost always the cause (too aggressive, or hitting a slow dependency).
+**Key rules:**
+- `ABANDON` on a launching hook terminates the server if timeout fires — safe, prevents broken servers from joining the LB
+- `CONTINUE` on a terminating hook lets shutdown proceed even if your drain script times out — safe, prevents stuck servers
+- Combine terminating hooks with the target group's **deregistration delay** so both the ELB and your script finish draining
 
 ---
 
 ### Auto Scaling Best Practices
 
-**Description:** These are the Auto Scaling configurations that pay off in reliability, cost, and blast radius over the life of a workload.
+These are the rules that prevent the most common real-world ASG failures. Understand why each one matters — not just what it says.
 
-| Best Practice                                        | Why                                                                              |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------- |
-| **Span at least two AZs**                            | Single-AZ ASG offers zero AZ-failure protection — always list multiple subnets   |
-| **Use Launch Templates, not Launch Configurations**  | Versioning, mixed instances, Spot integration, and every new AWS feature         |
-| **Turn on ELB health checks**                        | Catches "OS up, app down" scenarios that EC2 status checks miss                  |
-| **Set a realistic health-check grace period**        | Too short causes replace-loops; too long delays replacement of truly broken hosts |
-| **Use target tracking as the default**               | Simpler, self-tuning, and less flappy than step or simple scaling                |
-| **Enable instance scale-in protection during rollouts** | Prevents scale-in from terminating an instance mid-deploy                     |
-| **Add a warm pool for slow-boot AMIs**               | Cuts scale-out time from minutes to seconds; you only pay for EBS while stopped  |
-| **Use mixed instances + Spot for stateless fleets**  | 50–80% cost reduction with On-Demand base capacity for stability                 |
-| **Terminate oldest instance on scale-in**            | Guarantees fleet rolls over onto newer AMIs during scale events                  |
-| **Alarm on `GroupInServiceInstances` vs `GroupDesiredCapacity`** | Early signal that the ASG cannot converge to the desired size          |
-| **Tag instances via the Launch Template**            | Ensures every replacement inherits the same tags without a separate hook         |
-| **Test scale-in as carefully as scale-out**          | Most incidents come from a scale-in event terminating the wrong instance         |
+| Practice | What breaks if you skip it | How to apply it |
+| -------- | -------------------------- | --------------- |
+| **Always span 2+ AZs** | One AZ outage takes down your entire app | Add subnets from 2+ AZs when creating the ASG |
+| **Use Launch Templates, not Configurations** | Can't use Spot, mixed instances, or new AWS features | Always create Launch Templates — never create new Launch Configurations |
+| **Enable ELB health checks** | Crashed app stays in the load balancer; users get errors | Enable during ASG creation (Page 3) |
+| **Set grace period ≥ real boot time** | Too short → endless terminate/replace loop | Measure how long your app takes to start; add 30s buffer |
+| **Default to target tracking policies** | Other policy types are harder to tune and prone to flapping | Target tracking for CPU/requests; only use step scaling for non-linear responses |
+| **Protect instances during deployments** | ASG terminates a server mid-deploy, causing partial deployments | Enable scale-in protection before deploying; disable after |
+| **Use a warm pool for slow-boot apps** | Scale-out takes 3-5 minutes; users wait during traffic spikes | Add a warm pool of stopped pre-initialized servers |
+| **Mix Spot + On-Demand for stateless fleets** | Paying full On-Demand price for servers that could be 70% cheaper | Use mixed instances policy: On-Demand base + Spot for burst |
+| **Terminate oldest instance on scale-in** | Fleet never rotates; old servers accumulate config drift | Set termination policy to "OldestInstance" |
+| **Test scale-in as carefully as scale-out** | Scale-in terminates the wrong instance; active connections dropped | Run manual scale-in tests before going to production |
 
-**Key CloudWatch metrics to alarm on:**
+---
 
-| Metric                          | What it tells you                                                          |
-| ------------------------------- | -------------------------------------------------------------------------- |
-| `GroupInServiceInstances`       | How many instances are actually healthy and serving                        |
-| `GroupDesiredCapacity`          | The current target size the ASG is trying to reach                         |
-| `GroupPendingInstances`         | Launches in progress — high sustained values mean slow boot                |
-| `GroupTerminatingInstances`     | Terminations in progress — high sustained values mean slow drain           |
-| `GroupTotalInstances`           | Total headcount, healthy or not                                            |
-| `GroupMaxSize` / `GroupMinSize` | Ceiling and floor — alarm if `GroupInServiceInstances` sits at the max     |
+**HANDS-ON — Monitor your ASG with CloudWatch (5 min)**
 
-**Enable instance scale-in protection:**
+**Navigate:** EC2 → Auto Scaling Groups → `my-web-asg` → **Monitoring** tab
+
+The key metric to watch:
+
+```
+GroupInServiceInstances  should equal  GroupDesiredCapacity
+
+If GroupInServiceInstances < GroupDesiredCapacity for more than 5 minutes:
+  → your health check is failing
+  → your grace period is too short
+  → your app is crashing on startup
+```
+
+**Set up an alarm for when the fleet can't converge:**
+
+1. CloudWatch → **Alarms** → **Create alarm**
+2. Select metric: **EC2 Auto Scaling → Group Metrics → GroupInServiceInstances**
+3. Filter to your ASG name
+4. Condition: **Less than `2`** for 2 consecutive data points (2 minutes)
+5. Action: send notification to your email via SNS
+
+**Key CloudWatch metrics:**
+
+| Metric | What it means | Alarm when |
+| ------ | ------------- | ---------- |
+| `GroupInServiceInstances` | Healthy servers serving traffic | Less than your min |
+| `GroupDesiredCapacity` | How many the ASG wants | — |
+| `GroupPendingInstances` | Starting up | High for >5 min = slow boot |
+| `GroupTerminatingInstances` | Shutting down | High for >5 min = slow drain |
+| `GroupMaxSize` | Your ceiling | `InService` equals `Max` = you're out of capacity |
+
+**Enable scale-in protection (protects servers during deploys):**
 
 ```bash
-# For the whole ASG (new instances inherit protection)
+# Protect ALL new instances in the ASG
 aws autoscaling update-auto-scaling-group \
   --auto-scaling-group-name my-web-asg \
   --new-instances-protected-from-scale-in
 
-# For a single instance during a deploy
+# Protect one specific instance during a deploy
 aws autoscaling set-instance-protection \
   --auto-scaling-group-name my-web-asg \
   --instance-ids i-0abc1234 \
   --protected-from-scale-in
 ```
 
-**Create a warm pool:**
+**Create a warm pool (pre-warmed servers ready in seconds):**
 
 ```bash
 aws autoscaling put-warm-pool \
   --auto-scaling-group-name my-web-asg \
-  --min-size 2 \
-  --max-group-prepared-capacity 10 \
+  --min-size 1 \
+  --max-group-prepared-capacity 5 \
   --pool-state Stopped \
   --instance-reuse-policy '{"ReuseOnScaleIn": true}'
 ```
+
+> Warm pool servers are stopped (not terminated) after scale-in, so next time they start in ~30 seconds instead of 3 minutes. You only pay EBS storage cost while they're stopped.
 
 ---
 
 ### Reference
 
-**Description:** The canonical, always-up-to-date source for every Amazon EC2 Auto Scaling feature — Auto Scaling Groups, Launch Templates, scaling policies, lifecycle hooks, warm pools, predictive scaling, and quotas. Start here when a flag, metric, or limit in these notes needs verification against the current AWS behaviour.
+**HANDS-ON — Clean up (avoid charges!)**
+
+Always delete resources after a lab. Delete in this order — dependents first:
+
+**Step 1 — Delete the Auto Scaling Group** *(this terminates all instances inside it)*
+- EC2 → Auto Scaling Groups → `my-web-asg` → Actions → **Delete** → confirm
+
+**Step 2 — Delete the Load Balancer**
+- EC2 → Load Balancers → `my-web-alb` → Actions → **Delete** → confirm
+
+**Step 3 — Delete the Target Group**
+- EC2 → Target Groups → `my-web-tg` → Actions → **Delete** → confirm
+
+**Step 4 — Delete the Launch Template**
+- EC2 → Launch Templates → `my-web-server-lt` → Actions → **Delete template** → confirm
+
+**Step 5 — Delete the Security Group**
+- EC2 → Security Groups → `web-server-sg` → Actions → **Delete security groups** → confirm
+
+**Step 6 — Delete CloudWatch Alarms**
+- CloudWatch → Alarms → select the `TargetTracking-my-web-asg-...` alarms → **Delete**
+
+**Verify:** EC2 → Instances — all instances show as **Terminated** ✓
+
+---
+
+**Official documentation:**
 
 → [Amazon EC2 Auto Scaling — Official AWS Documentation](https://docs.aws.amazon.com/autoscaling/ec2/userguide/what-is-amazon-ec2-auto-scaling.html)
 
