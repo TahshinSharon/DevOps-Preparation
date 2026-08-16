@@ -6091,6 +6091,8 @@ aws autoscaling put-warm-pool \
 
 → [Amazon EC2 Auto Scaling — Official AWS Documentation](https://docs.aws.amazon.com/autoscaling/ec2/userguide/what-is-amazon-ec2-auto-scaling.html)
 
+→ [AWS Auto Scaling — Documentation Hub](https://docs.aws.amazon.com/autoscaling/)
+
 ---
 
 ## Useful Tips & Tricks
@@ -6126,6 +6128,7 @@ aws autoscaling put-warm-pool \
 - [Network Load Balancer — User Guide](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html)
 - [Gateway Load Balancer — User Guide](https://docs.aws.amazon.com/elasticloadbalancing/latest/gateway/introduction.html)
 - [ELB — Comparison of Load Balancer Types](https://aws.amazon.com/elasticloadbalancing/features/)
+- [AWS Auto Scaling — Documentation Hub](https://docs.aws.amazon.com/autoscaling/)
 - [Amazon EC2 Auto Scaling — User Guide](https://docs.aws.amazon.com/autoscaling/ec2/userguide/what-is-amazon-ec2-auto-scaling.html)
 - [EC2 Auto Scaling — Launch Templates](https://docs.aws.amazon.com/autoscaling/ec2/userguide/launch-templates.html)
 - [EC2 Auto Scaling — Scaling Policies](https://docs.aws.amazon.com/autoscaling/ec2/userguide/scaling-overview.html)
