@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-12-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-13-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -153,6 +153,19 @@
   - [Health Checks & Instance Replacement](#health-checks--instance-replacement)
   - [Auto Scaling Best Practices](#auto-scaling-best-practices)
   - [Reference](#reference-1)
+- [RDS Basics](#rds-basics)
+  - [One Shot Revision](#one-shot-revision-13)
+  - [RDS Overview](#rds-overview)
+  - [Database Engines](#database-engines)
+  - [Create an RDS Instance](#create-an-rds-instance)
+  - [RDS Storage & Backups](#rds-storage--backups)
+  - [Multi-AZ & High Availability](#multi-az--high-availability)
+  - [Read Replicas](#read-replicas)
+  - [RDS Security](#rds-security)
+  - [Parameter Groups](#parameter-groups)
+  - [RDS Monitoring & Performance Insights](#rds-monitoring--performance-insights)
+  - [RDS Best Practices](#rds-best-practices)
+  - [Reference](#reference-2)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -6647,6 +6660,688 @@ Always delete resources after a lab. Delete in this order — dependents first:
 
 ---
 
+## RDS Basics
+
+**What you will build in this section:**
+You will create a production-like relational database on AWS RDS entirely through the AWS Console. By the end you will have a real working system that:
+- Runs a MySQL database with automated backups and point-in-time recovery
+- Stays highly available with Multi-AZ automatic failover
+- Scales read traffic with a Read Replica in a different Availability Zone
+
+**Architecture of what we're building:**
+
+```
+            [EC2 Application]
+                   │
+          ┌────────┴─────────┐
+          ▼                  ▼
+   [Primary RDS]      [Read Replica]   ← offloads SELECT queries
+     MySQL 8.0          MySQL 8.0
+       AZ-a               AZ-b
+         │
+         │ automatic failover (~60s)
+         ▼
+   [Standby RDS]            ← takes over if primary fails (Multi-AZ)
+       AZ-b
+```
+
+**The four things we'll build — in order:**
+
+```
+1. RDS Instance  →  2. Multi-AZ Standby  →  3. Read Replica  →  4. Monitoring
+```
+
+**Prerequisites — check these before starting:**
+- [ ] An AWS account with RDS and VPC access
+- [ ] A VPC with at least 2 subnets in different AZs *(your default VPC already has this)*
+- [ ] An EC2 instance in the same VPC to test connectivity *(optional but recommended)*
+
+---
+
+### One Shot Revision
+
+| Step | Topic | What you do |
+| ---- | ----- | ----------- |
+| 1 | [RDS Overview](#rds-overview) | Understand what RDS is and when to use it over a self-managed database |
+| 2 | [Database Engines](#database-engines) | Choose the right engine for your workload — MySQL, PostgreSQL, Aurora |
+| 3 | [Create an RDS Instance](#create-an-rds-instance) | Spin up a MySQL database through the Console and connect to it from EC2 |
+| 4 | [RDS Storage & Backups](#rds-storage--backups) | Enable automated backups and take a manual snapshot, then restore it |
+| 5 | [Multi-AZ & High Availability](#multi-az--high-availability) | Enable Multi-AZ and trigger a failover to see automatic recovery |
+| 6 | [Read Replicas](#read-replicas) | Create a Read Replica and redirect read queries to a separate endpoint |
+| 7 | [RDS Security](#rds-security) | Lock down access with Security Groups, Subnet Groups, and encryption |
+| 8 | [Parameter Groups](#parameter-groups) | Tune database engine settings without SSHing into any server |
+| 9 | [RDS Monitoring & Performance Insights](#rds-monitoring--performance-insights) | Identify slow queries and resource bottlenecks using built-in tools |
+| 10 | [RDS Best Practices](#rds-best-practices) | Production rules that prevent the most common database mistakes |
+| 11 | [Reference](#reference-2) | Clean up all resources + official docs |
+
+---
+
+### RDS Overview
+
+**What it is:** Amazon RDS (Relational Database Service) is a managed service that runs relational databases — MySQL, PostgreSQL, MariaDB, Oracle, SQL Server, and Aurora — on AWS. AWS handles OS patching, backups, replication, and failover so you focus only on your schema and queries.
+
+Use RDS when your application needs a structured, SQL-queryable database with ACID guarantees and you do not want to manage the underlying server, storage, or replication yourself.
+
+---
+
+**HANDS-ON — Explore the RDS Console (3 min)**
+
+**Navigate:** AWS Console → search **RDS** → open **Amazon RDS**
+
+Click through each left-sidebar item:
+
+| Item | What you'll find |
+| ---- | ---------------- |
+| **Databases** | Lists all your RDS instances — empty for now |
+| **Snapshots** | Manual and automated daily backup copies |
+| **Parameter groups** | Database engine configuration files |
+| **Subnet groups** | Which VPC subnets your databases can live in |
+| **Events** | A log of everything RDS has done — failovers, restarts, backups |
+
+> **Key insight:** Every item you see here is something RDS manages for you. On a self-hosted MySQL server, you would do all of this manually — cron jobs for backups, custom replication scripts, manual failover procedures.
+
+---
+
+### Database Engines
+
+**What it is:** RDS supports six database engines. You choose the engine at creation time and cannot change it afterwards. Each engine has an Aurora variant that offers higher performance at a higher price.
+
+| Engine | Best for | Free tier eligible |
+| ------ | -------- | ------------------ |
+| **MySQL 8.0** | Most web apps, general purpose | ✅ db.t3.micro |
+| **PostgreSQL 16** | Complex queries, JSON, extensions | ✅ db.t3.micro |
+| **MariaDB 10.11** | MySQL-compatible, fully open source | ✅ db.t3.micro |
+| **Oracle** | Enterprise apps with Oracle licensing | ❌ |
+| **SQL Server** | .NET apps, Windows ecosystem | ❌ |
+| **Aurora MySQL / PostgreSQL** | High-throughput production workloads | ❌ |
+
+> **This lab uses MySQL 8.0** — it is free-tier eligible and everything you learn applies directly to Aurora MySQL in production.
+
+---
+
+**HANDS-ON — Compare engines without creating anything (2 min)**
+
+**Navigate:** RDS → **Create database** (do NOT click Create at the end — this is exploration only)
+
+1. Click each engine radio button and notice how the version options and "Templates" change
+2. Click **Aurora** — notice the "cluster" concept and that there is no Free tier template
+3. Click **MySQL** — notice the **Free tier** template appears at the top
+4. Click **Cancel** — no resources created
+
+---
+
+### Create an RDS Instance
+
+**What it is:** An RDS instance is a single managed database server. You define its engine, instance size, storage, network placement, and credentials. AWS provisions the VM, installs the engine, applies the parameter group, and gives you an endpoint (hostname) to connect to — no SSH or OS access required.
+
+---
+
+**HANDS-ON — Create a MySQL RDS instance (15 min)**
+
+**Navigate:** RDS → **Databases** → **Create database**
+
+---
+
+**Section 1 — Creation method & engine**
+
+| Field | Select |
+| ----- | ------ |
+| Creation method | **Standard create** |
+| Engine type | **MySQL** |
+| Engine version | **MySQL 8.0.x** (latest patch) |
+
+---
+
+**Section 2 — Templates**
+
+Select **Free tier** — this locks the instance class to `db.t3.micro` and disables Multi-AZ to keep cost at zero.
+
+> You can override any pre-filled value even after selecting a template.
+
+---
+
+**Section 3 — Settings (credentials)**
+
+| Field | Value | Why |
+| ----- | ----- | --- |
+| DB instance identifier | `my-rds-db` | The name shown in the console |
+| Master username | `admin` | Root database login |
+| Master password | `MyP@ssword123!` | Write this down — you need it to connect |
+| Confirm password | same as above | — |
+
+> **Production note:** Use AWS Secrets Manager to store credentials. Never hard-code passwords in application code or `.env` files.
+
+---
+
+**Section 4 — Instance configuration & storage**
+
+| Field | Value | Why |
+| ----- | ----- | --- |
+| DB instance class | `db.t3.micro` | 2 vCPU, 1 GB RAM — free tier |
+| Storage type | **General Purpose SSD (gp2)** | Balanced performance for most workloads |
+| Allocated storage | **20 GB** | Minimum for free tier |
+| Enable storage autoscaling | ✅ checked | Max threshold: **100 GB** |
+
+> **Storage autoscaling:** When the disk fills to 90%, RDS automatically adds capacity — your database never hits a "disk full" error in production.
+
+---
+
+**Section 5 — Connectivity (networking)**
+
+| Field | Value | Why |
+| ----- | ----- | --- |
+| VPC | **Default VPC** | Same VPC your EC2 instances live in |
+| DB subnet group | **Create new DB subnet group** | Spans all AZs automatically |
+| Public access | **No** | Database must NOT be directly on the internet |
+| VPC security group | **Create new** → name: `rds-sg` | Controls who can reach port 3306 |
+| Availability Zone | **No preference** | RDS picks the optimal AZ |
+| Database port | **3306** | MySQL default |
+
+> **Why no public access?** A database should only be reachable from inside your VPC — from EC2 instances or Lambda functions — never from the public internet.
+
+---
+
+**Section 6 — Additional configuration**
+
+| Field | Value | Why |
+| ----- | ----- | --- |
+| Initial database name | `myappdb` | Creates this schema on first boot |
+| Backup retention period | **7 days** | Automated daily backups kept for a week |
+| Enable encryption | ✅ checked | Encrypts data at rest using AWS KMS |
+| Enable Performance Insights | ✅ checked | Free for 7 days — shows slow queries visually |
+| Enable Enhanced Monitoring | ✅ checked → 60 seconds | OS-level metrics (CPU, memory, disk) |
+
+---
+
+Click **Create database**
+
+**Wait 5–10 minutes.** Status cycles: `creating` → `backing-up` → `available`
+
+**You should see:** Status = **Available** and an **Endpoint** like:
+`my-rds-db.abc123xyz.us-east-1.rds.amazonaws.com`
+
+> **The endpoint is your connection string.** Copy it now. Your application connects to this hostname — never to an IP address, which can change after a failover.
+
+---
+
+**Connect to your RDS instance from EC2**
+
+First, allow your EC2 to reach port 3306 on the RDS security group:
+
+1. EC2 → **Security Groups** → `rds-sg` → **Inbound rules** → **Edit inbound rules**
+2. **Add rule:** Type = `MySQL/Aurora`, Port = `3306`, Source = your EC2 security group ID
+3. Click **Save rules**
+
+Then SSH into your EC2 and run:
+
+```bash
+# Install MySQL client
+sudo yum install -y mysql
+
+# Connect to RDS (replace with your actual endpoint)
+mysql -h my-rds-db.abc123xyz.us-east-1.rds.amazonaws.com -u admin -p
+# Enter your password when prompted
+
+# Once inside MySQL — verify the database exists
+SHOW DATABASES;
+USE myappdb;
+
+# Create a test table and insert data
+CREATE TABLE users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100));
+INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+SELECT * FROM users;
+```
+
+**You should see:** The `users` table with two rows — your managed MySQL database is live.
+
+---
+
+### RDS Storage & Backups
+
+**What it is:** RDS automatically backs up your database every day during a configurable backup window, retaining those backups for 1–35 days. You can also take manual snapshots at any time that persist until you explicitly delete them.
+
+Point-in-time recovery lets you restore to any second within the retention window — not just the daily backup timestamps.
+
+---
+
+**HANDS-ON — Take a manual snapshot and restore it (10 min)**
+
+**Navigate:** RDS → **Databases** → `my-rds-db`
+
+---
+
+**Step 1 — Take a manual snapshot**
+
+1. **Actions** → **Take snapshot**
+2. Snapshot name: `my-rds-db-manual-snap-1`
+3. Click **Take snapshot**
+
+**Status:** `creating` → `available` *(2–5 minutes)*
+
+> **When to take manual snapshots:** Before any risky migration or schema change. Automated backups cover daily protection — manual snapshots cover "I'm about to do something dangerous" moments.
+
+---
+
+**Step 2 — View the backup window and restore point**
+
+1. RDS → `my-rds-db` → **Maintenance & backups** tab
+2. Note **Backup window** *(UTC time when daily backup runs)*
+3. Note **Latest restorable time** *(how recent a point-in-time restore can go — typically within 5 minutes of now)*
+
+---
+
+**Step 3 — Restore the snapshot to a new instance (optional)**
+
+1. RDS → **Snapshots** → select `my-rds-db-manual-snap-1`
+2. **Actions** → **Restore snapshot**
+3. DB instance identifier: `my-rds-db-restored`
+4. Instance class: `db.t3.micro`
+5. Click **Restore DB instance**
+
+> **Important:** Restoring always creates a **new** RDS instance — it never overwrites the original. Your application must update its connection string to point to the restored instance.
+
+**Clean up:** RDS → `my-rds-db-restored` → **Actions** → **Delete** → skip final snapshot → confirm
+
+---
+
+### Multi-AZ & High Availability
+
+**What it is:** Multi-AZ keeps a synchronous standby copy of your database in a second Availability Zone. If the primary instance fails — hardware fault, AZ outage, planned maintenance — RDS automatically promotes the standby to primary in approximately 60 seconds. Your app reconnects to the same endpoint with no configuration change.
+
+The standby is NOT readable — it exists only for failover. For read scaling, use Read Replicas.
+
+---
+
+**HANDS-ON — Enable Multi-AZ and trigger a failover (10 min)**
+
+**Navigate:** RDS → **Databases** → `my-rds-db` → **Modify**
+
+---
+
+**Step 1 — Enable Multi-AZ**
+
+1. Scroll to **Availability & durability**
+2. Select **Create a standby instance (recommended for production usage)**
+3. Scroll down → **Continue**
+4. Apply when: **Immediately**
+5. **Modify DB instance**
+
+**Status:** `modifying` → `available` *(5–10 minutes — the standby is being provisioned)*
+
+> **Cost note:** Multi-AZ doubles your RDS cost since you're running two instances. Enable it here briefly to test, then disable to save lab costs.
+
+---
+
+**Step 2 — Trigger a manual failover**
+
+1. RDS → `my-rds-db` → **Actions** → **Reboot**
+2. Check **Reboot With Failover?** ✅
+3. Click **Confirm**
+
+**Watch the Events log:** RDS → `my-rds-db` → **Logs & events** tab
+
+You will see:
+- `Multi-AZ instance failover started`
+- `DB instance restarted`
+- `Recovered from a Multi-AZ failover`
+
+> **The endpoint stays the same throughout.** Your application sees a ~60-second connection drop, then reconnects to the promoted standby — same hostname, no DNS change, no config update needed.
+
+---
+
+**Step 3 — Disable Multi-AZ (save costs)**
+
+`my-rds-db` → **Modify** → Availability & durability → **Do not create a standby instance** → Apply immediately → **Modify DB instance**
+
+---
+
+### Read Replicas
+
+**What it is:** A Read Replica is an asynchronous copy of your primary database that serves SELECT queries. Unlike a Multi-AZ standby, a replica IS readable — you point your app's read traffic at the replica's endpoint to reduce load on the primary. Replicas can also be in a different region for disaster recovery.
+
+---
+
+**HANDS-ON — Create and use a Read Replica (8 min)**
+
+**Navigate:** RDS → **Databases** → `my-rds-db`
+
+---
+
+**Step 1 — Create the replica**
+
+1. **Actions** → **Create read replica**
+2. DB instance identifier: `my-rds-db-replica`
+3. Destination region: same region as primary
+4. DB instance class: `db.t3.micro`
+5. Public access: **No**
+6. Click **Create read replica**
+
+**Wait 5–10 minutes.** Status: `creating` → `available`
+
+---
+
+**Step 2 — Note the separate endpoint**
+
+1. Click `my-rds-db-replica` → **Connectivity & security**
+2. Copy the replica endpoint — e.g. `my-rds-db-replica.abc123.us-east-1.rds.amazonaws.com`
+
+> **Read/write splitting pattern:** Your app sends `INSERT`, `UPDATE`, `DELETE` to the primary endpoint and `SELECT` queries to the replica endpoint — this is the standard way to scale a MySQL workload.
+
+---
+
+**Step 3 — Verify replication is working**
+
+From your EC2, write to the primary and read from the replica:
+
+```bash
+# Write to primary
+mysql -h my-rds-db.abc123.us-east-1.rds.amazonaws.com -u admin -p myappdb \
+  -e "INSERT INTO users (name) VALUES ('Charlie');"
+
+# Read from replica (may take 1-2 seconds due to async replication lag)
+mysql -h my-rds-db-replica.abc123.us-east-1.rds.amazonaws.com -u admin -p myappdb \
+  -e "SELECT * FROM users;"
+# Charlie should appear after a short replication delay
+```
+
+---
+
+**Step 4 — Clean up the replica**
+
+RDS → `my-rds-db-replica` → **Actions** → **Delete** → skip final snapshot → confirm
+
+---
+
+### RDS Security
+
+**What it is:** RDS security has three layers: network isolation (the VPC and subnets the database lives in), access control (which security groups can reach port 3306), and encryption (data at rest and in transit). Properly configured, your database is unreachable from the internet and encrypted even if someone physically removed the storage media.
+
+---
+
+**HANDS-ON — Audit and harden your RDS security (8 min)**
+
+**Navigate:** RDS → **Databases** → `my-rds-db` → **Connectivity & security** tab
+
+---
+
+**Step 1 — Confirm public access is OFF**
+
+- Verify **Publicly accessible = No**
+- If it says Yes: **Modify** → Connectivity → Public access = **No** → Apply immediately
+
+---
+
+**Step 2 — Inspect the DB Subnet Group**
+
+1. Click the subnet group link (e.g. `default-vpc-xxx`)
+2. Confirm it spans **at least 2 Availability Zones**
+
+> DB Subnet Groups tell RDS which subnets it can place your database in. Always use private subnets — subnets with no route to an Internet Gateway.
+
+---
+
+**Step 3 — Tighten the security group inbound rules**
+
+1. Click the `rds-sg` security group link
+2. **Inbound rules** — confirm port 3306 is open **only** to your EC2 security group ID, not to `0.0.0.0/0`
+3. If it says `0.0.0.0/0`: **Edit inbound rules** → change Source to your EC2 security group → **Save rules**
+
+| Source type | Verdict | Risk |
+| ----------- | ------- | ---- |
+| EC2 security group ID | ✅ Safe | Only your app servers can connect |
+| 0.0.0.0/0 | ❌ Dangerous | Anyone on the internet can attempt a connection |
+| Your office IP range | ⚠️ Acceptable for dev only | Breaks when IP changes; don't use in prod |
+
+---
+
+**Step 4 — Verify encryption at rest**
+
+- RDS → `my-rds-db` → **Configuration** tab
+- Find **Storage encrypted = Yes** and note the **AWS KMS key ARN**
+
+> Encryption at rest is configured at creation time and **cannot be enabled on an existing instance**. The only way to encrypt an unencrypted instance is to take a snapshot, copy it with encryption enabled, then restore from the encrypted snapshot.
+
+---
+
+**Step 5 — Connect with SSL/TLS (enforce encrypted transit)**
+
+```bash
+# Download the AWS RDS CA certificate bundle
+wget https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+
+# Connect with SSL verification enabled
+mysql -h my-rds-db.abc123.us-east-1.rds.amazonaws.com \
+      -u admin -p \
+      --ssl-ca=global-bundle.pem \
+      --ssl-mode=VERIFY_IDENTITY
+
+# Inside MySQL — confirm SSL is active
+SHOW STATUS LIKE 'Ssl_cipher';
+# Output should show something like: AES256-SHA
+```
+
+---
+
+### Parameter Groups
+
+**What it is:** A Parameter Group is a named collection of database engine settings — things like `max_connections`, `slow_query_log`, and `innodb_buffer_pool_size`. Instead of SSHing into a server and editing config files, you change values in the Parameter Group and attach it to your RDS instance — no OS access needed.
+
+---
+
+**HANDS-ON — Create a custom Parameter Group and tune engine settings (8 min)**
+
+**Navigate:** RDS → **Parameter groups** → **Create parameter group**
+
+---
+
+**Step 1 — Create a new parameter group**
+
+| Field | Value |
+| ----- | ----- |
+| Parameter group family | `mysql8.0` |
+| Type | **DB Parameter Group** |
+| Group name | `my-mysql-params` |
+| Description | `Custom MySQL 8.0 parameters for learning` |
+
+Click **Create**
+
+---
+
+**Step 2 — Edit key parameters**
+
+Click `my-mysql-params` → **Edit parameters**. Search for and update:
+
+| Parameter | Set to | Why |
+| --------- | ------ | --- |
+| `slow_query_log` | `1` | Enable logging of slow queries |
+| `long_query_time` | `1` | Log any query taking longer than 1 second |
+| `max_connections` | `100` | Cap concurrent connections (default is too high for db.t3.micro) |
+
+Click **Save changes**
+
+> Parameters marked **dynamic** apply immediately. Parameters marked **static** require a database reboot — they show a `pending-reboot` indicator next to the instance after you apply them.
+
+---
+
+**Step 3 — Attach the parameter group to your instance**
+
+1. RDS → `my-rds-db` → **Modify**
+2. **Database options** → DB parameter group → select `my-mysql-params`
+3. **Continue** → Apply: **Immediately** → **Modify DB instance**
+
+---
+
+**Step 4 — Verify the settings took effect**
+
+```bash
+# Connect to MySQL and check
+mysql -h <your-endpoint> -u admin -p myappdb
+
+SHOW VARIABLES LIKE 'slow_query_log';
+-- Expected: slow_query_log = ON
+
+SHOW VARIABLES LIKE 'long_query_time';
+-- Expected: long_query_time = 1.000000
+
+SHOW VARIABLES LIKE 'max_connections';
+-- Expected: max_connections = 100
+```
+
+---
+
+### RDS Monitoring & Performance Insights
+
+**What it is:** RDS automatically pushes dozens of metrics to CloudWatch — CPU, active connections, read/write IOPS, disk latency. Performance Insights adds a query-level view on top: you see which SQL statements are consuming the most database time, making it fast to identify the slow query behind a CPU spike.
+
+---
+
+**HANDS-ON — Read metrics and identify slow queries (8 min)**
+
+**Navigate:** RDS → **Databases** → `my-rds-db` → **Monitoring** tab
+
+---
+
+**Step 1 — Read the CloudWatch metric graphs**
+
+| Metric | What it tells you | Warning sign |
+| ------ | ----------------- | ------------ |
+| **CPUUtilization** | Is the DB compute-bound? | Sustained > 80% |
+| **DatabaseConnections** | How many apps are connected | Approaching `max_connections` |
+| **FreeStorageSpace** | Disk remaining | Below 10% of allocated |
+| **ReadIOPS / WriteIOPS** | Disk operations per second | Unexpected spikes |
+| **ReadLatency / WriteLatency** | Time per disk operation | Above 20ms |
+
+> **Diagnose bottlenecks:** High CPU + low IOPS = query logic problem (missing index). High IOPS + high latency = disk throughput problem (wrong storage type or size).
+
+---
+
+**Step 2 — Open Performance Insights**
+
+1. Click the **Performance Insights** tab
+2. The **DB load** chart shows database activity colored by wait type
+3. Below it: **Top SQL** — statements ranked by total database time consumed
+
+| Color in DB load chart | Bottleneck |
+| ---------------------- | ---------- |
+| `CPU` | Query computation is the problem — check for missing indexes |
+| `IO:DataFileRead` | Too much data being read — full table scans |
+| `Lock:row lock waits` | Concurrent transactions blocking each other |
+
+Click any SQL statement in **Top SQL** to see its full text and average latency.
+
+---
+
+**Step 3 — Generate test load and watch the metrics**
+
+From your EC2:
+
+```bash
+mysql -h <your-rds-endpoint> -u admin -p myappdb <<'EOF'
+CREATE TABLE IF NOT EXISTS load_test (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  data VARCHAR(255)
+);
+INSERT INTO load_test (data) SELECT REPEAT('x', 255) FROM information_schema.columns LIMIT 100;
+INSERT INTO load_test (data) SELECT data FROM load_test;
+INSERT INTO load_test (data) SELECT data FROM load_test;
+SELECT COUNT(*) FROM load_test;
+SELECT * FROM load_test WHERE data LIKE '%x%';
+EOF
+```
+
+Switch to the **Monitoring** tab and watch **CPUUtilization** and **WriteIOPS** spike, then return to baseline.
+
+---
+
+**Step 4 — Check Enhanced Monitoring (OS-level metrics)**
+
+1. **Monitoring** tab → scroll down to **OS metrics** section
+2. You will see CPU steal, memory used, filesystem usage, and disk I/O at 60-second granularity
+
+> Enhanced Monitoring runs an agent inside the RDS instance that reports OS metrics to CloudWatch Logs — these are more detailed than standard CloudWatch metrics, which only show hypervisor-level data.
+
+---
+
+### RDS Best Practices
+
+**What it is:** A production-grade checklist covering the most common RDS configuration mistakes — missing backups, open security groups, credential exposure, and connection pool mismanagement. Going through this checklist before you deploy prevents 80% of real-world database incidents.
+
+---
+
+**HANDS-ON — Audit your instance against the production checklist (5 min)**
+
+Check each item against `my-rds-db`:
+
+| # | Practice | Where to verify | Why it matters |
+| - | -------- | --------------- | -------------- |
+| 1 | **Multi-AZ enabled** | Configuration tab → Multi-AZ = Yes | Automatic failover in under 60 seconds |
+| 2 | **Automated backups ON** | Maintenance & backups → Retention > 0 days | Recover from accidental DELETE without prod restore |
+| 3 | **No public access** | Connectivity → Publicly accessible = No | Database should never be internet-facing |
+| 4 | **Encryption at rest ON** | Configuration → Storage encrypted = Yes | Required for SOC 2, PCI-DSS, HIPAA |
+| 5 | **Storage autoscaling ON** | Configuration → Max allocated storage > 20 GB | Prevents disk-full outages at 3am |
+| 6 | **Security group uses SG source** | Inbound rules reference SG IDs, not `0.0.0.0/0` | SG IDs auto-update; IP ranges go stale |
+| 7 | **Performance Insights enabled** | Monitoring → Performance Insights tab is active | Find slow queries before users complain |
+| 8 | **Backup window set off-peak** | Maintenance & backups → Backup window | Avoid backup I/O during peak traffic hours |
+| 9 | **Parameter group customized** | Configuration → not using `default.mysql8.0` | Default params are too permissive for production |
+| 10 | **Failover tested** | Events log shows past failover test | Proves your app handles reconnects gracefully |
+
+---
+
+**Common mistakes and how to fix them:**
+
+| Mistake | What happens | Fix |
+| ------- | ------------ | --- |
+| Security group allows `0.0.0.0/0` on port 3306 | Database reachable from the entire internet | Restrict source to your app's security group ID |
+| No connection pool / too many direct connections | Connection count hits `max_connections`, new connections fail | Use RDS Proxy or a connection pooler (PgBouncer) |
+| Never tested a restore | Backup exists but cannot be restored in time during incident | Run a monthly restore drill in staging |
+| Using `db.t3.micro` under sustained load | CPU credits deplete, latency spikes 3–5× | Monitor `CPUCreditBalance` — upgrade before credits hit zero |
+| Credentials stored in `.env` committed to git | Leaked repo = database breach | Use AWS Secrets Manager + automatic rotation |
+
+---
+
+### Reference
+
+**Clean up resources (to avoid charges)**
+
+**Step 1 — Delete the Read Replica (if still running)**
+- RDS → `my-rds-db-replica` → **Actions** → **Delete** → skip final snapshot → confirm
+
+**Step 2 — Delete the main RDS instance**
+- RDS → `my-rds-db` → **Actions** → **Delete**
+- Create final snapshot: **No** *(this is a lab)*
+- Type `delete me` to confirm → click **Delete**
+
+**Step 3 — Delete manual snapshots**
+- RDS → **Snapshots** → select `my-rds-db-manual-snap-1` → **Actions** → **Delete snapshot**
+
+**Step 4 — Delete the custom parameter group**
+- RDS → **Parameter groups** → `my-mysql-params` → **Actions** → **Delete**
+
+**Step 5 — Delete the security group**
+- EC2 → **Security Groups** → `rds-sg` → **Actions** → **Delete security groups** → confirm
+
+**Verify:** RDS → **Databases** — no instances listed ✓
+
+---
+
+**Official documentation:**
+
+→ [Amazon RDS — Official AWS Documentation](https://docs.aws.amazon.com/rds/)
+
+→ [RDS User Guide — Getting Started](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_GettingStarted.html)
+
+→ [RDS MySQL — Engine Documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_MySQL.html)
+
+→ [RDS — Multi-AZ Deployments](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZ.html)
+
+→ [RDS — Working with Read Replicas](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html)
+
+→ [RDS Performance Insights](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PerfInsights.html)
+
+→ [RDS Best Practices](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_BestPractices.html)
+
+---
+
 ## Useful Tips & Tricks
 
 - _To be filled in._
@@ -6687,6 +7382,13 @@ Always delete resources after a lab. Delete in this order — dependents first:
 - [EC2 Auto Scaling — Lifecycle Hooks](https://docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html)
 - [EC2 Auto Scaling — Warm Pools](https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-warm-pools.html)
 - [EC2 Auto Scaling — Predictive Scaling](https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-predictive-scaling.html)
+- [Amazon RDS — Official AWS Documentation](https://docs.aws.amazon.com/rds/)
+- [RDS User Guide — Getting Started](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_GettingStarted.html)
+- [RDS MySQL — Engine Documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_MySQL.html)
+- [RDS — Multi-AZ Deployments](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZ.html)
+- [RDS — Working with Read Replicas](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html)
+- [RDS Performance Insights](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PerfInsights.html)
+- [RDS Best Practices](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_BestPractices.html)
 - [AWS Documentation Home](https://docs.aws.amazon.com/)
 - [BongoDev](https://www.bongodev.com/)
 - [BongoDev on GitHub](https://github.com/bongodev)

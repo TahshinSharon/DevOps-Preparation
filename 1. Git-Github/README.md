@@ -2165,22 +2165,38 @@ git checkout -b rescue HEAD@{1}       # rescue a "lost" branch
 
 Entries live ~90 days by default (configurable via `gc.reflogExpire`). Reflog is **per-clone** and **never pushed** — it can't save you if you lose the whole repo.
 
-**27. How do you rename a branch (local and remote)?**
+**27. What is Conventional Commits, and how does it integrate with CI/CD pipelines?**
 
-```bash
-# Local — rename the current branch
-git branch -m new-name
-# Or rename a non-checked-out branch
-git branch -m old-name new-name
+**Conventional Commits** is a lightweight commit-message specification that makes messages machine-readable. Format:
 
-# Push the new name and set upstream
-git push -u origin new-name
+```
+<type>[optional scope]: <description>
 
-# Delete the old remote name
-git push origin --delete old-name
+[optional body]
+
+[optional footer(s)]
 ```
 
-If you renamed `master` → `main`, also update the default branch in GitHub's repo settings.
+Common types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`, `perf`. Breaking changes: add `!` after the type or a `BREAKING CHANGE:` footer.
+
+**Why DevOps cares:**
+- **Automated versioning** — tools like `semantic-release` or `release-please` parse commit types to bump semver: `feat` → minor, `fix` → patch, `BREAKING CHANGE` → major.
+- **Auto-generated CHANGELOG** — CI generates release notes directly from commit history.
+- **Commit linting in CI** — `commitlint` enforces the format in pull requests.
+
+```yaml
+# .github/workflows/ci.yml — enforce Conventional Commits on every PR
+- uses: wagoid/commitlint-github-action@v5
+```
+
+```bash
+# Example well-formed commits
+git commit -m "feat(auth): add OAuth2 login support"
+git commit -m "fix(api): handle 429 rate-limit response"
+git commit -m "chore!: drop support for Node 14"  # BREAKING CHANGE
+```
+
+Paired with `semantic-release`, every merge to `main` automatically tags a release, builds a CHANGELOG, and publishes artifacts — zero manual versioning.
 
 **28. What's the difference between `origin` and `upstream`?**
 
@@ -2260,17 +2276,28 @@ commit
 
 **Refs** (`.git/refs/heads/main`, `refs/tags/v1.0`, `HEAD`) are just text files containing a SHA — they're the mutable names that point into the immutable object graph.
 
-**32. What's the difference between `git pull` and `git pull --rebase`?**
+**32. What is GitOps, and how do tools like ArgoCD or Flux use Git as the source of truth?**
 
-- **`git pull`** (default) = `git fetch` + **`git merge`** → creates a merge commit if histories diverged.
-- **`git pull --rebase`** = `git fetch` + **`git rebase`** → replays your local commits **on top of** the remote tip → linear history, no merge commits.
+**GitOps** is an operational model where:
+- The **desired state** of infrastructure and applications is declared **in Git** (YAML manifests, Helm charts, Terraform).
+- A **reconciliation agent** continuously compares actual state to desired state and applies any drift.
+- All changes go through **PRs** — full audit trail, and rollback = `git revert`.
 
-```bash
-git config --global pull.rebase true       # make rebase the default
-git config --global rebase.autoStash true  # auto-stash dirty files during rebase
+| Tool | Model | Primary Use |
+| ---- | ----- | ----------- |
+| **ArgoCD** | Pull (cluster → Git) | Kubernetes app delivery |
+| **Flux** | Pull (cluster → Git) | Kubernetes, multi-tenancy |
+| **Atlantis** | Push-triggered | Terraform PR automation |
+
+**Typical ArgoCD flow:**
+
+```
+Developer → PR → Code review → merge to main
+         → CI builds image, updates image tag in infra repo
+         → ArgoCD detects drift → syncs cluster to Git state
 ```
 
-Rebase keeps history clean but rewrites SHAs of your unpushed commits. For feature branches that are still local, rebase is usually preferable.
+vs. traditional CI/CD which **pushes** to the cluster (more coupling, no self-healing). GitOps gives you **drift detection**, **self-healing**, and a **free audit trail** — the cluster state is always explainable by a Git commit.
 
 **33. How does Git store data — what makes it "content-addressable"?**
 
@@ -2508,19 +2535,41 @@ The repo only stores small **pointer files**; the actual binaries live on the LF
 - **External storage** — keep binaries in S3/artifact registry, version their URLs.
 - **If they're already in history**: rewrite with **`git filter-repo`** or **BFG Repo-Cleaner** to remove them (forces a re-clone for everyone).
 
-**46. What's the difference between a Personal Access Token and an SSH key?**
+**46. How do you prevent secrets from leaking into Git history, and how do you respond when a secret is committed?**
 
-| Aspect             | Personal Access Token (PAT)        | SSH Key                                |
-| ------------------ | ---------------------------------- | -------------------------------------- |
-| Used over          | HTTPS                              | SSH                                    |
-| Auth model         | Bearer token (acts like a password) | Public-key cryptography (challenge-response) |
-| Scopes             | Fine-grained — repo, workflow, packages, etc. | All-or-nothing per user (broader) |
-| Expiry             | Configurable (recommended: 90 days) | None unless you rotate                 |
-| Where used         | CLI, CI, API calls, Git over HTTPS  | Git over SSH, server access            |
-| Stored             | Credential helper / OS keychain    | `~/.ssh/`, optional passphrase + agent |
-| Revoke             | One click on GitHub                | Remove the public key                  |
+**Prevention — defense in depth:**
 
-For CI, prefer **fine-grained PATs** or, better, **GitHub Apps** / `GITHUB_TOKEN` (auto-issued, scoped to the workflow run).
+- **`.gitignore`** — exclude `.env`, `*.pem`, `credentials.json` before they're ever staged.
+- **Pre-commit hooks** — tools like `detect-secrets`, `gitleaks`, or `truffleHog` scan staged content for high-entropy strings and known token patterns before the commit lands.
+- **GitHub Secret Scanning + Push Protection** — GitHub automatically blocks pushes that contain known secret patterns (AWS keys, GitHub tokens, etc.) and alerts on historical ones.
+- **SOPS / git-crypt** — encrypt secrets at rest in the repo so even if pushed, the plaintext never leaves the developer's machine.
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+```
+
+**If a secret is already committed — incident response order matters:**
+
+```bash
+# 1. ROTATE THE SECRET IMMEDIATELY — assume it's compromised.
+#    Rewriting history helps nothing if anyone cloned the repo.
+
+# 2. Remove from history with git filter-repo (modern) or BFG
+git filter-repo --path .env --invert-paths
+# or:  bfg --delete-files .env repo.git
+
+# 3. Force-push all branches, ask all contributors to re-clone.
+git push --force-with-lease --all
+
+# 4. Enable push protection to prevent recurrence.
+```
+
+**Golden rule: rotate first, remove second.** History rewriting is cleanup — not a security fix.
 
 **47. How do CODEOWNERS files and branch protection rules work?**
 
