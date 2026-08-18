@@ -165,6 +165,7 @@
   - [Parameter Groups](#parameter-groups)
   - [RDS Monitoring & Performance Insights](#rds-monitoring--performance-insights)
   - [RDS Best Practices](#rds-best-practices)
+  - [Aurora RDS](#aurora-rds)
   - [Reference](#reference-2)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
@@ -6984,7 +6985,8 @@ You will create a production-like relational database on AWS RDS entirely throug
 | 8 | [Parameter Groups](#parameter-groups) | Tune database engine settings without SSHing into any server |
 | 9 | [RDS Monitoring & Performance Insights](#rds-monitoring--performance-insights) | Identify slow queries and resource bottlenecks using built-in tools |
 | 10 | [RDS Best Practices](#rds-best-practices) | Production rules that prevent the most common database mistakes |
-| 11 | [Reference](#reference-2) | Clean up all resources + official docs |
+| 11 | [Aurora RDS](#aurora-rds) | Understand Aurora's architecture and when to choose it over standard RDS |
+| 12 | [Reference](#reference-2) | Clean up all resources + official docs |
 
 ---
 
@@ -7571,6 +7573,131 @@ Check each item against `my-rds-db`:
 
 ---
 
+### Aurora RDS
+
+**What it is:** Amazon Aurora is an AWS-designed relational database engine that is fully compatible with MySQL and PostgreSQL but built on a custom distributed storage layer. It delivers up to 5× the throughput of standard MySQL on RDS and up to 3× that of standard PostgreSQL — at one-tenth the cost of commercial databases — by separating compute from storage and replicating data 6 ways across 3 Availability Zones automatically.
+
+Use Aurora when you need high throughput, sub-30s failover, or global multi-region active-active reads, and you still want a familiar SQL interface.
+
+---
+
+**How Aurora differs from standard RDS:**
+
+| Feature | Standard RDS (MySQL/PostgreSQL) | Amazon Aurora |
+| ------- | ------------------------------- | ------------- |
+| **Storage** | EBS volume attached to one instance | Distributed, shared cluster volume — all nodes read the same data |
+| **Replication** | 1 synchronous standby (Multi-AZ) | 6 copies across 3 AZs, always on |
+| **Failover time** | ~60 seconds | < 30 seconds (typically < 10 s) |
+| **Read scaling** | Up to 5 Read Replicas | Up to 15 Aurora Replicas, all sharing the same storage |
+| **Storage growth** | You provision a fixed size | Automatically grows in 10 GB increments up to 128 TiB |
+| **Backtrack** | Not available | Roll back a cluster to any point in the last 72 hours without a restore |
+| **Global Database** | Not available | Replicate to up to 5 secondary Regions with < 1 s lag |
+| **Serverless v2** | Not available | Instantly scale compute up/down per ACU — pay only for what you use |
+
+---
+
+**Aurora Architecture:**
+
+```
+            [Writer Instance]          ← one primary, handles all writes
+             /     |      \
+      [Reader]  [Reader]  [Reader]     ← up to 15 read replicas, share same storage
+             \     |      /
+         ┌───────────────────────┐
+         │   Aurora Cluster Vol  │     ← 6 copies across 3 AZs, auto-healing
+         │  AZ-a  │  AZ-b  │ AZ-c│
+         └───────────────────────┘
+```
+
+All replicas read from the same shared storage volume — there is no replication lag for reads.
+
+---
+
+**HANDS-ON — Create an Aurora MySQL cluster (10 min)**
+
+**Navigate:** AWS Console → **RDS** → **Create database**
+
+**Step 1 — Choose engine**
+- Creation method: **Standard create**
+- Engine type: **Amazon Aurora**
+- Edition: **Amazon Aurora MySQL-Compatible Edition**
+- Version: select the latest **MySQL 8.0-compatible** engine
+
+**Step 2 — Template & cluster settings**
+- Template: **Dev/Test** *(to stay in Free Tier range)*
+- DB cluster identifier: `my-aurora-cluster`
+- Master username: `admin`
+- Credentials: **Self managed** → set a strong password
+
+**Step 3 — Instance configuration**
+- DB instance class: **db.t3.medium** *(minimum for Aurora)*
+- Multi-AZ deployment: **Don't create an Aurora Replica** *(for this lab)*
+
+**Step 4 — Connectivity**
+- VPC: your default VPC
+- Public access: **No**
+- VPC security group: create new → `aurora-sg`
+  - Add inbound rule: MySQL/Aurora (3306) from your EC2 security group ID
+
+**Step 5 — Additional configuration**
+- Initial database name: `auroradb`
+- Backup retention: **7 days**
+- Encryption: **Enabled** *(default)*
+- Click **Create database**
+
+**Wait ~5 min** for the cluster to become **Available**.
+
+---
+
+**Step 6 — Identify your endpoints**
+
+In the cluster view you will see two endpoints:
+
+| Endpoint | Purpose |
+| -------- | ------- |
+| **Writer endpoint** | Sends writes to the current primary; auto-updated on failover |
+| **Reader endpoint** | Load-balances reads across all Aurora Replicas |
+
+Always connect your application to these cluster endpoints — never to an individual instance endpoint.
+
+**Step 7 — Connect from EC2**
+```bash
+# SSH into your EC2 instance, then:
+mysql -h <writer-endpoint> -u admin -p auroradb
+```
+
+Run a quick test:
+```sql
+CREATE TABLE test (id INT AUTO_INCREMENT PRIMARY KEY, val VARCHAR(50));
+INSERT INTO test (val) VALUES ('aurora works');
+SELECT * FROM test;
+```
+
+---
+
+**Key Aurora-only features to know:**
+
+| Feature | How to enable | When to use |
+| ------- | ------------- | ----------- |
+| **Aurora Serverless v2** | Instance class → **Serverless** → set min/max ACUs | Dev/test, unpredictable traffic — pay per second |
+| **Global Database** | Cluster → **Actions** → **Add Region** | Disaster recovery with < 1 s cross-region replication |
+| **Backtrack** | Enable during creation → set window (up to 72 h) | Undo accidental `DROP TABLE` without a full restore |
+| **Aurora Replicas** | Cluster → **Add reader** | Scale read traffic; secondary readers auto-promote on failover |
+| **Performance Insights** | Monitoring tab | Same as standard RDS — built in at no extra charge for Aurora |
+
+---
+
+**Common mistakes:**
+
+| Mistake | What happens | Fix |
+| ------- | ------------ | --- |
+| Connecting to instance endpoint instead of cluster endpoint | App connects to old primary after failover | Always use the writer or reader cluster endpoint |
+| Choosing `db.t3.micro` for Aurora | Aurora requires at least `db.t3.medium` — creation fails | Use `db.t3.medium` or larger for Aurora clusters |
+| Treating Aurora Multi-AZ the same as RDS Multi-AZ | Aurora replication works differently — add Aurora Replicas, not a standby | Add a reader instance; Aurora handles AZ placement automatically |
+| Not using the reader endpoint for reads | All traffic hits the writer; reader replicas sit idle | Route `SELECT` queries to the reader endpoint in your connection string |
+
+---
+
 ### Reference
 
 **Clean up resources (to avoid charges)**
@@ -7611,6 +7738,10 @@ Check each item against `my-rds-db`:
 → [RDS Performance Insights](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PerfInsights.html)
 
 → [RDS Best Practices](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_BestPractices.html)
+
+→ [Amazon Aurora — User Guide](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/CHAP_AuroraOverview.html)
+
+→ [Aurora — Comparing Aurora and RDS](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.AuroraMySQL.Overview.html)
 
 ---
 
@@ -7661,6 +7792,8 @@ Check each item against `my-rds-db`:
 - [RDS — Working with Read Replicas](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html)
 - [RDS Performance Insights](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PerfInsights.html)
 - [RDS Best Practices](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_BestPractices.html)
+- [Amazon Aurora — User Guide](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/CHAP_AuroraOverview.html)
+- [Aurora — Comparing Aurora and RDS](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.AuroraMySQL.Overview.html)
 - [AWS Documentation Home](https://docs.aws.amazon.com/)
 - [BongoDev](https://www.bongodev.com/)
 - [BongoDev on GitHub](https://github.com/bongodev)
