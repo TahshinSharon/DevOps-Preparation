@@ -7050,7 +7050,7 @@ Click through each left-sidebar item:
 
 ---
 
-**HANDS-ON — Create a MySQL RDS instance (15 min)**
+**HANDS-ON — Create an Aurora RDS cluster (15 min)**
 
 **Navigate:** RDS → **Databases** → **Create database**
 
@@ -7061,16 +7061,17 @@ Click through each left-sidebar item:
 | Field | Select |
 | ----- | ------ |
 | Creation method | **Standard create** |
-| Engine type | **MySQL** |
-| Engine version | **MySQL 8.0.x** (latest patch) |
+| Engine type | **Amazon Aurora** |
+| Edition | **Amazon Aurora MySQL-Compatible Edition** |
+| Engine version | **Aurora MySQL 3.x (MySQL 8.0 compatible)** — select latest |
 
 ---
 
 **Section 2 — Templates**
 
-Select **Free tier** — this locks the instance class to `db.t3.micro` and disables Multi-AZ to keep cost at zero.
+Select **Dev/Test** — Aurora has no Free Tier template. Dev/Test avoids Multi-AZ and keeps cost low for learning.
 
-> You can override any pre-filled value even after selecting a template.
+> **Note:** Aurora is not free-tier eligible. A `db.t3.medium` instance running for a full month costs roughly $50–$60. Stop or delete the cluster after the lab to avoid charges.
 
 ---
 
@@ -7078,8 +7079,9 @@ Select **Free tier** — this locks the instance class to `db.t3.micro` and disa
 
 | Field | Value | Why |
 | ----- | ----- | --- |
-| DB instance identifier | `my-rds-db` | The name shown in the console |
+| DB cluster identifier | `my-aurora-cluster` | Aurora creates a **cluster** (not a single instance) — this names the cluster |
 | Master username | `admin` | Root database login |
+| Credentials management | **Self managed** | You set and manage the password directly |
 | Master password | `MyP@ssword123!` | Write this down — you need it to connect |
 | Confirm password | same as above | — |
 
@@ -7087,16 +7089,14 @@ Select **Free tier** — this locks the instance class to `db.t3.micro` and disa
 
 ---
 
-**Section 4 — Instance configuration & storage**
+**Section 4 — Instance configuration**
 
 | Field | Value | Why |
 | ----- | ----- | --- |
-| DB instance class | `db.t3.micro` | 2 vCPU, 1 GB RAM — free tier |
-| Storage type | **General Purpose SSD (gp2)** | Balanced performance for most workloads |
-| Allocated storage | **20 GB** | Minimum for free tier |
-| Enable storage autoscaling | ✅ checked | Max threshold: **100 GB** |
+| DB instance class | `db.t3.medium` | Minimum class supported by Aurora — 2 vCPU, 4 GB RAM |
+| Multi-AZ deployment | **Don't create an Aurora Replica** | Single writer for this lab; add a reader later for HA |
 
-> **Storage autoscaling:** When the disk fills to 90%, RDS automatically adds capacity — your database never hits a "disk full" error in production.
+> **Aurora storage is fully managed:** Unlike standard RDS, you do not set a storage size or type. Aurora's distributed storage layer grows automatically in 10 GB increments up to 128 TiB — no disk-full errors, no pre-provisioning required.
 
 ---
 
@@ -7107,9 +7107,9 @@ Select **Free tier** — this locks the instance class to `db.t3.micro` and disa
 | VPC | **Default VPC** | Same VPC your EC2 instances live in |
 | DB subnet group | **Create new DB subnet group** | Spans all AZs automatically |
 | Public access | **No** | Database must NOT be directly on the internet |
-| VPC security group | **Create new** → name: `rds-sg` | Controls who can reach port 3306 |
-| Availability Zone | **No preference** | RDS picks the optimal AZ |
-| Database port | **3306** | MySQL default |
+| VPC security group | **Create new** → name: `aurora-sg` | Controls who can reach port 3306 |
+| Availability Zone | **No preference** | Aurora picks the optimal AZ |
+| Database port | **3306** | MySQL-compatible default |
 
 > **Why no public access?** A database should only be reachable from inside your VPC — from EC2 instances or Lambda functions — never from the public internet.
 
@@ -7121,7 +7121,7 @@ Select **Free tier** — this locks the instance class to `db.t3.micro` and disa
 | ----- | ----- | --- |
 | Initial database name | `myappdb` | Creates this schema on first boot |
 | Backup retention period | **7 days** | Automated daily backups kept for a week |
-| Enable encryption | ✅ checked | Encrypts data at rest using AWS KMS |
+| Enable encryption | ✅ checked (default) | Encrypts data at rest using AWS KMS — cannot be disabled after creation |
 | Enable Performance Insights | ✅ checked | Free for 7 days — shows slow queries visually |
 | Enable Enhanced Monitoring | ✅ checked → 60 seconds | OS-level metrics (CPU, memory, disk) |
 
@@ -7129,20 +7129,26 @@ Select **Free tier** — this locks the instance class to `db.t3.micro` and disa
 
 Click **Create database**
 
-**Wait 5–10 minutes.** Status cycles: `creating` → `backing-up` → `available`
+**Wait 5–10 minutes.** Cluster status cycles: `creating` → `backing-up` → `available`
 
-**You should see:** Status = **Available** and an **Endpoint** like:
-`my-rds-db.abc123xyz.us-east-1.rds.amazonaws.com`
+**You should see:** Two entries under Databases — the **cluster** and one **writer instance** inside it, both showing **Available**.
 
-> **The endpoint is your connection string.** Copy it now. Your application connects to this hostname — never to an IP address, which can change after a failover.
+Aurora gives you **two cluster endpoints** — use these, never the instance endpoint directly:
+
+| Endpoint | Purpose |
+| -------- | ------- |
+| **Writer endpoint** | Routes all writes to the current primary; auto-updated on failover |
+| **Reader endpoint** | Load-balances reads across all Aurora Replicas |
+
+> Copy the **writer endpoint** — it looks like: `my-aurora-cluster.cluster-abc123.us-east-1.rds.amazonaws.com`
 
 ---
 
-**Connect to your RDS instance from EC2**
+**Connect to your Aurora cluster from EC2**
 
-First, allow your EC2 to reach port 3306 on the RDS security group:
+First, allow your EC2 to reach port 3306 on the Aurora security group:
 
-1. EC2 → **Security Groups** → `rds-sg` → **Inbound rules** → **Edit inbound rules**
+1. EC2 → **Security Groups** → `aurora-sg` → **Inbound rules** → **Edit inbound rules**
 2. **Add rule:** Type = `MySQL/Aurora`, Port = `3306`, Source = your EC2 security group ID
 3. Click **Save rules**
 
@@ -7152,8 +7158,8 @@ Then SSH into your EC2 and run:
 # Install MySQL client
 sudo yum install -y mysql
 
-# Connect to RDS (replace with your actual endpoint)
-mysql -h my-rds-db.abc123xyz.us-east-1.rds.amazonaws.com -u admin -p
+# Connect to Aurora cluster via the writer endpoint
+mysql -h my-aurora-cluster.cluster-abc123.us-east-1.rds.amazonaws.com -u admin -p
 # Enter your password when prompted
 
 # Once inside MySQL — verify the database exists
@@ -7166,7 +7172,7 @@ INSERT INTO users (name) VALUES ('Alice'), ('Bob');
 SELECT * FROM users;
 ```
 
-**You should see:** The `users` table with two rows — your managed MySQL database is live.
+**You should see:** The `users` table with two rows — your Aurora cluster is live.
 
 ---
 
