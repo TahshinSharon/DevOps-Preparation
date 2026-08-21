@@ -14,7 +14,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/Topics-6-blue?style=flat-square" alt="Topics">
+  <img src="https://img.shields.io/badge/Topics-7-blue?style=flat-square" alt="Topics">
   <img src="https://img.shields.io/badge/Made%20For-DevOps%20Prep-orange?style=flat-square" alt="Made For">
 </p>
 
@@ -32,6 +32,8 @@
   <a href="./Docker/README.md"><b>Docker Notes</b></a>
   &nbsp;·&nbsp;
   <a href="./Kubernetes/README.md"><b>Kubernetes Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="./7. Terraform/README.md"><b>Terraform Notes</b></a>
 </p>
 
 ---
@@ -48,6 +50,7 @@
   - [Cloud Engineering](#cloud-engineering)
   - [Docker](#docker)
   - [Kubernetes](#kubernetes)
+  - [Terraform](#terraform)
 - [Conventions](#conventions)
 - [Contributing / Personal Use](#contributing--personal-use)
 - [References](#references)
@@ -81,11 +84,13 @@ DevOps-Preparation/
 │   └── README.md               ← AWS EC2 and other cloud services, concepts, and notes
 ├── 5. Docker/
 │   └── README.md               ← Containers, images, Dockerfile, volumes, networks, Compose, ...
-└── 6. Kubernetes/
-    └── README.md               ← Pods, Deployments, Services, Namespaces, kubectl, Helm, ...
+├── 6. Kubernetes/
+│   └── README.md               ← Pods, Deployments, Services, Namespaces, kubectl, Helm, ...
+└── 7. Terraform/
+    └── README.md               ← Providers, resources, variables, state, modules, workspaces, ...
 ```
 
-> **Note:** the numbers above indicate the recommended reading order; the actual folders on disk are named without the `N. ` prefix (`Git-Github/`, `Linux/`, `Networking/`, `Cloud-Engineering/`, `Docker/`, `Kubernetes/`).
+> **Note:** the numbers above indicate the recommended reading order; the actual folders on disk are named without the `N. ` prefix (`Git-Github/`, `Linux/`, `Networking/`, `Cloud-Engineering/`, `Docker/`, `Kubernetes/`, `7. Terraform/`).
 
 Every topic folder holds a single `README.md` that acts as the full reference for that subject. New topics (Kubernetes, CI/CD, Terraform, etc.) will be added the same way — one folder, one self-contained `README.md`.
 
@@ -209,6 +214,15 @@ The container orchestration platform for deploying, scaling, and managing contai
 - **Kubernetes Basics** — creating a cluster with **kubeadm** (production / VMs) and **kind** (local development / CI), deploying and managing apps with kubectl, viewing pods and nodes for inspection and debugging, exposing apps via Services (ClusterIP, NodePort, LoadBalancer) and Ingress.
 
 → [Open the Kubernetes notes](./Kubernetes/README.md)
+
+### Terraform
+
+The industry-standard Infrastructure as Code tool for provisioning cloud resources declaratively across any provider.
+
+- **Terraform Fundamentals** — what Terraform is, Terraform vs other IaC tools (CloudFormation, Ansible, Pulumi), how Terraform works (write → init → plan → apply → destroy), and HCL basics (blocks, arguments, data types, references).
+- **Terraform Basics** — installing the CLI, the core workflow (`init`, `validate`, `fmt`, `plan`, `apply`, `destroy`), providers (plugins, authentication, multi-provider), resources (block syntax, common AWS resources, implicit and explicit dependencies), variables and outputs (types, `.tfvars`, environment variables, sensitive outputs), and Terraform state (local vs remote, S3 backend, state commands, best practices).
+
+→ [Open the Terraform notes](./7.%20Terraform/README.md)
 
 ---
 
