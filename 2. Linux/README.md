@@ -8593,11 +8593,11 @@ OOM events also indicate that you need **more RAM**, **lower memory cgroup limit
 
 ## References
 
+- [Linux Tutorial (YouTube)](https://www.youtube.com/watch?v=sWbUDq4S6Y8)
 - [Linux Journey on LabEx](https://labex.io/linuxjourney)
 - [tldr pages](https://tldr.sh/)
 - [BongoDev](https://www.bongodev.com/)
 - [BongoDev on GitHub](https://github.com/bongodev)
-- [Linux Tutorial (YouTube)](https://www.youtube.com/watch?v=sWbUDq4S6Y8)
 
 ---
 
