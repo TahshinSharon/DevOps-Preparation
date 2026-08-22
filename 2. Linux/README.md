@@ -7977,70 +7977,99 @@ sudo systemctl restart systemd-journald
 
 ## Common Interview Questions
 
-**50 commonly asked Linux interview questions** for DevOps roles — **10 Easy** (junior), **20 Medium** (mid-level), **20 Hard** (senior). Curated to cover the topics that come up most in real interviews: filesystem, processes, permissions, networking, boot/init, performance, security, and containers/Linux internals.
+**50 commonly asked Linux interview questions** — every answer written from a **DevOps interview perspective**: production scenarios, container/Kubernetes/cloud context, the follow-ups interviewers drill into, and the mistakes candidates make. Grouped as **10 Easy** (junior), **20 Medium** (mid-level), **20 Hard** (senior/SRE).
 
 ### Easy (Junior Level)
 
 **1. What is Linux, and how is it different from Unix?**
 
-Linux is an open-source, Unix-like operating system kernel created by Linus Torvalds in 1991, paired with GNU userspace tools to form a complete OS. Unix is the original 1970s AT&T-developed OS family (commercial: AIX, Solaris, HP-UX). They share POSIX APIs and shell conventions, but Linux is free, has a single kernel codebase used everywhere from phones to supercomputers, and is community-driven; Unix variants are vendor-specific and closed-source.
+Linux is an open-source, Unix-like OS kernel (Linus Torvalds, 1991) paired with GNU userspace to form a complete OS. Unix is the original AT&T family (AIX, Solaris, HP-UX) — POSIX-compliant, but commercial and vendor-locked.
+
+**Why DevOps interviewers care:** Every major cloud (AWS EC2, GCP, Azure), every container runtime (Docker, containerd, CRI-O), and every Kubernetes node runs Linux. Understanding that Linux is the substrate under your entire stack is the baseline. Common follow-up: *"Why do you think AWS/GCP/Azure all use Linux for their hypervisors and control planes?"* — answer: no license cost at scale, kernel is auditable/patchable, and cgroups + namespaces make it the only viable container host.
+
+**Gotcha:** macOS is Unix-certified (Darwin kernel), not Linux — that's why Docker Desktop on Mac runs a Linux VM under the hood.
 
 **2. What is the kernel?**
 
-The **kernel** is the core program that runs in privileged mode (ring 0), owns the hardware, and exposes a system-call API to userspace. It manages CPU scheduling, memory, filesystems, networking, and devices. Linux is a **monolithic kernel with loadable modules** — drivers run in kernel space but can be loaded/unloaded at runtime via `modprobe`.
+The **kernel** is the program that runs in ring 0 (privileged mode), owns the hardware, and exposes syscalls to userspace. It handles scheduling, memory, VFS, networking, and drivers. Linux is a **monolithic kernel with loadable modules** — `lsmod`, `modprobe`, `rmmod`.
+
+**Why DevOps interviewers care:** Containers share the host kernel — that's the #1 fact behind container security, image portability, and why you can't run a Windows container on a Linux host. Follow-up: *"If two containers share the kernel, how are they isolated?"* → namespaces (view) + cgroups (limits) + capabilities/seccomp (syscall restriction). Another common one: *"What's inside `/lib/modules/$(uname -r)/`?"* → kernel modules matched to the running kernel; a mismatch after `apt upgrade` without reboot is why NVIDIA/eBPF/kernel modules fail until reboot.
 
 **3. What is a shell? Name common shells.**
 
-A **shell** is a command interpreter that reads user input and runs programs. Common shells: **bash** (default on most distros), **zsh** (modern, plugin-rich, default on macOS), **sh** (POSIX-minimal, often a symlink), **dash** (fast POSIX shell, Ubuntu's `/bin/sh`), **fish** (user-friendly, not POSIX-compliant). Check yours with `echo $SHELL`.
+A **shell** reads commands and executes them. Common ones:
+
+| Shell  | Where you'll meet it                                          |
+| ------ | ------------------------------------------------------------- |
+| `bash` | Default on most distros; the shell your CI pipelines run in   |
+| `zsh`  | Default on macOS; developer laptops                            |
+| `sh`   | POSIX-minimal; what `#!/bin/sh` scripts must target for portability |
+| `dash` | Ubuntu's `/bin/sh` — fast, strict POSIX                        |
+| `fish` | User-friendly, **not** POSIX — never use in production scripts |
+
+**Why DevOps interviewers care:** CI runners often use `dash` as `/bin/sh`, not `bash`. A script that works locally with `#!/bin/sh` but uses bash-isms (`[[ ]]`, arrays, `$'...'`) breaks in Docker/Alpine/CI. Rule of thumb: **either `#!/usr/bin/env bash` and use bash features, or `#!/bin/sh` and stay POSIX**.
 
 **4. How do you check the current working directory?**
 
-Use `pwd` (print working directory):
-
 ```bash
-pwd
-# /home/tarek/projects
+pwd            # /home/tarek/projects
+echo "$PWD"    # same, via env var — safe in scripts
 ```
 
-The environment variable `$PWD` holds the same value.
+**DevOps angle:** In scripts, always use `cd "$(dirname "$0")"` or `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"` at the top — never rely on the caller's CWD. This is table-stakes for cron/systemd-invoked scripts where CWD is `/`.
 
 **5. What command lists all files, including hidden ones?**
-
-`ls -la`:
 
 ```bash
 ls -la
 # drwxr-xr-x  5 tarek tarek 4096 Jun 20 10:00 .
-# drwxr-xr-x 20 tarek tarek 4096 Jun 19 09:30 ..
 # -rw-------  1 tarek tarek  220 Jan 15  2024 .bashrc
 # -rw-r--r--  1 tarek tarek  100 Jun 20 09:55 file.txt
 ```
 
-Hidden files in Linux start with a `.` — `-a` shows them; `-l` adds the long listing (perms, owner, size, mtime).
+Dotfiles (`.bashrc`, `.env`, `.git/`, `.ssh/`, `.aws/`, `.kube/config`) hold most of a DevOps engineer's day-to-day config. `ls` alone hides them. Also useful: `ls -lah` (human sizes), `ls -lt` (newest first — great for "what changed"), `ls -lS` (biggest first).
+
+**Gotcha:** `.env` files often contain secrets — `docker cp` or `COPY . .` in a Dockerfile silently ships them into images. Always check `.dockerignore`/`.gitignore`.
 
 **6. How do you check disk space usage?**
 
-- **`df -h`** — free/used space per **mounted filesystem** (human-readable).
-- **`du -sh <dir>`** — total size of one directory.
-- **`du -h --max-depth=1 /var | sort -h`** — top hogs under `/var`.
-- **`df -i`** — inode usage (a partition can be "full" by inodes even with bytes free).
+Real production first-response order when Prometheus fires a "disk full" alert:
+
+```bash
+df -h                                    # which mount is full?
+df -i                                    # inode exhaustion? (small files can fill inodes with bytes free)
+du -h --max-depth=1 /var | sort -h       # top offenders under /var
+du -sh /var/log/* | sort -h              # log growth is the #1 culprit
+sudo lsof +L1                            # deleted-but-open files still holding blocks
+journalctl --disk-usage                  # journal size (often huge)
+docker system df                         # image/container/volume usage on Docker hosts
+```
+
+**Interview gold:** *"`df` says 100% but `du` shows only 20 GB used — why?"* → A process (nginx, app) is still holding an open file descriptor to a **deleted** file. Blocks aren't released until the FD is closed. Fix: `lsof +L1` to find the process, then restart it — no reboot needed.
 
 **7. How do you create, copy, move, and delete files in Linux?**
 
 ```bash
-touch file.txt              # create empty file
+touch file.txt              # create empty file / update mtime
 cp file.txt copy.txt        # copy
-cp -r dir/ newdir/          # copy directory recursively
-mv file.txt /tmp/           # move (also used to rename)
+cp -a src/ dst/             # -a = archive: preserves perms, symlinks, timestamps (use this in scripts)
+mv file.txt /tmp/           # move or rename
 rm file.txt                 # delete
-rm -rf dir/                 # delete dir + contents (DANGEROUS)
-mkdir -p a/b/c              # create dir + parents
+rm -rf dir/                 # recursive force delete — DANGEROUS
+mkdir -p a/b/c              # create parents as needed
+rsync -avP src/ user@host:/dst/   # copy across hosts, resumable, delta transfer
 ```
+
+**DevOps rule:** For copying anything non-trivial (across hosts, with permissions, over the network, with progress), use **`rsync -avP`**, not `scp` or `cp`. It's incremental, resumable, and preserves metadata.
+
+**Interview trap:** `rm -rf $DIR/` — if `$DIR` is unset, you just typed `rm -rf /`. Always: `[[ -n "$DIR" ]] || exit 1` before `rm -rf`, or `set -u` at the top of the script.
 
 **8. What is the difference between absolute and relative paths?**
 
-- **Absolute path** starts from the root `/`: `/home/tarek/file.txt`. Same meaning from anywhere.
-- **Relative path** starts from the **current working directory**: `./file.txt`, `../docs/readme.md`. `.` is "current dir", `..` is "parent dir", `~` is "home dir".
+- **Absolute** starts from `/`: `/etc/nginx/nginx.conf`. Same meaning from anywhere — safe in scripts, cron, systemd units.
+- **Relative** starts from CWD: `./file.txt`, `../docs/`. Convenient interactively, dangerous in automation.
+
+**DevOps angle:** Cron and systemd both invoke your script with CWD = `/`. If your backup script does `tar czf backup.tar.gz ./data`, cron will create `backup.tar.gz` in `/` and fail to find `./data`. **Always use absolute paths in cron/systemd, or `cd "$(dirname "$0")"` first.**
 
 **9. What does `ls -l` output show?**
 
@@ -8048,26 +8077,35 @@ mkdir -p a/b/c              # create dir + parents
 -rw-r--r-- 1 tarek tarek 100 Jun 20 09:55 file.txt
 │└┬┘└┬┘└┬┘ │  │     │     │      │          │
 │ │  │  │  │  │     │     │      │          └── filename
-│ │  │  │  │  │     │     │      └── modification time
+│ │  │  │  │  │     │     │      └── mtime
 │ │  │  │  │  │     │     └── size in bytes
 │ │  │  │  │  │     └── group
-│ │  │  │  │  └── owner (user)
-│ │  │  │  └── number of hard links
-│ │  │  └── other permissions (r--)
-│ │  └── group permissions (r--)
-│ └── owner permissions (rw-)
-└── file type (- regular, d directory, l symlink, c char device, b block device)
+│ │  │  │  │  └── owner
+│ │  │  │  └── hard link count
+│ │  │  └── other perms
+│ │  └── group perms
+│ └── owner perms
+└── file type (- regular, d dir, l symlink, c char, b block, s socket, p pipe)
 ```
+
+**Interview follow-up:** *"You see `lrwxrwxrwx` — what is it, and are those 777 perms a security issue?"* → It's a symlink; symlink perms are ignored, the target's perms apply. Not a security issue on its own.
 
 **10. How do you read large log files efficiently?**
 
-Don't `cat` them — they'll flood your terminal. Use:
+**Never `cat` a multi-GB log.** Real DevOps toolkit:
 
-- **`less <file>`** — page through, search with `/`, follow with `Shift+F`.
-- **`tail -F /var/log/syslog`** — live tail (survives log rotation).
-- **`head -100 file.log`** / **`tail -100 file.log`** — first / last 100 lines.
-- **`grep "ERROR" file.log`** — only matching lines.
-- **`zless` / `zgrep`** for `.gz`-compressed rotated logs.
+```bash
+less +F /var/log/app.log                 # follow live like tail -F, / to search
+tail -F /var/log/nginx/access.log        # follow, survives log rotation (capital F)
+tail -n 500 -F app.log | grep -i error   # filter live
+grep -c "500 " access.log                # count matches
+zgrep "OOM" /var/log/syslog.*.gz         # search rotated gzip logs
+awk '$9 == 500' access.log | head        # structured filtering (nginx status = 500)
+journalctl -u nginx --since "10 min ago" # systemd journal — the modern log source
+journalctl -u nginx -f                   # live follow a service
+```
+
+**Why this matters:** In production, you're 10x more likely to be reading `journalctl` output than `/var/log/*` files — systemd captures stdout/stderr of every unit. Learn `journalctl -u <svc> --since / --until / -p err / -f`. Better yet: ship logs to Loki/Elasticsearch/CloudWatch so you're not SSH'ing into servers.
 
 ---
 
@@ -8075,149 +8113,258 @@ Don't `cat` them — they'll flood your terminal. Use:
 
 **11. What's the difference between a hard link and a symbolic link?**
 
-| Aspect              | Hard link                      | Symbolic link (symlink)     |
-| ------------------- | ------------------------------ | --------------------------- |
-| Inode               | Same as target (shared)        | Own inode; points by path   |
-| Cross filesystem?   | No                              | Yes                         |
-| Link to directory?  | No (root only, restricted)      | Yes                         |
-| Survives target delete? | Yes — data lives until last link gone | Becomes dangling     |
-| Created by          | `ln source link`                | `ln -s source link`         |
+| Aspect                  | Hard link                              | Symlink                       |
+| ----------------------- | -------------------------------------- | ----------------------------- |
+| Inode                   | Same as target (shared)                | Own inode; stores a path      |
+| Cross filesystem?       | No                                     | Yes                           |
+| Link to directory?      | No (restricted)                        | Yes                           |
+| Survives target delete? | Yes — data lives until last link gone  | Becomes dangling              |
+| Created by              | `ln source link`                       | `ln -s source link`           |
 
-A hard link is **another name for the same file**; a symlink is **a tiny file containing a path** to follow.
+**DevOps angle:** Symlinks are everywhere in Ops:
+- **Blue/green deploys:** `/opt/app/current` → `/opt/app/release-v42`. Atomic swap: `ln -sfn release-v43 current`.
+- **Kernel versions:** `/vmlinuz` → `/boot/vmlinuz-6.5.0-15-generic`. GRUB follows the symlink.
+- **`/etc/nginx/sites-enabled/*`** → `sites-available/*`. Enable a site by symlinking; disable by `rm` (the source stays).
+- **Container images:** `/etc/localtime` → `/usr/share/zoneinfo/UTC` — mount-binding this into a container fixes timezone drift.
+
+**Interview follow-up:** *"Why can't hard links cross filesystems?"* → Inode numbers are per-filesystem. A hard link needs the same inode; different FSes have overlapping inode numbers, so it's impossible by design.
 
 **12. Explain file permissions and how to change them.**
 
-Each file has three permission classes (**owner**, **group**, **other**) with three bits each (**read**, **write**, **execute**) → 9 bits, shown as `rwxr-xr--`. In **octal**: `r=4, w=2, x=1`, so `rwxr-xr--` = `754`.
+Three classes (**u**ser/**g**roup/**o**ther) × three bits (**r**ead/**w**rite/e**x**ecute). Octal: `r=4, w=2, x=1`.
 
 ```bash
-chmod 755 script.sh        # rwxr-xr-x
-chmod u+x script.sh        # add execute for owner
-chmod g-w file             # remove write for group
-chown alice:devs file      # change owner and group
+chmod 755 script.sh        # rwxr-xr-x — executable script
+chmod 644 config.yml       # rw-r--r-- — config
+chmod 600 ~/.ssh/id_ed25519 # rw------- — private key (sshd rejects looser)
+chmod +x deploy.sh         # add execute for all
+chown -R app:app /opt/app  # recursive owner change (deploys)
 ```
 
-Special bits: **setuid** (`4xxx`), **setgid** (`2xxx`), **sticky** (`1xxx`).
+**Special bits** DevOps engineers see:
+- **setuid (`4xxx`)** — binary runs as owner. `passwd`, `sudo` need it. Container security scanners flag stray setuid binaries.
+- **setgid (`2xxx`)** — on a **directory**, new files inherit the group. Perfect for shared team directories.
+- **sticky (`1xxx`)** — on a dir, only file owner can delete. That's why `/tmp` is `drwxrwxrwt`.
+
+**Interview scenario:** *"Your app can't read its config file — troubleshoot."* → Check owner (`ls -l`), effective UID (`ps -eo pid,euser,cmd | grep app`), SELinux label (`ls -Z`), and container bind-mount permissions. 90% of "permission denied" in containers is UID mismatch between host and container user.
 
 **13. What's the purpose of `/etc/passwd` vs `/etc/shadow`?**
 
-- **`/etc/passwd`** — world-readable; holds username, UID, GID, home, shell. **No passwords** (the `x` is a placeholder).
-- **`/etc/shadow`** — root-only (mode 0640); holds hashed passwords, password-aging info, account-expiry.
+- **`/etc/passwd`** — world-readable; `user:x:UID:GID:gecos:home:shell`. No passwords (`x` is a placeholder).
+- **`/etc/shadow`** — root-only (mode 0640); hashed passwords + aging info.
+- **`/etc/group`** — group memberships.
 
-Splitting them lets `getent passwd` work for everyone without exposing hashes to dictionary attacks.
+**DevOps context:** In containers, `/etc/passwd` is often nearly empty — you run as UID 1000 with no matching entry, which breaks things like `whoami`, `ssh-keygen`, or apps that call `getpwuid()`. Fix in Dockerfile:
+
+```dockerfile
+RUN useradd -u 1000 -m appuser
+USER appuser
+```
+
+Or, in Kubernetes, `securityContext.runAsUser: 1000` + a matching passwd entry.
+
+**Interview probe:** *"How do you audit who has shell access to a production box?"* → `getent passwd | awk -F: '$7 !~ /nologin|false/'` — anyone whose shell isn't `/sbin/nologin` or `/bin/false` can log in. Then cross-check `/root/.ssh/authorized_keys` and every user's.
 
 **14. How do you find files larger than 100 MB?**
 
-```bash
-find / -xdev -type f -size +100M -exec ls -lh {} \; 2>/dev/null
+The DevOps "disk full at 3 AM" playbook:
 
-# Or sorted by size:
+```bash
+# Top 20 largest files on the root FS, human-readable:
 sudo find / -xdev -type f -size +100M -printf '%s %p\n' 2>/dev/null \
-  | sort -nr | head -20 | awk '{printf "%.0f MB\t%s\n", $1/1048576, $2}'
+  | sort -nr | head -20 \
+  | awk '{printf "%.0f MB\t%s\n", $1/1048576, $2}'
+
+# Focused on common bloat sources:
+du -sh /var/log/* /var/lib/docker/* /tmp/* 2>/dev/null | sort -h | tail
+docker system df -v                        # per-image / per-container / per-volume
+journalctl --disk-usage && journalctl --vacuum-size=500M
 ```
 
-`-xdev` stops `find` from crossing mountpoints (avoids diving into `/proc`, `/sys`, network mounts).
+`-xdev` **critical** — without it, `find /` walks `/proc`, `/sys`, and any NFS/EFS mount, generating errors and taking forever.
+
+**Common culprits in production:**
+- `/var/log/journal/*` (uncapped systemd journal)
+- `/var/lib/docker/overlay2/*` (stale images/layers — `docker system prune -af`)
+- Application core dumps in `/var/lib/systemd/coredump/`
+- Rotated but uncompressed logs (`logrotate` misconfigured)
 
 **15. What's the difference between `grep`, `egrep`, and `fgrep`?**
 
-- **`grep`** — basic regular expressions (BRE).
-- **`grep -E` / `egrep`** — extended regex (ERE): `+`, `?`, `|`, `()` without backslashes.
-- **`grep -F` / `fgrep`** — fixed strings, no regex, fastest.
+- **`grep`** — basic regex (BRE): `\(`, `\+`, `\?` need escaping.
+- **`grep -E`** (or `egrep`) — extended regex (ERE): `()`, `+`, `?`, `|` unescaped.
+- **`grep -F`** (or `fgrep`) — fixed strings, no regex, **fastest**.
 
-`egrep` and `fgrep` are deprecated wrappers; modern usage is `grep -E` and `grep -F`.
+`egrep`/`fgrep` are deprecated wrappers; use `grep -E` / `grep -F`.
+
+**DevOps grep patterns worth memorizing:**
+
+```bash
+grep -rn "TODO" src/                       # recursive with line numbers
+grep -c "ERROR" app.log                    # just the count
+grep -v "healthcheck" access.log           # invert — exclude noise
+grep -i -A3 -B1 "panic" app.log            # 3 lines after, 1 before, case-insensitive
+grep -oP 'user=\K\w+' auth.log             # PCRE with \K — print only what matches after user=
+zgrep -l "OOMKilled" /var/log/*.gz         # which rotated log contains it
+```
+
+**Performance:** For huge codebases use **`ripgrep` (`rg`)** — 5–10x faster, respects `.gitignore`.
 
 **16. Explain process states.**
 
 | State | Meaning                                                          |
 | ----- | ---------------------------------------------------------------- |
-| **R** | Running or runnable (on the run queue)                            |
-| **S** | Interruptible sleep (waiting on I/O, signal, or event)            |
-| **D** | Uninterruptible sleep (usually waiting on disk — **can't be killed**) |
-| **Z** | Zombie — terminated, but parent hasn't `wait()`ed yet             |
-| **T** | Stopped (SIGSTOP / Ctrl+Z) or being traced                        |
-| **I** | Idle kernel thread (kernel ≥ 4.2)                                  |
+| **R** | Running or runnable                                              |
+| **S** | Interruptible sleep (waiting on I/O, signal, event)              |
+| **D** | Uninterruptible sleep — **stuck on disk/NFS, can't be killed**   |
+| **Z** | Zombie — exited, parent hasn't reaped                            |
+| **T** | Stopped (SIGSTOP / Ctrl+Z) or traced (gdb, strace)               |
+| **I** | Idle kernel thread                                               |
 
-See states with `ps aux` — the `STAT` column.
+Column `STAT` in `ps aux` adds flags: `s` = session leader, `+` = foreground, `l` = multi-threaded, `<` = high priority, `N` = low priority.
+
+**Interview scenario:** *"Load average is 40, CPU is 5% — what state are the processes in?"* → **D**. Uninterruptible sleep contributes to load average but not to CPU. Root cause is almost always a hung NFS mount, failing disk, or a container blocked on IO. Find with `ps -eo pid,stat,wchan,cmd | awk '$2 ~ /D/'` — `wchan` shows the kernel function it's stuck in.
 
 **17. What is a zombie process? How do you remove it?**
 
-A **zombie** is a process that has exited but whose parent hasn't called `wait()` to reap its exit status. It holds only a PID + exit code, no memory or file descriptors. You **can't `kill` a zombie** (it's already dead). The fix: send **`SIGCHLD`** to the parent (asks it to reap), or kill the parent — the kernel will re-parent the zombie to `init` (PID 1), which reaps it immediately.
+A **zombie** is a process that has `exit()`ed but whose parent hasn't `wait()`ed for it. Only a PID + exit code remain — no memory, no FDs. You **can't `kill -9`** a zombie because it's already dead.
+
+Fix:
+
+```bash
+# Find zombies and their parents:
+ps -eo pid,ppid,stat,cmd | awk '$3 ~ /Z/'
+# Send SIGCHLD to the parent — asks it to reap:
+kill -CHLD <ppid>
+# If parent is broken, kill parent — init (PID 1) reaps orphans:
+kill <ppid>
+```
+
+**Why DevOps interviewers ask:** In **containers**, PID 1 is your app — not `init`. If your app spawns children and doesn't reap them, zombies pile up until the container hits PID limits. The fix: run a proper init as PID 1 (`--init` flag in Docker, `tini`, or `dumb-init`). Every containerized shell script that spawns subprocesses has this bug.
 
 **18. Explain the difference between SIGTERM, SIGKILL, and SIGHUP.**
 
-| Signal     | #  | Catchable? | Use                                                |
-| ---------- | -- | ---------- | -------------------------------------------------- |
-| **SIGTERM** | 15 | Yes | Polite "please exit" — process can clean up first. **Default for `kill <pid>`.** |
-| **SIGKILL** |  9 | **No**  | Immediate kernel-level kill. No cleanup. Last resort. |
-| **SIGHUP**  |  1 | Yes | Originally "terminal hang-up"; now commonly used as "reload config" (nginx, sshd). |
+| Signal    | #  | Catchable? | Use in DevOps                                                                             |
+| --------- | -- | ---------- | ----------------------------------------------------------------------------------------- |
+| SIGTERM   | 15 | Yes        | Graceful shutdown. **Default for `kill`, `docker stop`, `kubectl delete pod`.**          |
+| SIGKILL   |  9 | **No**     | Immediate. No cleanup. Sent after `terminationGracePeriodSeconds` in K8s.                |
+| SIGHUP    |  1 | Yes        | "Reload config" convention: nginx, sshd, HAProxy, systemd itself.                        |
+| SIGINT    |  2 | Yes        | Ctrl+C.                                                                                    |
+| SIGUSR1/2 | 10/12 | Yes     | App-defined — e.g., nginx `USR1` reopens log files (for logrotate).                       |
 
-Always try `SIGTERM` first, then `SIGKILL` if it doesn't exit in a few seconds.
+**K8s pod lifecycle:** `kubectl delete pod` → `preStop` hook → SIGTERM → wait `terminationGracePeriodSeconds` (default 30s) → SIGKILL. Your app **must** handle SIGTERM: close DB connections, finish in-flight requests, then exit. Nginx reload without downtime uses SIGHUP → new worker spawns, old worker drains.
+
+**Interview scenario:** *"Deploy causes 502s during rolling update — why?"* → App doesn't handle SIGTERM. It's killed mid-request. Fix: trap SIGTERM in the app, drain connections, then exit — or add a `preStop: sleep 5` to give the load balancer time to remove the pod from rotation before SIGTERM.
 
 **19. How does cron work? Where do you configure jobs?**
 
-`cron` is a daemon that reads time-based schedules and forks commands at the right minute. Schedules live in:
+`cron` daemon scans schedules once a minute and forks matching jobs. Locations:
 
-- **`crontab -e`** — per-user (`/var/spool/cron/<user>`)
-- **`/etc/crontab`** — system-wide, with extra **user** field
-- **`/etc/cron.d/<file>`** — drop-in system jobs
+- **`crontab -e`** — per-user (`/var/spool/cron/crontabs/<user>`)
+- **`/etc/crontab`** — system-wide, extra `user` field
+- **`/etc/cron.d/<file>`** — drop-in files (preferred for automation/config-management)
 - **`/etc/cron.{hourly,daily,weekly,monthly}/`** — just drop executables
 
-Format: `min hour day-of-month month day-of-week command`. Modern alternative: **systemd timers** (`.timer` units) for dependency-aware, journaled scheduling.
+Format: `min hour dom mon dow  cmd`. Special: `@reboot`, `@daily`, `@hourly`.
+
+**DevOps gotchas that come up in interviews:**
+1. **CWD is `/`, PATH is minimal** — always use absolute paths and `SHELL=/bin/bash`, `PATH=/usr/local/bin:/usr/bin:/bin` at the top of crontab.
+2. **No stdout/stderr goes anywhere** — jobs fail silently. Always log: `* * * * * /app/backup.sh >>/var/log/backup.log 2>&1`.
+3. **Overlapping runs** — a 5-min job that occasionally takes 10 min spawns concurrent copies. Wrap with `flock`: `* * * * * flock -n /tmp/backup.lock /app/backup.sh`.
+4. **Timezone** — cron uses system TZ. In containers, set `TZ=UTC` and standardize.
+
+**Modern replacement: systemd timers.** Journal-integrated, dependency-aware, easier to test (`systemctl start backup.service` runs it once). Kubernetes: **`CronJob`** resource, but watch for missed runs (`startingDeadlineSeconds`) and concurrency policy.
 
 **20. What's the difference between `su` and `sudo`?**
 
-- **`su`** — "switch user"; opens a new shell as another user (default: root). Requires the **target user's** password.
-- **`sudo`** — "do as another user"; runs **one command** as another user. Requires **your own** password, authorized by `/etc/sudoers`.
+- **`su`** — switch user, opens a shell as target user, needs **target's password**. Rarely used in modern ops.
+- **`sudo`** — run one command as another user, needs **your own password**, controlled by `/etc/sudoers` (edit with **`visudo`** — validates syntax).
 
-`sudo` logs every command (`/var/log/auth.log`), supports fine-grained policies, and doesn't require sharing the root password. `sudo -i` opens a root shell similar to `su -`.
+**Why DevOps almost always uses `sudo`:**
+- **Auditable** — every command logged to `/var/log/auth.log` or `journalctl`.
+- **No shared root password** — safe for teams.
+- **Least privilege** — grant specific commands: `alice ALL=(ALL) NOPASSWD: /bin/systemctl restart nginx`.
+- **Doesn't require a root password to exist at all** — cloud images (Ubuntu on AWS/GCP) disable root login entirely, only `sudo` from `ubuntu`/`ec2-user`.
+
+**Interview probe:** *"How would you allow the CI user to restart a service without full sudo?"* →
+```
+%ci ALL=(root) NOPASSWD: /bin/systemctl restart myapp.service
+```
+Never `NOPASSWD: ALL` — that's a root escalation waiting to happen.
 
 **21. How do you check which ports are open on a system?**
 
 ```bash
-ss -lntp                   # listening TCP, with PID/program — preferred
-ss -lnup                   # UDP version
-sudo lsof -i -P -n         # all sockets, numeric, with PID
-sudo netstat -tlnp         # older equivalent (net-tools)
-nmap -sT localhost         # external scan from another box
+sudo ss -lntp                   # listening TCP + PID/program (preferred)
+sudo ss -lnup                   # listening UDP
+sudo ss -tnp state established  # active connections
+sudo lsof -i -P -n              # all sockets, numeric, with PID
+sudo netstat -tlnp              # legacy (net-tools) — often missing on minimal images
 ```
 
-`ss` is the modern replacement for `netstat` — faster, reads `/proc/net/tcp` directly.
+`ss` reads `/proc/net/tcp` directly (fast). Modern minimal images (Alpine, distroless) may not ship any of these — install `iproute2` or exec into a debug sidecar.
+
+**DevOps scenario:** *"Nginx says 'address already in use' on port 80 — debug."*
+```bash
+sudo ss -lntp 'sport = :80'     # who has it?
+sudo lsof -i :80
+sudo fuser 80/tcp -kv           # (careful) show and kill holders
+```
+Usually: old container still bound, or systemd socket activation holding it.
+
+**External scan:** `nmap -sT <host>` from another box confirms what the outside actually sees — differs from local view due to firewalls, security groups, and iptables.
 
 **22. What is the `/proc` filesystem?**
 
-`/proc` is a **virtual filesystem** that exposes live kernel and per-process state as files. Reading them invokes kernel code that formats data on the fly — they take zero disk space. Examples:
+`/proc` is a **virtual filesystem** exposing kernel + per-process state as files. Reads invoke kernel code — takes zero disk space.
 
-- `/proc/cpuinfo`, `/proc/meminfo`, `/proc/version`
-- `/proc/<pid>/cmdline`, `/proc/<pid>/status`, `/proc/<pid>/fd/`
-- `/proc/sys/...` — tunables (`sysctl` reads/writes here)
+**The `/proc` files DevOps engineers use daily:**
 
-Sibling `/sys` exposes the kernel's device model.
+| Path                              | What it tells you                                              |
+| --------------------------------- | -------------------------------------------------------------- |
+| `/proc/cpuinfo`                   | CPU model, cores, flags (`avx`, `aes-ni` — matters for perf)   |
+| `/proc/meminfo`                   | RAM breakdown that `free` summarizes                            |
+| `/proc/loadavg`                   | Load averages + running/total procs                             |
+| `/proc/mounts`                    | What's actually mounted (`mount` output may lie in containers) |
+| `/proc/<pid>/status`              | Process state, RSS, threads, UID/GID, cgroup                    |
+| `/proc/<pid>/limits`              | ulimits actually applied to the process                         |
+| `/proc/<pid>/fd/`                 | Open file descriptors — great for "who has this file open"     |
+| `/proc/<pid>/environ`             | Env vars at process start (secrets leak here — beware)         |
+| `/proc/<pid>/cgroup`              | Which cgroup(s) the process is in                              |
+| `/proc/sys/vm/swappiness`         | Live kernel tunable (also via `sysctl`)                        |
+
+**Interview trick:** *"The `.env` was deleted but the app is still running — can you recover the values?"* → `sudo cat /proc/<pid>/environ | tr '\0' '\n'`.
 
 **23. Explain `umask` and how it affects new files.**
 
-`umask` is a **bit mask of permissions to remove** from newly created files. Default permissions:
+`umask` = bits to **remove** from default permissions.
 
-- New files: `0666` (rw-rw-rw-) → masked → typical result `0644`
-- New dirs:  `0777` (rwxrwxrwx) → masked → typical result `0755`
+- New files start at `0666`, dirs at `0777`.
+- With `umask 022`: files become `0644`, dirs `0755`.
+- With `umask 077`: files `0600`, dirs `0700` — owner-only, secure default.
 
-With `umask 022`, the mask removes write from group + other:
-- File: `0666 & ~022 = 0644` (rw-r--r--)
-- Dir:  `0777 & ~022 = 0755` (rwxr-xr-x)
+**DevOps context:** Default `umask` for services matters. Set in a systemd unit: `UMask=0027`. In Dockerfiles, set inside your entrypoint if you emit files. Wrong umask is a classic bug: your CI pipeline emits secrets with `0644`, world-readable in shared build hosts. Multi-tenant CI (Jenkins, GitLab shared runners) mandates `umask 077`.
 
-Stricter `umask 077` makes files private to the owner.
+**Interview probe:** *"Your app writes a token file readable by everyone — where do you fix it?"* → Either `umask 077` in the entrypoint, or explicit `chmod 600` after write, or `open()` with mode `0600` (via `S_IRUSR|S_IWUSR`).
 
 **24. How do you find which process is using a specific port?**
 
 ```bash
-sudo ss -lntp 'sport = :80'
-sudo lsof -i :80
-sudo fuser 80/tcp -v
+sudo ss -lntp 'sport = :5432'   # preferred
+sudo lsof -i :5432
+sudo fuser 5432/tcp -v
 ```
 
-All three show the PID + command holding the port.
+**Inside containers**, `ss`/`lsof` may not be installed. Options:
+- Exec into a debug sidecar with these tools.
+- `cat /proc/net/tcp` and decode the hex port (`:1538` → 5432).
+- Use `crictl` / `docker inspect` to find the process on the host: `sudo ss -lntp` sees all containers' ports through the host netns (unless in a separate netns).
+
+**K8s note:** `kubectl get svc/endpoints` tells you the intended mapping; a mismatch with `ss -lntp` on the node is a debug hint (wrong `containerPort`, missing `hostNetwork`).
 
 **25. What is swap space, and how do you create a swap file?**
 
-**Swap** is disk space used as overflow when RAM is full — the kernel pages out inactive memory and reads it back when needed. Modern systems prefer **swap files** (easy to resize/remove) over swap partitions.
+**Swap** = disk used as RAM overflow. Kernel pages out inactive memory; swaps back in on access.
 
 ```bash
 sudo fallocate -l 4G /swapfile
@@ -8227,360 +8374,694 @@ sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
-Tune **`vm.swappiness`** (default 60) — lower it (10–20) on latency-sensitive workloads.
+**DevOps controversy:** **Kubernetes historically disabled swap on nodes** — the scheduler assumes RAM is RAM; swap makes memory limits meaningless and latency unpredictable. Kubelet flag `--fail-swap-on=true` (default) refuses to start if swap is on. **1.28+** supports swap via beta feature, but production still typically disables it.
+
+**Tunables:**
+- `vm.swappiness` (default 60) — how aggressively to swap. **10–20 for DB/latency-sensitive**, **0 = only when OOM**.
+- `vm.vfs_cache_pressure` — how much to reclaim inode/dentry cache vs page cache.
+
+**Interview scenario:** *"Server has 32 GB RAM, 4 GB swap, is thrashing at 20 GB used — why?"* → Aggressive swappiness paging out active pages. Fix: `sysctl vm.swappiness=10`, investigate why the app RSS grows, add memory.
 
 **26. What's the difference between `df` and `du`?**
 
-- **`df`** — reports **filesystem-level** free space from the superblock. Fast, includes all mounted FSes.
-- **`du`** — walks the directory tree and **sums file sizes**. Slow, but per-directory.
+| Tool  | Source                          | Speed        | Scope                                |
+| ----- | ------------------------------- | ------------ | ------------------------------------ |
+| `df`  | Filesystem superblock            | Instant      | Per-mount free space                 |
+| `du`  | Walks directory tree             | Slow on large trees | Per-directory total          |
 
-They can disagree because (a) deleted-but-still-open files hold blocks (`lsof +L1` finds them), (b) sparse files have fewer real than apparent bytes, (c) reserved blocks for root appear used to non-root.
+They disagree when:
+1. **Deleted-but-open files** — process still holds an FD, blocks not freed. `df` sees them as used, `du` doesn't see the file. **`lsof +L1`** finds them. Restart the process.
+2. **Sparse files** — VM disks, DB files. `du --apparent-size` vs `du` differ.
+3. **Bind mounts / overlayfs** — a directory counted twice from different mount points.
+4. **Root-reserved space** (~5% on ext4) — `df` shows it as used to non-root.
+
+**Interview scenario:** *"`df` shows /var 100% full, `du -sh /var` shows 30 GB on a 100 GB disk — what's going on?"* → Deleted open file. `sudo lsof +L1 /var | head` finds the culprit. Common cause: journal/log file rotated and unlinked but the app kept writing.
 
 **27. Explain the Linux boot process.**
 
-1. **Firmware (BIOS/UEFI)** — POST, picks a boot device, loads first-stage code (MBR or `.efi` from the ESP).
-2. **Bootloader (GRUB2)** — picks a kernel, loads `vmlinuz` + `initramfs` into RAM, jumps to kernel.
-3. **Kernel** — decompresses, brings up CPUs/memory/built-in drivers, mounts initramfs as `/`, runs `/init`.
-4. **Initramfs** — loads drivers needed to mount the real root FS, then `switch_root` into it.
-5. **Init (PID 1, systemd)** — brings up units in dependency order until reaching `default.target` (multi-user / graphical).
-6. **Login** — `getty` on TTYs or display manager (gdm/sddm).
+1. **Firmware (BIOS/UEFI)** — POST, picks boot device, loads MBR (BIOS) or `.efi` from ESP (UEFI).
+2. **Bootloader (GRUB2)** — reads config, loads `vmlinuz` + `initramfs` into RAM, hands off.
+3. **Kernel decompresses** — brings up CPUs, memory, built-in drivers.
+4. **initramfs** — early root FS with drivers to mount the real root; runs `/init`, then `switch_root`.
+5. **systemd (PID 1)** — parses units, builds dep graph, brings up `default.target` (typically `multi-user.target`).
+6. **Login** — `getty` on TTYs, or `gdm`/`sddm`.
 
-`systemd-analyze` breaks down the time spent in each stage.
+**DevOps tooling:**
+
+```bash
+systemd-analyze                    # total boot time
+systemd-analyze blame              # slowest units
+systemd-analyze critical-chain     # sequential bottleneck
+systemd-analyze plot > boot.svg    # visual timeline
+dmesg -T | less                    # kernel ring buffer
+journalctl -b                      # this boot's logs
+journalctl -b -1                   # previous boot
+```
+
+**Cloud angle:** EC2 nodes rarely reboot in production, but when they do — kernel updates, ASG replacement — a slow boot means slower autoscaling. `cloud-init` runs late in the boot; its logs are in `/var/log/cloud-init.log`.
 
 **28. What is systemd, and how is it different from SysV init?**
 
-**systemd** is a modern init system (PID 1) using declarative **unit files**, an explicit **dependency graph**, and **parallel** unit startup. **SysV init** used numbered shell scripts in `/etc/rc<N>.d/` run sequentially.
+**systemd** is the modern init (PID 1). Declarative unit files, explicit dependencies, parallel startup, cgroup tracking.
 
-| SysV init                       | systemd                              |
-| ------------------------------- | ------------------------------------ |
-| Shell scripts in `/etc/init.d/` | INI-style `.service` / `.target` units |
-| Sequential boot                 | Parallel boot via dep graph          |
-| Runlevels (0–6)                 | Targets (multi-user.target, etc.)    |
-| Hard to track child processes   | cgroup-based — always knows every descendant |
-| `service` / `chkconfig`         | `systemctl` / `journalctl`           |
+| SysV init                       | systemd                                          |
+| ------------------------------- | ------------------------------------------------ |
+| Shell scripts in `/etc/init.d/` | INI-style `.service` / `.timer` / `.socket` units |
+| Sequential boot                 | Parallel via dep graph                            |
+| Runlevels (0–6)                 | Targets (multi-user.target, graphical.target)     |
+| Lose track of daemon children   | cgroup-based — every child tracked                |
+| `service`, `chkconfig`          | `systemctl`, `journalctl`                         |
+| No socket activation             | Socket-activated units (on-demand start)          |
+| Logs to `/var/log/*` (or nothing)| Journal (`journalctl -u <svc>`)                  |
+
+**DevOps daily-driver commands:**
+
+```bash
+systemctl status/start/stop/restart/reload nginx
+systemctl enable --now nginx      # start now, enable on boot
+systemctl daemon-reload           # after editing unit files
+systemctl edit nginx              # override drop-in (safer than editing the vendor unit)
+systemctl list-units --failed     # what's broken
+journalctl -u nginx -f            # live tail
+journalctl -u nginx -p err        # errors only
+journalctl --since "1 hour ago" --until "5 min ago"
+```
+
+**Writing a unit** (interview favorite):
+
+```ini
+# /etc/systemd/system/myapp.service
+[Unit]
+Description=My App
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=app
+ExecStart=/opt/app/bin/server
+Restart=on-failure
+RestartSec=5
+Environment=LOG_LEVEL=info
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+```
 
 **29. How do you redirect stdout, stderr, both, and to a file?**
 
 ```bash
 cmd > file              # stdout → file (truncate)
-cmd >> file             # stdout → file (append)
+cmd >> file             # append
 cmd 2> file             # stderr → file
-cmd > out 2> err        # stdout + stderr to separate files
-cmd > file 2>&1         # both to one file
-cmd &> file             # same (bash shorthand)
+cmd > out 2> err        # separate files
+cmd > file 2>&1         # both → same file (ORDER MATTERS)
+cmd &> file             # bash shortcut for both
 cmd < input.txt         # stdin from file
-cmd | other             # pipe stdout into another command
-cmd 2>&1 | tee log      # log both streams and see them live
-cmd > /dev/null 2>&1    # silence everything
+cmd | other             # pipe stdout
+cmd 2>&1 | other        # pipe both
+cmd | tee log           # duplicate to file AND stdout
+cmd 2>&1 | tee -a log   # append both to log, keep seeing them
+cmd > /dev/null 2>&1    # silence — cron/systemd override this anyway
+cmd > >(logger -t app)  # bash process substitution — pipe to a command
 ```
+
+**Order trap:** `cmd > file 2>&1` sends both to file. `cmd 2>&1 > file` only stdout to file, stderr stays on terminal. Left to right; `2>&1` copies **wherever fd 1 currently points**.
+
+**DevOps note:** In systemd units, don't redirect at all — let stdout/stderr flow to the journal. Use `StandardOutput=journal` (default). Redirecting to files defeats journal features (rotation, structured metadata, `journalctl -p err`).
 
 **30. Explain how to securely set up SSH key authentication.**
 
 ```bash
-# 1. On client: generate a key pair (Ed25519 preferred over RSA)
-ssh-keygen -t ed25519 -C "you@host"
-# Produces ~/.ssh/id_ed25519 (private — NEVER share) and id_ed25519.pub
+# Client: generate Ed25519 (small, fast, secure)
+ssh-keygen -t ed25519 -C "alice@laptop-2026"
 
-# 2. Copy the public key to the server:
-ssh-copy-id user@server
-# Or manually: append id_ed25519.pub to ~/.ssh/authorized_keys on the server
+# Copy public key to server:
+ssh-copy-id -i ~/.ssh/id_ed25519.pub user@server
 
-# 3. Lock down server-side:
-sudo vi /etc/ssh/sshd_config
-#   PasswordAuthentication no
-#   PermitRootLogin prohibit-password   # or no
-#   PubkeyAuthentication yes
-sudo systemctl restart sshd
-
-# 4. Protect the private key:
-chmod 600 ~/.ssh/id_ed25519
+# Server: harden /etc/ssh/sshd_config
+PasswordAuthentication no
+PermitRootLogin no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+MaxAuthTries 3
+LoginGraceTime 20
+AllowUsers alice bob deploy
+# Restart:
+sudo systemctl reload sshd
 ```
 
-Best practice: use **separate keys per machine**, protect private keys with a **passphrase** + `ssh-agent`, and rotate keys periodically.
+**DevOps best practices interviewers want to hear:**
+- **Ed25519 > RSA** (smaller, faster, resistant to more attacks). If RSA, minimum 3072 bits.
+- **Passphrase-protected keys + `ssh-agent`** — key never touches disk unencrypted.
+- **One key per machine**, not one master key everywhere. If a laptop is stolen, revoke that key only.
+- **`authorized_keys` restrictions:** `from="10.0.0.0/8",no-port-forwarding,command="/usr/bin/rsync ..." ssh-ed25519 AAAA…` locks a key to one IP + one command (great for backups).
+- **Certificate authorities** (`ssh-keygen -s ca_key ...`) at scale — sign short-lived user keys, no per-host `authorized_keys` sprawl. Used by Netflix's BLESS, HashiCorp Vault SSH, Google's BeyondCorp.
+- **Bastion/jump hosts** with `ProxyJump` (`ssh -J bastion internal`).
+- **Rotate keys** and audit `authorized_keys` files across the fleet (Ansible/Chef).
+
+**Interview red-flag:** Anyone who says "I `chmod 777 ~/.ssh` and it worked" — sshd will silently reject that. Perms must be `~/.ssh 700`, `authorized_keys 600`, `id_ed25519 600`.
 
 ---
 
-### Hard (Senior Level)
+### Hard (Senior / SRE Level)
 
 **31. Explain how Linux memory management works (paging, swap, OOM killer).**
 
-Linux uses **virtual memory** — each process sees a private 64-bit address space backed by physical pages. The kernel splits memory into 4 KiB **pages**, mapped via per-process page tables. Unused pages get **paged out to swap**; frequently-accessed disk blocks are kept in the **page cache** to speed reads.
+Linux gives every process a private **virtual address space** (48-bit user portion on x86_64). Physical memory is split into 4 KiB **pages** (2 MiB / 1 GiB huge pages available). Page tables map virtual → physical; the CPU MMU walks them, TLB caches recent translations.
 
-When physical RAM is exhausted **and** swap is exhausted (or fast filling), the **OOM killer** runs. It picks a victim using `oom_score` (computed from RSS + `oom_score_adj`) and sends SIGKILL. To favor or protect a process:
+Key concepts DevOps engineers must know:
+
+- **Page cache** — free RAM caches recently-read file blocks. `free` shows this as "cache/buff". Reclaimable at any moment. **"Used" ≠ pressure — `available` is the real number.**
+- **Anonymous memory** — heap, stack, `mmap(MAP_ANONYMOUS)`. Backed only by RAM (+ swap).
+- **File-backed** — mmap'd files, executables. Can be evicted without swap.
+- **Swap** — disk overflow for anon pages. Slow. Kubernetes disables it.
+- **kswapd** — reclaims pages in the background when free memory drops below `vm.min_free_kbytes`.
+- **OOM killer** — last resort: sends SIGKILL to the process with the highest `oom_score`.
+
+**Tunables that come up in interviews:**
 
 ```bash
-echo -1000 > /proc/<pid>/oom_score_adj   # never kill (range -1000..1000)
+vm.swappiness = 10               # 0-100, lower = prefer dropping cache over swapping
+vm.overcommit_memory = 1         # 0=heuristic, 1=always allow, 2=strict (checked against limits)
+vm.overcommit_ratio = 80         # with 2, allowed = swap + ratio% * RAM
+vm.dirty_ratio = 20              # % dirty pages before writer blocks
+vm.dirty_background_ratio = 10   # % dirty before background writeback
+vm.min_free_kbytes                # RAM kswapd keeps free
 ```
 
-Tune with **`vm.swappiness`** (paging aggressiveness), **`vm.overcommit_memory`** (allocation policy), and **`vm.dirty_ratio`** (dirty page flush threshold).
+**Container angle:** cgroup **memory.max** caps a container's memory. Exceeding it triggers cgroup-OOM: kills a process inside the container, not on the host. `dmesg | grep -i "memory cgroup out of memory"` shows these. In K8s: `OOMKilled` in `kubectl describe pod`, exit code 137 (128 + 9).
 
 **32. What are cgroups and namespaces? How are they used in containers?**
 
-Both are kernel features that together enable containers.
+Together they're the entire foundation of containers.
 
-- **Namespaces** isolate **what a process can see**: PID, network, mount, UTS (hostname), IPC, user, cgroup. A process in a new PID namespace sees its own PID 1; in a new network namespace it has its own interfaces.
-- **cgroups** ("control groups") limit **what resources a process can use**: CPU shares, memory caps, I/O bandwidth, PIDs count. cgroups v2 is the modern unified hierarchy.
+**Namespaces — isolate what a process can SEE:**
 
-Docker / Podman / Kubernetes combine namespaces (isolation) + cgroups (limits) + a layered filesystem (overlayfs) + capabilities/seccomp/AppArmor (security) to build a container. A container is not a VM — it shares the host kernel.
+| Namespace | What it isolates                                     |
+| --------- | ---------------------------------------------------- |
+| `pid`     | Process IDs — container's PID 1 is the app           |
+| `net`     | Network interfaces, routes, iptables, sockets        |
+| `mnt`     | Mount table — container has its own root FS view     |
+| `uts`     | Hostname, domainname                                 |
+| `ipc`     | System V IPC, POSIX message queues                   |
+| `user`    | UID/GID mapping — root in container ≠ root on host   |
+| `cgroup`  | View of the cgroup hierarchy                         |
+| `time`    | (newer) boot/monotonic clock offsets                 |
+
+**cgroups — limit what resources a process can USE:**
+
+| Controller | Limits                                        |
+| ---------- | --------------------------------------------- |
+| `cpu`      | CPU shares, quota (K8s CPU limits)             |
+| `memory`   | RSS + swap caps, OOM policy                    |
+| `io`       | Disk read/write bandwidth, IOPS                |
+| `pids`     | Max PIDs (fork bomb protection)                |
+| `devices`  | Which /dev nodes are accessible                |
+| `hugetlb`  | Huge page usage                                |
+
+**cgroups v2** unified all controllers under `/sys/fs/cgroup/`. cgroups v1 had per-controller hierarchies. Modern systems (RHEL 9, Ubuntu 22.04+) default to v2. K8s 1.25+ has stable v2 support.
+
+**How a container is built** (`unshare` + `clone3` + `pivot_root` + cgroups):
+
+```bash
+sudo unshare --pid --net --mount --uts --ipc --fork \
+     bash -c 'hostname mycontainer; mount -t proc proc /proc; exec bash'
+# You now have a "container" — no runtime needed.
+```
+
+Runtimes (containerd, CRI-O, runc) do the same plus overlay FS, seccomp, capabilities, network setup.
 
 **33. How does copy-on-write `fork()` work?**
 
-`fork()` creates a child process that's a near-exact copy of the parent. Naive implementation: copy every page. Linux uses **copy-on-write (COW)**: the child shares the parent's pages, marked read-only. Both processes can read freely; the first **write** triggers a page fault, the kernel allocates a fresh page, copies the original, marks both writable, and resumes. Pages that are never written are never duplicated.
+`fork()` clones the parent: same PID table entry (with new PID), same file descriptor table, same page table entries — but **all pages marked read-only** in both parent and child.
 
-That's why `fork()` followed immediately by `execve()` is cheap — `execve` discards the address space before any writes happen, so almost nothing is actually copied.
+The first **write** by either side triggers a page fault. The kernel:
+1. Allocates a new physical page.
+2. Copies the original page's contents.
+3. Points the writing process's page table entry to the new page.
+4. Marks both entries writable again (if only one owner remains).
+5. Resumes the process.
+
+**Why DevOps interviewers care:** COW is why Redis's `BGSAVE` (fork to snapshot) doesn't double memory usage — until writes happen. It's why `fork()` followed by immediate `execve()` is essentially free — `execve()` throws away the address space before any writes happen. It's why Python's `multiprocessing` with `fork` start method shares interpreter state until first mutation.
+
+**Gotcha:** On a 100 GB Redis instance, `BGSAVE` can still double memory if writes are heavy during the fork window. That's what `vm.overcommit_memory=1` is set for — Redis logs "background save may fail" if overcommit is 0.
 
 **34. Explain inodes. What happens when you run out of inodes?**
 
-An **inode** is the on-disk record holding a file's metadata: type, permissions, owner, size, timestamps, link count, and pointers to data blocks. The **filename is not in the inode** — it lives in a directory entry that maps a name → inode number.
+**Inode** = on-disk record of a file's metadata: type, perms, owner, size, timestamps, link count, block pointers. The **filename lives in the parent directory's data**, not in the inode — that's why hard links "just work".
 
-Ext2/3/4 allocate inodes at `mkfs` time (fixed pool); XFS/Btrfs allocate dynamically. If you create millions of tiny files on ext4, you can **exhaust inodes** even with bytes free — `df -h` shows free space, but `df -i` shows 100%. The fix: delete files, or reformat with `mkfs.ext4 -i <bytes-per-inode>` to allocate more inodes per byte.
+**ext2/3/4** allocate inodes at `mkfs` time — fixed pool, sized by `bytes-per-inode` (default 16 KB). **XFS/Btrfs** allocate dynamically.
+
+**Interview scenario:** *"`df -h` says 40% used, but `touch /var/tmp/foo` fails with 'No space left on device'."*
+
+```bash
+df -i                   # inode usage per FS
+find / -xdev -type d -exec sh -c 'echo $(ls -f "$1" | wc -l) $1' _ {} \; 2>/dev/null \
+  | sort -n | tail      # find the dir with the most files
+```
+
+Typical culprits in DevOps:
+- **Docker overlay2** — millions of tiny layer files on ext4 with default inode density.
+- **Session storage** (PHP, Rails) writing thousands of files.
+- **Sendmail/postfix** queues with stuck retries.
+- **Node.js `node_modules`** — on shared build servers, dozens of clones = inode explosion.
+
+Fix short-term: delete files. Fix long-term: `mkfs.ext4 -T news /dev/sdb1` (higher inode density), or switch to **XFS**.
 
 **35. How would you debug high load average with low CPU usage?**
 
-**Load average includes runnable + uninterruptible (D-state) processes.** Low CPU + high load = processes blocked on I/O, not CPU.
+Classic senior interview scenario. Load average = **runnable + uninterruptible sleep**. Low CPU + high load → processes stuck in **D state** on I/O.
 
-Diagnosis order:
+USE-method diagnosis order:
 
 ```bash
-uptime               # confirm high load
-mpstat 1 5           # see %iowait — if high, it's disk
-vmstat 1 5           # b column = blocked procs; wa = iowait
-iostat -xz 1         # per-disk %util, await — find the busy disk
-iotop -o             # which PROCESS is doing the I/O
-ps -eo pid,stat,wchan,cmd | awk '$2 ~ /D/'   # processes stuck in D state
+uptime                        # confirm — 1m, 5m, 15m load
+mpstat -P ALL 1 5             # per-CPU: watch %iowait, %sys
+vmstat 1 5                    # b column = blocked procs, wa = iowait, si/so = swap
+iostat -xz 1 5                # per-disk %util, r/w await (ms), aqu-sz
+iotop -oPa                    # per-process I/O — top offender
+ps -eo pid,state,wchan:32,cmd | awk '$2=="D"'   # what kernel func they're stuck in
+dmesg -T | tail               # I/O errors, NFS timeouts
 ```
 
-Common culprits: failing disk (check `dmesg`), NFS hang, swap thrashing, a misbehaving database flush.
+**Common root causes** by shape:
+- **High `%iowait`, high disk `%util`** → disk saturation. Slow disk, wrong RAID mode, log spam.
+- **High `%iowait`, low disk `%util`** → NFS/network filesystem hang. `mount` + `showmount -e`.
+- **`si/so` non-zero** → swap thrashing. Fix memory allocation or raise limits.
+- **Load high, disk fine, CPU idle** → futex contention, lock waits inside app. `perf top`, `bpftrace` on `syscalls:sys_enter_futex`.
+- **All processes in D on `wait_on_page_bit`** → dirty pages piling up. Tune `vm.dirty_*`.
+
+**eBPF tools that come up:** `biolatency`, `biosnoop`, `filetop`, `runqlat`, `offcputime`.
 
 **36. What's the difference between Buffer and Cache in `free` output?**
 
 Historically:
-- **Buffers** = raw block-device cache (e.g. filesystem metadata blocks read by `dd if=/dev/sda`).
-- **Cache** = page cache (file contents read by `cat /etc/passwd`).
+- **Buffers** — raw block-device I/O (metadata blocks, direct `/dev/sd*` reads).
+- **Cache** — page cache (file content, `mmap`).
 
-Modern Linux unifies them — both are reclaimable. The number that actually matters is **`available`**, which estimates how much memory a new process can grab without forcing swap. "Used" memory in `free` includes cache; that's not memory pressure.
+Since kernel 2.4 both share the same page cache infrastructure — the split is now cosmetic.
+
+**What actually matters for DevOps:**
+
+```
+              total    used    free   shared  buff/cache  available
+Mem:           32G     10G     500M    1G      21G         21G
+```
+
+- **`used`** — anon + kernel + slab. **Real usage.**
+- **`buff/cache`** — reclaimable when needed. Not pressure.
+- **`available`** — the number that answers "can I start another process?" It estimates how much is free + how much cache can be reclaimed without swapping. Prometheus's `node_memory_MemAvailable_bytes`.
+
+**Interview red flag:** Monitoring dashboards that alert on "used > 80%" — they'll page you constantly because cache always fills RAM. Alert on **`(MemTotal - MemAvailable) / MemTotal`** instead.
 
 **37. How does filesystem journaling work?**
 
-A **journal** is a log of pending filesystem changes written **before** the changes are applied to the main FS structures. After a crash, the FS replays the journal at mount time, finishing or discarding in-progress operations — so the FS is always recoverable to a consistent state.
+A **journal** logs pending metadata (and optionally data) changes before applying them. On crash, mount-time replay finishes or discards in-progress transactions — the FS is always consistent.
 
-ext4 journal modes:
-- **`data=writeback`** — metadata journaled, data not. Fastest, can leak stale data after crash.
-- **`data=ordered`** (default) — metadata journaled; data written before its metadata commit.
-- **`data=journal`** — both data and metadata journaled. Safest, slowest.
+ext4 modes:
 
-XFS and Btrfs have their own designs; both are crash-safe by construction.
+| Mode              | Metadata | Data      | Speed  | Safety |
+| ----------------- | -------- | --------- | ------ | ------ |
+| `data=writeback`  | Journaled | Not       | Fastest | Metadata safe, stale data possible |
+| `data=ordered`    | Journaled | Written first | Default | Standard tradeoff |
+| `data=journal`    | Journaled | Journaled | Slowest | Strongest — data + metadata atomic |
+
+**Databases:** `data=journal` conflicts with database WAL (double journaling). Postgres/MySQL run best on `data=writeback` + their own fsync, or on XFS.
+
+**XFS** uses metadata-only journaling — very fast, standard for large-file workloads (databases, log ingestion). RHEL default since 7.
+
+**Btrfs/ZFS** are copy-on-write — no journal, snapshots are cheap, checksums built in. Trade-off: more RAM, complex management.
+
+**DevOps decision framework:**
+- General-purpose server, containers: **ext4** or **XFS**.
+- Databases, large sequential files: **XFS**.
+- Backup targets, snapshots, dedup: **ZFS**.
+- Container image layers: **overlayfs on ext4/XFS**.
 
 **38. What happens step-by-step when you type a command and press Enter?**
 
-1. **Shell reads** the line, performs **word splitting**, **glob expansion** (`*.txt`), **variable expansion** (`$HOME`), **command substitution** (`$(...)`), **pipe/redirect setup**.
-2. Shell looks up the command: **builtins** first (`cd`, `echo`), then **functions/aliases**, then **`$PATH`** lookup.
-3. Shell calls **`fork()`** → child process is created via COW.
-4. Child calls **`execve("/usr/bin/cmd", argv, envp)`** — kernel replaces the child's address space with the binary.
-5. Kernel loads the **dynamic linker** (`ld-linux.so`), which maps shared libraries.
-6. Binary's `main()` runs; it makes **syscalls** (open, read, write) via the `syscall` instruction.
-7. On exit, child calls **`exit()`**; kernel reaps resources and stores the **exit code**.
-8. Parent shell's `wait()` returns; **`$?`** is set to the exit code; shell prints the prompt.
+The **canonical senior interview question** — proves you understand the whole stack.
+
+1. **Terminal** captures keystrokes, sends to shell over the pty (pseudo-terminal).
+2. **Shell parses** the line: word splitting, brace expansion (`{a,b}`), tilde (`~`), variables (`$X`), commands (`$(...)`), arithmetic (`$((..))`), pathname globbing (`*.log`), quote removal.
+3. **Shell resolves** the command: aliases → functions → builtins (`cd`, `echo`) → `$PATH` lookup → cache in hash table (`hash -r` to clear).
+4. **Shell forks** (`fork` / `clone`): COW child.
+5. **Redirects/pipes** are set up in the child (`dup2`, `pipe2`).
+6. Child calls **`execve("/usr/bin/cmd", argv, envp)`** — kernel checks perms, reads ELF header, verifies architecture, sets up address space.
+7. **Dynamic linker** (`/lib64/ld-linux-x86-64.so.2`) loads shared libraries (`.so` files listed via `readelf -d` / `ldd`), applies relocations, then jumps to the binary's `_start` → `main`.
+8. Binary runs, makes **syscalls** (`open`, `read`, `write`, `openat`, `mmap`) via the `syscall` instruction. Each traps to ring 0, kernel executes, returns.
+9. On `exit(N)`, kernel closes FDs, unmaps memory, notifies parent via SIGCHLD, becomes a **zombie** until reaped.
+10. Parent's **`wait()`** collects exit code, stored in `$?`, PID is freed, prompt returns.
+
+**Follow-up interviewers love:** *"Where does DNS happen?"* → Between steps 7 and 8 if the command needs it (`getaddrinfo` in libc → `/etc/nsswitch.conf` → `/etc/resolv.conf` → nameserver query). *"Where does TLS happen?"* → Inside the process, over the TCP socket (step 8).
 
 **39. How would you find which process is consuming the most I/O?**
 
-```bash
-# Live, per-process:
-sudo iotop -oP             # -o: only active, -P: processes (not threads)
+Layered approach — **disk → process → syscall**:
 
-# Scriptable / non-curses:
+```bash
+# 1. Confirm disk saturation:
+iostat -xz 1 5              # %util, r_await, w_await (ms), aqu-sz
+
+# 2. Live per-process view:
+sudo iotop -oPa             # -o only active, -P processes, -a accumulated
+
+# 3. Scriptable (no curses):
 sudo pidstat -d 1 5
 
-# Per-disk view first, then drill down:
-iostat -xz 1               # find the busy device (%util, await)
-sudo lsof <device-or-mount>   # who has it open?
+# 4. Per-file view (what's actually being written):
+sudo fatrace                # every file access, live
+sudo fatrace -c             # summary
 
-# Kernel-level eBPF (most precise):
-sudo biosnoop-bpfcc         # per-I/O latency + offending process
-sudo biolatency-bpfcc       # histogram of I/O latencies
+# 5. eBPF — production-grade, near-zero overhead:
+sudo biolatency-bpfcc       # histogram of block I/O latency
+sudo biosnoop-bpfcc         # per-I/O with PID, latency, offset
+sudo filetop-bpfcc          # top files by read/write
+sudo ext4slower-bpfcc 10    # ext4 ops slower than 10 ms
 ```
+
+**Cloud follow-up:** On AWS EBS, high `w_await` with modest IOPS = you're hitting the volume's IOPS/throughput limit. Check CloudWatch `VolumeQueueLength`, `BurstBalance`. Fix: upgrade to gp3 with provisioned IOPS, or io2.
 
 **40. Explain LVM and its benefits.**
 
-**LVM** (Logical Volume Manager) is an abstraction layer between physical disks and filesystems:
+Layered abstraction between disks and filesystems:
 
 ```
-Physical Volumes (PVs)   ← raw disks/partitions (pvcreate /dev/sdb1)
+Physical Volumes (PVs)     ← raw disks/partitions
         ↓
-Volume Group (VG)        ← pool of PV storage (vgcreate vg0 /dev/sdb1)
+Volume Group (VG)          ← pool of PV storage
         ↓
-Logical Volumes (LVs)    ← carved out of VG, looks like a partition (lvcreate -L 100G vg0)
+Logical Volumes (LVs)      ← "partitions" carved from the pool
         ↓
-Filesystem (ext4/xfs)    ← mkfs.ext4 /dev/vg0/data
+Filesystem (ext4/xfs)      ← mkfs
 ```
 
-Benefits: **online resize** (grow `/` without reboot), **snapshots** (consistent point-in-time copies for backups), **adding disks to existing volumes** (extend VG with `vgextend`), **thin provisioning**, **mirroring/striping** built in.
+```bash
+sudo pvcreate /dev/nvme1n1                     # attach disk as PV
+sudo vgcreate data /dev/nvme1n1                # create VG named 'data'
+sudo lvcreate -L 100G -n logs data             # 100 GB LV
+sudo mkfs.xfs /dev/data/logs
+sudo mount /dev/data/logs /var/log
+
+# Grow later, online:
+sudo lvextend -L +50G /dev/data/logs && sudo xfs_growfs /var/log
+
+# Snapshot for consistent backup:
+sudo lvcreate -L 10G -s -n logs-snap /dev/data/logs
+```
+
+**DevOps use cases:**
+- **Online resize** — `/` and `/var` grow without downtime.
+- **Snapshots** — instant, then `dd`/`rsync` from the snapshot for consistent backup.
+- **Aggregating cloud disks** — stripe multiple EBS volumes for higher throughput (`lvcreate -i N`).
+- **Thin provisioning** — allocate on write; useful in dev environments.
+
+**Cloud angle:** AWS/GCP already give you elastic block storage — you can grow the underlying disk, then `growpart` + `resize2fs`/`xfs_growfs`. LVM adds value when you want **snapshots**, **striping across multiple volumes**, or **thin pools**. For a single elastic volume, LVM is often unnecessary complexity.
 
 **41. How does SSH key-based authentication work cryptographically?**
 
-1. Client sends "I'd like to authenticate as user X with this **public key** fingerprint".
-2. Server checks its `~user/.ssh/authorized_keys`. If the fingerprint matches an entry:
-3. Server generates a **random challenge**, encrypts it with the **public key**, sends it.
-4. Client decrypts with its **private key** (only the holder can do this), signs the result, returns it.
-5. Server verifies the signature using the public key — if valid, authentication succeeds.
+Modern OpenSSH (protocol 2) with a keypair:
 
-It's **public-key cryptography**: the public key encrypts (or verifies); only the private key can decrypt (or sign). The private key never leaves the client. Modern setups use **Ed25519** or **ECDSA**; RSA is still common but requires ≥ 3072-bit keys.
+1. **TCP + key exchange** — Diffie-Hellman (or ECDH curve25519) establishes a shared session secret. All subsequent traffic is encrypted (ChaCha20-Poly1305 / AES-GCM) and integrity-protected.
+2. **Client sends** its public key or key fingerprint.
+3. **Server checks** `~user/.ssh/authorized_keys` for the fingerprint.
+4. **Challenge-response** — server sends session ID; client **signs** it with the private key. Server **verifies** the signature with the public key.
+5. If the signature is valid, user is authenticated.
+
+Public-key crypto in a sentence: **private key signs, public key verifies**. The private key never leaves the client.
+
+**DevOps interview follow-ups:**
+- **Ed25519 vs RSA?** — Ed25519 is smaller (256-bit key vs 3072+), faster, deterministic signing, no bad random risk. RSA still common for legacy.
+- **What's in `known_hosts`?** — server public key fingerprints. Man-in-the-middle detection. Rotating: `ssh-keygen -R host`.
+- **SSH agent forwarding?** — `-A` forwards agent socket; convenient but risky (compromised jump host can use your key). Prefer **`ProxyJump`** which does not forward the agent.
+- **SSH certificates** — CA signs short-lived user certs; no per-host `authorized_keys` sprawl. Standard at Google, Netflix, Uber.
 
 **42. What is SELinux/AppArmor, and how do they differ from traditional permissions?**
 
-Traditional Unix permissions are **discretionary** (DAC) — the file owner controls access. **SELinux** and **AppArmor** add **mandatory access control** (MAC) — a system-wide policy decides what every process can do, on top of DAC.
+Unix perms are **DAC** — Discretionary Access Control, owner decides. **SELinux / AppArmor** add **MAC** — Mandatory Access Control, system-wide policy enforced by the kernel, above and beyond DAC. **Even root is restricted.**
 
-- **SELinux** (Red Hat ancestry, default on RHEL/Fedora) — labels every file/process with a **security context** (`user:role:type:level`). Policy says "processes of type `httpd_t` can only read files of type `httpd_config_t`". Powerful but complex.
-- **AppArmor** (default on Ubuntu/SUSE) — **path-based** profiles per binary. `/usr/sbin/nginx` is restricted by `/etc/apparmor.d/usr.sbin.nginx`. Simpler than SELinux, less granular.
+| Feature   | SELinux                              | AppArmor                       |
+| --------- | ------------------------------------ | ------------------------------ |
+| Origin    | NSA / Red Hat                         | Immunix / Canonical             |
+| Default   | RHEL, CentOS, Fedora, Amazon Linux    | Ubuntu, SUSE, Debian             |
+| Model     | **Label-based** (`user:role:type:level`) | **Path-based** profiles      |
+| Complexity | High — SELinux booleans, contexts    | Lower — one profile per binary  |
+| Granularity | Extreme (MLS supported)              | Sufficient for most cases       |
 
-Even **root** is restricted by MAC — that's the point.
+**SELinux daily commands:**
+
+```bash
+getenforce                            # Enforcing / Permissive / Disabled
+sestatus
+ls -Z /var/www/html                   # show file contexts
+ps -eZ | grep httpd                   # process contexts
+sudo audit2allow -a                   # generate policy from denials
+sudo restorecon -Rv /var/www          # restore default contexts
+setsebool -P httpd_can_network_connect on
+```
+
+**AppArmor:**
+
+```bash
+sudo aa-status
+sudo aa-complain /etc/apparmor.d/usr.sbin.nginx    # switch to complain (log) mode
+sudo aa-enforce /etc/apparmor.d/usr.sbin.nginx     # back to enforce
+```
+
+**Interview scenario:** *"Nginx can't bind to a custom port 8888 on RHEL — why?"* → SELinux policy allows nginx on 80/443 only. Fix: `sudo semanage port -a -t http_port_t -p tcp 8888`. Candidates who just say "turn off SELinux" fail — production doesn't disable MAC.
 
 **43. Explain the difference between threads and processes in Linux.**
 
-In Linux, both threads and processes are created by **`clone(2)`**. The difference is the flags:
+In Linux, both go through **`clone(2)`**. What differs is which resources are shared.
 
-- A **process** has its own address space, file descriptors, and PID. `clone()` without `CLONE_VM` / `CLONE_FILES` (or equivalently `fork()`).
-- A **thread** shares the address space, file descriptors, signal handlers, and PID with siblings, but has its own TID and stack. `clone(CLONE_VM | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | ...)`.
+| Shared               | Process (`fork()`)         | Thread (`pthread_create`)    |
+| -------------------- | -------------------------- | ---------------------------- |
+| Address space (VM)   | No                         | **Yes**                      |
+| File descriptors     | Copied at fork              | Shared                       |
+| Signal handlers      | Copied                     | Shared                       |
+| Signal mask          | Copied                     | Per-thread                    |
+| PID (TGID)           | Own                        | Same as parent               |
+| Kernel-visible ID    | PID                        | TID (different, same TGID)   |
+| Own stack            | Yes                        | Yes                          |
+| Creation cost        | Higher (page-table copy, COW-lazy) | Lower                |
 
-Threads are cheaper to create (no page-table copy) and communicate via shared memory; processes are more isolated. `ps -eLf` shows threads; `/proc/<pid>/task/` lists them. `getpid()` returns the TGID (process); `gettid()` returns the TID.
+`ps -eLf` shows threads. `/proc/<pid>/task/` lists TIDs. `getpid()` returns TGID; `gettid()` returns TID.
+
+**DevOps relevance:**
+- **JVM/Go runtimes** — thousands of threads share one memory space. `ps aux` shows huge VSZ for a Java process; that's normal, RSS is what's actually used.
+- **`ulimit -u`** (nproc) counts **threads**, not processes. A JVM hitting `nproc` limit fails with "unable to create native thread". Fix in `/etc/security/limits.conf`.
+- **Container `pids.max`** cgroup — limits both. Fork bombs in containers get capped here.
 
 **44. What is eBPF, and how is it used in production?**
 
-**eBPF** ("extended Berkeley Packet Filter") is a tiny safe VM **inside the Linux kernel** that lets you attach programs to kernel events (syscalls, tracepoints, network packets, scheduler events) without writing a kernel module. Programs are verified for safety before loading, so they can't crash the kernel.
+**eBPF** = a tiny in-kernel virtual machine that runs sandboxed, verified programs attached to kernel events (syscalls, tracepoints, kprobes, uprobes, XDP hooks, cgroup hooks). Programs are verified for safety before load — no crashes, no infinite loops.
 
-Production uses:
-- **Observability**: `bpftrace`, `bcc-tools` (`biolatency`, `tcpconnect`, `execsnoop`) — low-overhead tracing
-- **Networking**: **Cilium** (Kubernetes CNI), **Katran** (L4 load balancer at Meta)
-- **Security**: **Falco** (runtime threat detection), syscall filtering, audit replacement
-- **Performance**: profiling without `perf` overhead, custom histograms in production
+**Production DevOps uses:**
 
-eBPF is what "observability platforms" (Datadog, Pixie, Groundcover) use under the hood.
+| Category         | Tools / Products                                                 |
+| ---------------- | ---------------------------------------------------------------- |
+| **Observability** | `bpftrace`, bcc-tools (`execsnoop`, `tcpconnect`, `biolatency`) |
+| **Networking**    | **Cilium** (K8s CNI, service mesh), Katran (Meta L4 LB)         |
+| **Security**      | **Falco** (runtime detection), Tetragon, Tracee                 |
+| **Profiling**     | Continuous profilers: Parca, Pyroscope, Polar Signals, Pixie    |
+| **Performance**   | Netflix's `flame graphs`, on-CPU / off-CPU analysis             |
+
+**Interview one-liner:** *"eBPF is what makes modern observability platforms (Datadog, Pixie, Groundcover, Grafana Beyla) possible — kernel-level telemetry with near-zero overhead, no code changes to the app."*
+
+**Simple demo:**
+```bash
+sudo bpftrace -e 'tracepoint:syscalls:sys_enter_execve { printf("%s %s\n", comm, str(args->filename)); }'
+# Watches every exec on the system in real time.
+```
 
 **45. How does a system call actually work? (user → kernel → return)**
 
 ```
-Userspace:
-  mov rax, 0          ; syscall number (0 = read)
-  mov rdi, fd         ; arg 1 → first 6 args go in registers
-  mov rsi, buf        ; arg 2
-  mov rdx, count      ; arg 3
-  syscall             ; ← traps into ring 0
+Userspace (ring 3):
+  ; write(fd=1, buf, count)
+  mov rax, 1              ; syscall number
+  mov rdi, 1              ; fd
+  mov rsi, msg            ; buffer
+  mov rdx, msg_len        ; count
+  syscall                 ; TRAP into ring 0
 
-Kernel:
-  - CPU switches CS to kernel code segment, RSP to kernel stack
-  - entry_SYSCALL_64 saves user registers
-  - Looks up rax in sys_call_table → calls sys_read()
-  - sys_read does the work, returns result in rax
-  - Restores user registers
-  - sysretq → CPU back to ring 3
-
-Userspace:
-  - rax now holds bytes read (or -errno as a negative number)
-  - libc wrapper converts -errno → sets errno, returns -1
+Kernel (ring 0):
+  entry_SYSCALL_64:
+    swapgs                ; get kernel GS base
+    switch to kernel stack (TSS)
+    save user registers
+    validate syscall number
+    call sys_call_table[rax]  → __x64_sys_write
+    - permission checks (LSM hooks: SELinux/AppArmor)
+    - VFS layer → filesystem-specific write
+    - return value in rax (bytes or -errno)
+    restore user regs
+    sysretq → back to ring 3
 ```
 
-`strace -c` shows you which syscalls a program uses and how often. The vDSO maps a few hot syscalls (`gettimeofday`, `clock_gettime`) directly into user space to skip the trap.
+**Fast-path optimizations DevOps engineers should know:**
+- **vDSO** — `gettimeofday`, `clock_gettime`, `getcpu`, `time` are mapped into every process's address space; no trap needed. That's why they're absurdly cheap.
+- **io_uring** — modern async I/O: userspace submits requests to a shared ring, kernel completes asynchronously, minimal syscalls per op. Used by ScyllaDB, modern proxies.
+- **seccomp-BPF** — filters syscalls before they reach the syscall table. Container runtimes install a default seccomp profile blocking ~50 syscalls (`ptrace`, `mount`, `kexec_load`) — this is why `strace` inside a container often fails.
 
 **46. How would you debug a kernel panic?**
 
-A kernel panic prints a stack trace to the console (and sometimes the journal). Recovery steps:
+Kernel panics are rare in modern DevOps but hit hardest — **the whole node is down**. Playbook:
 
-1. **Capture the panic** — photo of the screen, or enable **`kdump`** to write a `vmcore` to `/var/crash/` on next boot.
-2. **Read the trace** — top frame is usually the offender. Look for `[<addr>] function_name+0xNN/0xMM`.
-3. **Match to a module** — `lsmod`-equivalent in `vmcore` shows which driver was active.
-4. **Check recent changes** — new kernel? new module? new hardware? Rolling back is often the fastest fix.
-5. **Reproduce in a VM** with the same kernel, then `crash` / `gdb vmlinux vmcore` to inspect state.
-6. **Boot the previous kernel** from GRUB's "Advanced options" while investigating.
+1. **Capture the panic** — enable **`kdump`** (RHEL) / `crashkernel=` kernel arg to reserve memory for a second kernel that dumps `vmcore` to `/var/crash/` on next boot. On cloud, use serial console (AWS EC2 Serial Console, GCP Cloud Console serial output).
+2. **Read the trace** — top-most frame is where it died. Look for:
+   - `BUG:` / `WARNING:` — kernel assertion.
+   - `Oops:` with `RIP:` — bad memory access at that instruction.
+   - `Call Trace:` — function call chain.
+3. **Correlate to changes** — new kernel? new module (nvidia, zfs, tailscale)? Recent `apt upgrade`? Roll back first (`grub` → Advanced options → previous kernel).
+4. **Analyze `vmcore`** — `crash /usr/lib/debug/lib/modules/<ver>/vmlinux /var/crash/*/vmcore`. Get backtraces, dmesg, ps.
+5. **Report upstream** if it's a mainline bug. Kernel Bugzilla or the maintainer of the module.
 
-Common causes: bad RAM (run `memtester` / `memtest86`), bad disk controller, buggy out-of-tree driver (NVIDIA, ZFS), kernel bug.
+**Common production panics DevOps sees:**
+- **NULL pointer in a NIC driver** — bad firmware, upgrade `linux-image` and `linux-firmware`.
+- **`Out of memory: Kill process`** — technically not a panic but often reported as one. See Q31.
+- **`WARNING: possible recursive locking detected`** — locking bug, usually in an out-of-tree driver (nvidia, zfs).
+- **Cloud: watchdog reset** — nested virtualization or bad instance type.
 
 **47. Explain how `strace` works under the hood.**
 
-`strace` uses **`ptrace(2)`** — a syscall that lets a tracer attach to a tracee. When the tracee enters or exits a syscall, the kernel stops it and notifies the tracer. The tracer reads registers (syscall number, args) and the tracee's memory (string contents) via `ptrace(PTRACE_PEEKDATA, ...)`.
+`strace` uses **`ptrace(2)`** — the "process trace" syscall. Steps:
+
+1. `strace` calls `fork()`; the child calls `ptrace(PTRACE_TRACEME, 0, ...)` then `execve(cmd)`. Or, `ptrace(PTRACE_ATTACH, pid, ...)` to attach to a running process.
+2. Kernel stops the tracee on every syscall entry and exit (or every signal, if requested).
+3. On each stop, kernel sends SIGCHLD to the tracer; `strace` reads registers with `ptrace(PTRACE_GETREGS, ...)` — syscall number in `rax`, args in `rdi/rsi/rdx/r10/r8/r9`.
+4. String args are dereferenced by reading tracee memory: `ptrace(PTRACE_PEEKDATA, ...)`.
+5. Tracer prints the formatted syscall, then `ptrace(PTRACE_SYSCALL, ...)` to resume.
 
 ```bash
-strace -p <pid>           # attach to a running process
-strace -f cmd             # follow forks
-strace -c cmd             # summary table at end
-strace -e openat cmd      # only specific syscalls
+strace -f -e trace=network,openat curl https://example.com     # only what you want
+strace -c ls /usr/bin > /dev/null                              # syscall count summary
+strace -p 1234 -o /tmp/trace.log                               # attach, log to file
+strace -e read=3 cat file                                      # dump content of fd 3
 ```
 
-Overhead is high — every syscall doubles in cost (entry + exit stop). For production tracing, use **eBPF-based tools** (`execsnoop`, `opensnoop`) instead — kernel-level, near-zero overhead.
+**Overhead:** ~5–200x slowdown. Every syscall doubles in cost (context switch on entry + exit). **Never use `strace` on production DBs or high-throughput services.** Use eBPF-based `execsnoop-bpfcc`, `opensnoop-bpfcc`, `tcpsnoop-bpfcc` — kernel-level, negligible overhead.
+
+**Interview red flag:** Candidate `strace`s a production Postgres to "see what it's doing" and Postgres slows to a crawl. Correct answer: `bpftrace` or `perf trace`.
 
 **48. What's the difference between a container and a VM at the kernel level?**
 
-| Aspect          | Virtual machine                       | Container                                    |
-| --------------- | ------------------------------------- | -------------------------------------------- |
-| Kernel          | Each VM has its own kernel             | Shares the host kernel                       |
-| Hardware        | Emulated/virtualized via hypervisor    | None — direct syscalls to host kernel        |
-| Boot time       | Tens of seconds                        | Milliseconds                                 |
-| Memory overhead | Hundreds of MB per VM                  | Megabytes per container                      |
-| Isolation       | Strong — hardware-level (Ring -1, VT-x) | Kernel-level (namespaces + cgroups + seccomp) |
-| Density         | ~10s per host                          | ~100s–1000s per host                         |
-| Cross-OS        | Yes (Linux VM on Windows host)         | No — Linux container needs Linux kernel      |
+| Aspect          | Virtual machine                          | Container                                       |
+| --------------- | ---------------------------------------- | ----------------------------------------------- |
+| Kernel          | Own kernel per VM                        | **Shared host kernel**                          |
+| Hardware        | Virtualized (VT-x, KVM, Hyper-V)         | None — direct syscalls to host                  |
+| Boot time       | Seconds to tens of seconds               | Milliseconds                                    |
+| RAM overhead    | Hundreds of MB per VM                    | Few MB (just the app + its libs)                |
+| Isolation       | Ring -1 (hypervisor)                     | Namespaces + cgroups + seccomp + capabilities   |
+| Density         | 10s per host                             | 100s–1000s per host                             |
+| Cross-OS        | Yes (Linux on Windows, macOS)            | No — Linux container needs Linux kernel        |
+| Escape severity | Very hard (hypervisor bug)               | Kernel bug → host compromise                    |
 
-A container is fundamentally a **regular Linux process** with restricted views (namespaces) and resource caps (cgroups). It's not "lightweight virtualization"; it's process isolation.
+**A container is a Linux process** — with namespaces to restrict what it sees and cgroups to cap what it uses. Nothing more. `ps -ef` on the host shows every container's processes.
+
+**Hybrid designs interviewers ask about:**
+- **Firecracker** (AWS Lambda, Fargate) — microVMs with millisecond boot. Best of both.
+- **gVisor** (Google) — userspace kernel that intercepts container syscalls. Extra isolation, some perf cost.
+- **Kata Containers** — each pod in a lightweight VM. K8s-compatible, VM-level isolation.
+
+**Interview trap:** "Containers are more secure than VMs" — **false**. VMs are more isolated. Containers trade isolation for density and speed. In multi-tenant environments (e.g., hosted CI), you use VMs or gVisor/Kata.
 
 **49. How do you tune a Linux server for high-performance networking?**
 
 ```bash
-# 1. Increase socket buffer sizes:
+# --- Socket buffers (throughput on high-BDP links) ---
 sysctl -w net.core.rmem_max=134217728
 sysctl -w net.core.wmem_max=134217728
 sysctl -w net.ipv4.tcp_rmem="4096 87380 134217728"
 sysctl -w net.ipv4.tcp_wmem="4096 65536 134217728"
 
-# 2. Bump backlog queues:
-sysctl -w net.core.somaxconn=4096
-sysctl -w net.core.netdev_max_backlog=10000
-sysctl -w net.ipv4.tcp_max_syn_backlog=8192
+# --- Connection queues (high connection rate) ---
+sysctl -w net.core.somaxconn=4096            # LISTEN backlog cap
+sysctl -w net.core.netdev_max_backlog=10000  # NIC → kernel queue
+sysctl -w net.ipv4.tcp_max_syn_backlog=8192  # SYN queue
+sysctl -w net.ipv4.tcp_fin_timeout=15        # faster FIN cleanup
+sysctl -w net.ipv4.tcp_tw_reuse=1            # reuse TIME_WAIT for outgoing
 
-# 3. Reuse TIME_WAIT sockets (short-lived connections):
-sysctl -w net.ipv4.tcp_tw_reuse=1
-
-# 4. BBR congestion control (better than cubic for high-bandwidth):
+# --- Congestion control (BBR beats cubic on high-BW/high-latency) ---
 sysctl -w net.ipv4.tcp_congestion_control=bbr
+sysctl -w net.core.default_qdisc=fq
 
-# 5. NIC tuning:
-ethtool -K eth0 gro on tso on gso on
-ethtool -G eth0 rx 4096 tx 4096      # ring buffer sizes
-ethtool -L eth0 combined $(nproc)    # multi-queue, one per CPU
+# --- Ephemeral port range (high outbound connection count) ---
+sysctl -w net.ipv4.ip_local_port_range="1024 65535"
 
-# 6. IRQ affinity — spread NIC interrupts across CPUs:
-sudo systemctl restart irqbalance
-# Or pin manually via /proc/irq/<N>/smp_affinity
+# --- NIC hardware offloads ---
+ethtool -K eth0 gro on tso on gso on lro off
+ethtool -G eth0 rx 4096 tx 4096              # ring buffer size
+ethtool -L eth0 combined $(nproc)            # multiqueue
 
-# 7. Raise file descriptor limits:
-ulimit -n 1048576                    # session
-# Persistent: /etc/security/limits.conf
+# --- IRQ affinity (spread NIC interrupts) ---
+systemctl restart irqbalance
+# Or manually pin: /proc/irq/<N>/smp_affinity_list
+
+# --- Conntrack (only if you use iptables/nftables NAT) ---
+sysctl -w net.netfilter.nf_conntrack_max=1000000
+sysctl -w net.netfilter.nf_conntrack_buckets=250000
+
+# --- File descriptor limits (many concurrent conns) ---
+# /etc/security/limits.conf:
+# *  soft  nofile  1048576
+# *  hard  nofile  1048576
+# systemd unit: LimitNOFILE=1048576
 ```
 
-Persist via `/etc/sysctl.d/99-network.conf`. Always benchmark before/after with `iperf3` / `wrk`.
+Persist via `/etc/sysctl.d/99-network.conf`, apply with `sysctl --system`.
+
+**Kubernetes angle:** Node-level tuning above helps every pod. Additional K8s-specific: `net.ipv4.ip_forward=1`, `net.bridge.bridge-nf-call-iptables=1`, conntrack table for kube-proxy iptables mode. For extreme scale, switch kube-proxy to IPVS mode or replace with **Cilium** (eBPF, no conntrack for service traffic).
+
+**Benchmark before/after:** `iperf3` for raw throughput, `wrk` / `wrk2` for HTTP, `sockperf` for latency.
 
 **50. Explain how the OOM killer chooses which process to kill.**
 
-When memory is exhausted and swap is full (or filling fast), the OOM killer walks every process and computes an **`oom_score`** (0–1000) for each. The process with the **highest score gets SIGKILL**.
+When RAM is exhausted (and swap is nearly full or disabled), the OOM killer walks every task and picks a victim.
 
-Score is roughly:
+**Score formula** (simplified):
 
 ```
-oom_score = (RSS + swap usage) / total memory × 1000   + oom_score_adj
+badness = RSS + swap + shmem  (in pages)
+oom_score  = (badness / total_pages) * 1000
+             + adj (from oom_score_adj, -1000..+1000)
 ```
 
-So it favors killing **big memory consumers**. Adjustments:
+Higher score → more likely killed. `-1000` = never picked.
 
-- **`/proc/<pid>/oom_score_adj`** — range −1000 to +1000. `-1000` = "never kill", `+1000` = "always pick me first".
-- **systemd**: set `OOMScoreAdjust=` in a unit file.
-- **Critical services** (sshd, init): typically `oom_score_adj=-1000`.
-
-Check who was killed:
+**Where DevOps engineers tune it:**
 
 ```bash
-dmesg | grep -i "killed process"
-journalctl -k --grep="Out of memory"
+# Per-process:
+echo -1000 > /proc/<pid>/oom_score_adj
+
+# systemd unit:
+[Service]
+OOMScoreAdjust=-500        # protect this service
+
+# containerd/Docker:
+docker run --oom-score-adj=-500 ...
 ```
 
-OOM events also indicate that you need **more RAM**, **lower memory cgroup limits**, or **a leak fix** — not just a higher score adjustment.
+**Kubernetes** sets `oom_score_adj` based on QoS class:
+- **Guaranteed** (requests == limits): `-997` — nearly protected.
+- **Burstable**: score between 2 and 999 based on `request` size.
+- **BestEffort**: `1000` — killed first.
+
+That's why setting **`resources.requests == resources.limits`** is a stability pattern: your pod gets Guaranteed QoS and survives node memory pressure.
+
+**Diagnosis:**
+
+```bash
+dmesg -T | grep -Ei "oom|killed process"
+journalctl -k | grep -Ei "oom|out of memory"
+# In K8s:
+kubectl get events --field-selector reason=OOMKilling
+kubectl describe pod <pod>   # look for "OOMKilled", exit code 137
+```
+
+**Real fixes** (score adjustment is a band-aid): raise memory limits, find the leak (`pprof`, `heaptrack`, `valgrind --tool=massif`), reduce concurrency, add more nodes.
 
 ---
 
