@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sections-13-blue?style=flat-square" alt="Sections">
+  <img src="https://img.shields.io/badge/Sections-14-blue?style=flat-square" alt="Sections">
   <img src="https://img.shields.io/badge/Level-Beginner→Intermediate-orange?style=flat-square" alt="Level">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
 </p>
@@ -103,6 +103,21 @@
   - [EC2 Security Groups](#ec2-security-groups)
   - [EBS — Elastic Block Store](#ebs--elastic-block-store)
   - [Key Pairs & SSH Access](#key-pairs--ssh-access)
+- [AWS Lambda](#aws-lambda)
+  - [One Shot Revision](#one-shot-revision-8)
+  - [Lambda Overview](#lambda-overview)
+  - [Creating Your First Lambda Function](#creating-your-first-lambda-function)
+  - [Event Sources & Triggers](#event-sources--triggers)
+  - [Lambda Versions & Aliases](#lambda-versions--aliases)
+  - [Lambda Destinations & DLQ](#lambda-destinations--dlq)
+  - [Function URLs](#function-urls)
+  - [Lambda Layers](#lambda-layers)
+  - [Lambda Concurrency & Scaling](#lambda-concurrency--scaling)
+  - [Lambda Environment Variables & Secrets](#lambda-environment-variables--secrets)
+  - [Lambda VPC Configuration](#lambda-vpc-configuration)
+  - [Lambda Monitoring & Observability](#lambda-monitoring--observability)
+  - [Lambda Best Practices](#lambda-best-practices)
+  - [Reference](#reference-3)
 - [AWS CLI](#aws-cli-1)
   - [One Shot Revision](#one-shot-revision-9)
   - [AWS CLI Overview](#aws-cli-overview)
@@ -2870,6 +2885,984 @@ aws ssm start-session --target i-0abcd1234efgh5678
 - Key pairs are **regional** — a key pair created in `us-east-1` is not visible in `eu-west-1`.
 - The private key is shown **only once** at creation time; AWS does not store it. If you lose it, you must create a new pair and update the instance.
 - For production, prefer **Session Manager** — it removes the need for port 22 and creates a full audit trail in CloudTrail.
+
+---
+
+## AWS Lambda
+
+**What you will build in this section:**
+You will create a serverless compute workflow entirely through the AWS Console. By the end you will have a real working system that:
+- Runs code without provisioning or managing any servers
+- Responds to HTTP requests via a Function URL and reacts to S3 upload events
+- Scales automatically from zero to thousands of concurrent executions
+
+**Architecture of what we're building:**
+
+```
+  HTTP Request          S3 Object Upload
+       │                      │
+       ▼                      ▼
+ [Function URL]         [S3 Event Trigger]
+       │                      │
+       └──────────┬───────────┘
+                  ▼
+          [Lambda Function]          ← your code runs here
+          ┌──────────────┐
+          │  handler()   │  ← receives event JSON + context
+          │  Python/Node │
+          └──────┬───────┘
+                 │ writes logs
+                 ▼
+         [CloudWatch Logs]           ← all stdout goes here automatically
+                 │ emits metrics
+                 ▼
+         [CloudWatch Metrics]        ← Invocations, Errors, Duration, Throttles
+```
+
+**The things we'll build — in order:**
+
+```
+1. Lambda Function  →  2. Function URL  →  3. S3 Event Trigger
+         │
+4. Version + Alias  →  5. Layer  →  6. VPC Config  →  7. Monitoring
+```
+
+**Prerequisites — check these before starting:**
+- [ ] An AWS account with Lambda, IAM, S3, and CloudWatch access
+- [ ] Basic familiarity with any one runtime (Python, Node.js, or Java)
+- [ ] An S3 bucket already created *(S3 → Create bucket — pick any unique name)*
+
+---
+
+### One Shot Revision
+
+| Step | Topic | What you do |
+| ---- | ----- | ----------- |
+| 1 | [Lambda Overview](#lambda-overview) | Understand the execution model before touching the console |
+| 2 | [Creating Your First Lambda Function](#creating-your-first-lambda-function) | Deploy a function, invoke it manually, read its logs |
+| 3 | [Event Sources & Triggers](#event-sources--triggers) | Wire an S3 upload to trigger your function automatically |
+| 4 | [Lambda Versions & Aliases](#lambda-versions--aliases) | Publish immutable versions, create aliases, run a canary deployment |
+| 5 | [Lambda Destinations & DLQ](#lambda-destinations--dlq) | Route async successes/failures to SQS or SNS |
+| 6 | [Function URLs](#function-urls) | Expose a direct HTTPS endpoint without API Gateway |
+| 7 | [Lambda Layers](#lambda-layers) | Package shared libraries once and attach them to multiple functions |
+| 8 | [Lambda Concurrency & Scaling](#lambda-concurrency--scaling) | Set reserved and provisioned concurrency to control costs and cold starts |
+| 9 | [Lambda Environment Variables & Secrets](#lambda-environment-variables--secrets) | Inject config at runtime without hard-coding values |
+| 10 | [Lambda VPC Configuration](#lambda-vpc-configuration) | Connect Lambda to private RDS or ElastiCache in your VPC |
+| 11 | [Lambda Monitoring & Observability](#lambda-monitoring--observability) | Read CloudWatch metrics, enable X-Ray tracing, query logs with Insights |
+| 12 | [Lambda Best Practices](#lambda-best-practices) | Rules that prevent the most common production mistakes |
+| 13 | [Reference](#reference-3) | Clean up + official docs |
+
+---
+
+### Lambda Overview
+
+**Read this first — it maps every concept before you touch the console.**
+
+Lambda is an event-driven compute service. You write a function, attach it to a trigger, and Lambda handles everything else: hardware, OS, runtime, scaling, and high availability.
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                       Lambda Execution Model                    │
+│                                                                │
+│  Event Source                                                  │
+│  (S3 / API GW / SQS / EventBridge / schedule / …)             │
+│         │                                                      │
+│         │  sends Event JSON                                    │
+│         ▼                                                      │
+│  ┌──────────────┐   cold start (first invocation only)        │
+│  │  Execution   │◄── download code + init runtime             │
+│  │  Environment │◄── run INIT code (outside handler)          │
+│  │              │                                              │
+│  │  handler()   │◄── called on every invocation               │
+│  │   ↓          │                                              │
+│  │  response    │──► returned to caller or destination        │
+│  └──────────────┘                                              │
+│         │                                                      │
+│  environment kept warm for ~5–15 min (reused for next call)   │
+│  then frozen/terminated by Lambda runtime                      │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Core concepts:**
+
+| Term | What it is |
+| ---- | ---------- |
+| **Function** | Unit of deployment — code + configuration (runtime, memory, timeout, IAM role) |
+| **Handler** | Entry-point method Lambda calls; format `file.method` e.g. `lambda_function.lambda_handler` |
+| **Event** | JSON document passed to the handler describing what triggered the invocation |
+| **Context** | Object passed alongside the event; contains request ID, remaining time, log stream name |
+| **Execution role** | IAM role Lambda assumes on every invocation; grants permissions to call other AWS services |
+| **Deployment package** | `.zip` archive or container image containing your code and dependencies |
+| **Layer** | Reusable `.zip` archive attached to a function; used to share libraries across functions |
+| **Cold start** | The extra latency on the first invocation while Lambda downloads code and initialises the runtime |
+| **Warm start** | Subsequent invocations that reuse an already-initialised execution environment — fast |
+
+**Invocation types:**
+
+| Type | Behaviour | Common triggers |
+| ---- | --------- | --------------- |
+| **Synchronous** | Caller waits for the function to return; errors surfaced directly | API Gateway, Function URL, SDK/CLI direct invoke |
+| **Asynchronous** | Lambda queues the event and returns immediately; retries up to 2× on failure | S3, SNS, EventBridge |
+| **Poll-based** | Lambda polls the source for you; processes in batches | SQS, Kinesis, DynamoDB Streams, Kafka |
+
+**Pricing:**
+
+| What you pay for | Free tier (every month) |
+| ---------------- | ----------------------- |
+| Number of requests | 1,000,000 requests free |
+| Compute duration (GB-seconds) | 400,000 GB-seconds free |
+| Provisioned concurrency | Charged per GB-second while allocated |
+| Data transfer out | Standard EC2 rates |
+
+> GB-seconds = memory allocated (GB) × execution duration (seconds). A 128 MB function running for 1 second = 0.125 GB-seconds.
+
+---
+
+### Creating Your First Lambda Function
+
+**HANDS-ON — Deploy and invoke a Hello World function (15 min)**
+
+**Navigate:** AWS Console → **Lambda** → **Create function**
+
+---
+
+**Page 1 — Author from scratch**
+
+| Field | Value | Why |
+| ----- | ----- | --- |
+| Function name | `my-first-function` | Unique within the account+region |
+| Runtime | **Python 3.12** | Easiest to read; no compilation step |
+| Architecture | **x86_64** | Default; arm64 is cheaper if your code is compatible |
+
+**Permissions:**
+- Select: **Create a new role with basic Lambda permissions**
+- This auto-creates an IAM role that allows Lambda to write logs to CloudWatch
+
+Click **Create function**
+
+---
+
+**Step 2 — Edit the code**
+
+In the **Code source** pane you will see this default handler:
+
+```python
+import json
+
+def lambda_handler(event, context):
+    print("Event received:", json.dumps(event))
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Hello from Lambda!')
+    }
+```
+
+Replace it with this to make the response more useful:
+
+```python
+import json
+
+def lambda_handler(event, context):
+    name = event.get('name', 'World')
+    print(f"Invoking for: {name}")
+    return {
+        'statusCode': 200,
+        'body': json.dumps(f'Hello, {name}! From Lambda.')
+    }
+```
+
+Click **Deploy** (top-right of the code editor)
+
+> **Deploy vs Save:** "Save" stores the file locally. "Deploy" packages and publishes it — only after Deploy does Lambda run your new code.
+
+---
+
+**Step 3 — Test it**
+
+1. Click the **Test** tab → **Create new event**
+2. Event name: `hello-test`
+3. Replace the default JSON with:
+
+```json
+{
+  "name": "Tahshin"
+}
+```
+
+4. Click **Save** → then **Test**
+
+**Expected output in the Execution result pane:**
+
+```json
+{
+  "statusCode": 200,
+  "body": "\"Hello, Tahshin! From Lambda.\""
+}
+```
+
+**Expected log output:**
+
+```
+START RequestId: abc-123...
+Invoking for: Tahshin
+END RequestId: abc-123...
+REPORT RequestId: abc-123...  Duration: 1.45 ms  Billed Duration: 2 ms
+        Memory Size: 128 MB  Max Memory Used: 37 MB
+```
+
+> The **REPORT** line is your cost and performance receipt. Billed Duration rounds up to the next millisecond.
+
+---
+
+**Step 4 — Tune the configuration**
+
+Navigate to **Configuration** tab → **General configuration** → **Edit**
+
+| Setting | When to change | Rule of thumb |
+| ------- | -------------- | ------------- |
+| **Memory** | Default 128 MB; raise if function runs slowly or hits OOM | Also increases vCPU proportionally — 1769 MB = 1 full vCPU |
+| **Timeout** | Default 3 s; raise for longer-running tasks | Max is 15 minutes; keep as low as possible to fail fast |
+| **Ephemeral storage** | Default 512 MB (`/tmp`); raise for large file processing | Max 10 GB; charged above 512 MB |
+
+---
+
+**CLI equivalents (for reference):**
+
+```bash
+# List all Lambda functions in the current region
+aws lambda list-functions \
+  --query 'Functions[].{Name:FunctionName, Runtime:Runtime, Memory:MemorySize}' \
+  --output table
+
+# Invoke a function synchronously and capture output
+aws lambda invoke \
+  --function-name my-first-function \
+  --payload '{"name":"Tahshin"}' \
+  --cli-binary-format raw-in-base64-out \
+  output.json && cat output.json
+
+# Update just the function code (re-zip and upload)
+zip function.zip lambda_function.py
+aws lambda update-function-code \
+  --function-name my-first-function \
+  --zip-file fileb://function.zip
+
+# Get function configuration
+aws lambda get-function-configuration \
+  --function-name my-first-function
+```
+
+---
+
+### Event Sources & Triggers
+
+**What it is:** A trigger is the glue between an event source (S3, SQS, API Gateway, EventBridge, etc.) and your Lambda function. When the event source fires, Lambda receives the event JSON and invokes your handler.
+
+**How triggers attach to invocation types:**
+
+```
+Synchronous triggers (caller waits):
+  API Gateway → Lambda → response → API Gateway → HTTP client
+  Function URL → Lambda → response → HTTP client
+  SDK/CLI invoke --invocation-type RequestResponse
+
+Asynchronous triggers (fire and forget):
+  S3 (PutObject) → Lambda Event Queue → Lambda (retries 2× on failure)
+  SNS Topic → Lambda Event Queue → Lambda
+  EventBridge Rule → Lambda Event Queue → Lambda
+
+Poll-based triggers (Lambda polls the source):
+  SQS Queue ──┐
+              ├── Lambda polls → batch of messages → handler()
+  Kinesis ────┘                   on success: checkpoint
+                                   on failure: retry or DLQ
+```
+
+---
+
+**HANDS-ON — Add an S3 trigger (10 min)**
+
+**Prerequisite:** You have an S3 bucket (e.g. `my-lambda-trigger-bucket`).
+
+1. Open your `my-first-function` → **Configuration** tab → **Triggers** → **Add trigger**
+2. Select: **S3**
+3. Bucket: `my-lambda-trigger-bucket`
+4. Event types: **PUT** (Object Created)
+5. Suffix filter: `.txt` ← only trigger on `.txt` uploads (optional but good practice)
+6. Click **Add**
+
+**Update your handler to log the S3 event:**
+
+```python
+import json
+
+def lambda_handler(event, context):
+    for record in event['Records']:
+        bucket = record['s3']['bucket']['name']
+        key    = record['s3']['object']['key']
+        size   = record['s3']['object']['size']
+        print(f"New file in s3://{bucket}/{key} ({size} bytes)")
+
+    return {'statusCode': 200, 'body': 'Processed'}
+```
+
+Click **Deploy**
+
+**Test the trigger:**
+1. S3 → your bucket → **Upload** → pick any `.txt` file → **Upload**
+2. Lambda → `my-first-function` → **Monitor** tab → **View CloudWatch logs**
+3. Open the most recent log stream → you should see:
+
+```
+New file in s3://my-lambda-trigger-bucket/hello.txt (42 bytes)
+```
+
+---
+
+**Common event source patterns:**
+
+| Trigger | Use case | Invocation type |
+| ------- | -------- | --------------- |
+| **S3 PutObject** | Process uploads (resize image, parse CSV) | Async |
+| **SQS Queue** | Decouple services; Lambda drains the queue | Poll-based |
+| **API Gateway** | Build REST/HTTP APIs backed by Lambda | Sync |
+| **EventBridge schedule** | Cron jobs — run every 5 min, every Monday at 9am | Async |
+| **DynamoDB Streams** | React to DB changes (audit log, cache invalidation) | Poll-based |
+| **SNS Topic** | Fan-out — one publish hits many functions | Async |
+| **Kinesis Data Streams** | Real-time stream processing in order | Poll-based |
+
+---
+
+### Lambda Versions & Aliases
+
+**What it is:** A version is an immutable snapshot of your function at a specific point in time. An alias is a named pointer to a version — like a DNS record for your function. Together they let you deploy safely without touching production traffic.
+
+```
+Development cycle:
+  $LATEST  ←  you always edit and test here
+      │
+      │  Publish version (Lambda snapshots code + config)
+      ▼
+   Version 1  (immutable — can never be changed)
+      │
+   Version 2  (next publish)
+      │
+   Version 3  (latest publish)
+
+Aliases:
+  prod  → Version 2   (stable, receiving 100% of production traffic)
+  staging → Version 3 (testing the new version)
+
+Canary deployment:
+  prod  → Version 2 (90%) + Version 3 (10%)
+          └── gradually shift weight to 3 after monitoring
+```
+
+---
+
+**HANDS-ON — Publish a version and create an alias (10 min)**
+
+**Step 1 — Publish a version:**
+1. Lambda → `my-first-function` → **Actions** → **Publish new version**
+2. Description: `v1 - initial hello world`
+3. Click **Publish**
+4. You now see Version **1** in the top-right dropdown (ARN ends in `:1`)
+
+**Step 2 — Create an alias:**
+1. **Actions** → **Create alias**
+2. Name: `prod`
+3. Version: **1**
+4. Click **Save**
+
+**Step 3 — Test canary routing (weighted alias):**
+1. Lambda → `my-first-function` → **Aliases** → `prod` → **Edit**
+2. Under **Weighted alias**, set:
+   - Version 1: `90%`
+   - Additional version: Version 2 (publish one first with a small code change): `10%`
+3. Click **Save**
+
+> **Why this matters:** Callers invoke the `prod` alias ARN. Lambda splits traffic 90/10. You watch metrics — if Version 2 shows errors, you flip back to 100% Version 1 in seconds with no redeployment.
+
+---
+
+**CLI equivalents:**
+
+```bash
+# Publish a new version
+aws lambda publish-version \
+  --function-name my-first-function \
+  --description "v2 - improved greeting"
+
+# Create an alias pointing to version 1
+aws lambda create-alias \
+  --function-name my-first-function \
+  --name prod \
+  --function-version 1
+
+# Update alias with weighted routing (canary)
+aws lambda update-alias \
+  --function-name my-first-function \
+  --name prod \
+  --function-version 1 \
+  --routing-config AdditionalVersionWeights={"2"=0.1}
+
+# Invoke the prod alias (not $LATEST)
+aws lambda invoke \
+  --function-name my-first-function:prod \
+  --payload '{}' \
+  --cli-binary-format raw-in-base64-out \
+  out.json
+```
+
+---
+
+### Lambda Destinations & DLQ
+
+**What it is:** For asynchronous invocations, Lambda retries failed events up to 2 times. After exhausting retries, the event is either discarded or sent to a failure destination. Destinations let you capture both successes and failures for post-processing or alerting.
+
+```
+Async invoke (S3, SNS, EventBridge):
+
+  Event ──► Lambda Internal Queue ──► Function
+                                         │
+                    ┌────────────────────┴──────────────────┐
+                    │ Success                                │ Failure (after 2 retries)
+                    ▼                                        ▼
+              On-Success Destination               On-Failure Destination
+              (SQS / SNS / Lambda / EventBridge)   (SQS / SNS / Lambda / EventBridge)
+
+  Dead Letter Queue (legacy, failure only):
+  Event ──► Lambda ──► 2 retries fail ──► DLQ (SQS or SNS)
+```
+
+> **Destinations vs DLQ:** Destinations are the modern replacement. They capture both success and failure, include the full event + response payload, and support more targets. Use Destinations for new functions; keep DLQ awareness for existing setups.
+
+---
+
+**HANDS-ON — Configure an On-Failure Destination (10 min)**
+
+**Prerequisite:** Create an SQS standard queue named `lambda-failure-queue` (SQS → Create queue).
+
+1. Lambda → `my-first-function` → **Configuration** → **Destinations** → **Add destination**
+2. Condition: **On failure**
+3. Destination type: **SQS queue**
+4. SQS queue: `lambda-failure-queue`
+5. Click **Save**
+
+**Test it — force a failure:**
+
+```python
+# Temporarily make your function throw an error:
+def lambda_handler(event, context):
+    raise Exception("Intentional failure for destination test")
+```
+
+Deploy → invoke asynchronously → Lambda retries 2× → event lands in `lambda-failure-queue`.
+
+**Check the failure queue:**
+1. SQS → `lambda-failure-queue` → **Send and receive messages** → **Poll for messages**
+2. The message body contains the original event + error details
+
+**Revert your handler code** after testing.
+
+---
+
+### Function URLs
+
+**What it is:** A Function URL is a dedicated HTTPS endpoint attached directly to your Lambda function. It skips API Gateway entirely — you get a stable URL that maps 1:1 to your function, usable for webhooks, simple APIs, or internal tooling.
+
+```
+Without Function URL:                    With Function URL:
+  HTTP client                              HTTP client
+      │                                        │
+      ▼                                        ▼
+  API Gateway  ← routing, auth, throttle  [Function URL]
+      │           staged deployments           │   direct HTTPS
+      ▼                                        ▼
+  Lambda Function                         Lambda Function
+```
+
+**HANDS-ON — Create a Function URL (5 min)**
+
+1. Lambda → `my-first-function` → **Configuration** → **Function URL** → **Create function URL**
+2. Auth type:
+   - **NONE** — public URL, no authentication (fine for testing)
+   - **AWS_IAM** — requires SigV4 signed requests (use for internal services)
+3. Click **Save**
+
+You will see a URL like `https://abcxyz123.lambda-url.us-east-1.on.aws/`
+
+**Test it:**
+
+```bash
+# Public function URL — no auth
+curl https://abcxyz123.lambda-url.us-east-1.on.aws/ \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Tahshin"}'
+
+# Expected response:
+# {"statusCode": 200, "body": "\"Hello, Tahshin! From Lambda.\""}
+```
+
+**Your handler needs to handle the HTTP event format:**
+
+```python
+import json
+
+def lambda_handler(event, context):
+    body = json.loads(event.get('body') or '{}')
+    name = body.get('name', 'World')
+    return {
+        'statusCode': 200,
+        'headers': {'Content-Type': 'application/json'},
+        'body': json.dumps({'message': f'Hello, {name}!'})
+    }
+```
+
+**Key limits:**
+
+| Limit | Value |
+| ----- | ----- |
+| Max request payload | 6 MB |
+| Max response payload | 6 MB |
+| Timeout | Function timeout (max 15 min) |
+| Throttling | Account/function concurrency limits apply |
+
+---
+
+### Lambda Layers
+
+**What it is:** A Layer is a `.zip` archive containing libraries, custom runtimes, or config that you attach to multiple functions. Instead of bundling `pandas` or `requests` into every function ZIP, you package it once as a layer and reuse it everywhere.
+
+```
+Without layers:                       With a shared layer:
+  function-A.zip                        function-A.zip
+  ├── lambda_function.py                ├── lambda_function.py  (tiny)
+  ├── requests/          (10 MB)        └──                      (5 KB)
+  └── pandas/            (50 MB)                │
+                                               uses
+  function-B.zip                               │
+  ├── lambda_function.py                       ▼
+  ├── requests/          (10 MB)        [Layer: data-science-libs]
+  └── pandas/            (50 MB)        ├── requests/   (10 MB)
+                                        └── pandas/     (50 MB)
+  Total: 120 MB uploaded twice
+                                        Total: 60 MB uploaded once
+                                               shared across all functions
+```
+
+**HANDS-ON — Create and attach a Layer (15 min)**
+
+**Step 1 — Package the library locally:**
+
+```bash
+mkdir python && pip install requests -t python/
+zip -r my-requests-layer.zip python/
+```
+
+**Step 2 — Upload the layer:**
+1. Lambda → left sidebar → **Layers** → **Create layer**
+2. Name: `requests-lib`
+3. Upload `.zip file`: `my-requests-layer.zip`
+4. Compatible runtimes: **Python 3.12**
+5. Click **Create**
+
+**Step 3 — Attach to your function:**
+1. Lambda → `my-first-function` → **Code** tab → scroll down to **Layers** → **Add a layer**
+2. Layer source: **Custom layers**
+3. Layer: `requests-lib` → Version 1
+4. Click **Add**
+
+**Step 4 — Use it in your code (no import changes needed):**
+
+```python
+import requests   # comes from the layer — no zip needed in your function
+
+def lambda_handler(event, context):
+    r = requests.get('https://httpbin.org/get')
+    return {'statusCode': 200, 'body': r.text}
+```
+
+**Layer limits:**
+
+| Limit | Value |
+| ----- | ----- |
+| Layers per function | 5 |
+| Unzipped total size (function + all layers) | 250 MB |
+| Layer zip size (direct upload) | 50 MB |
+| Layer zip size (via S3) | 250 MB |
+
+---
+
+### Lambda Concurrency & Scaling
+
+**What it is:** Concurrency is the number of function instances handling requests simultaneously. Lambda scales by creating new execution environments in parallel — not by making existing ones handle multiple requests.
+
+```
+Traffic pattern → Lambda scaling response:
+
+  t=0s  1 request  → 1 environment spawned
+  t=1s  5 requests  → 5 environments (4 more spawned)
+  t=2s  100 requests → 100 environments
+  t=3s  traffic drops → environments idle → frozen after ~15 min
+                                          → terminated
+
+Each environment handles exactly ONE request at a time.
+Concurrency = number of simultaneous active environments.
+```
+
+**Concurrency types:**
+
+| Type | What it does | When to use |
+| ---- | ------------ | ----------- |
+| **Unreserved** | Default; shares the account's 1000-concurrent limit | Most functions |
+| **Reserved** | Guarantees N slots for this function; other functions cannot use them | Critical functions that must not be starved |
+| **Provisioned** | Pre-warms N environments before traffic arrives; eliminates cold starts | Latency-sensitive functions (payment, auth) |
+
+```
+Account concurrency limit: 1000 (default; can be raised)
+
+  ┌─────────────────────────────────────────────────────┐
+  │  Total Account Concurrency: 1000                    │
+  │                                                     │
+  │  function-A reserved: 200  ────────────────────┐   │
+  │  function-B reserved: 100  ─────────────────┐  │   │
+  │  unreserved pool:     700  ◄─ all others use │  │   │
+  │                            this shared pool  │  │   │
+  └─────────────────────────────────────────────────────┘
+```
+
+**HANDS-ON — Set reserved concurrency (5 min)**
+
+1. Lambda → `my-first-function` → **Configuration** → **Concurrency** → **Edit**
+2. Select: **Reserve concurrency**
+3. Reserved concurrency: `50`
+4. Click **Save**
+
+> Setting reserved concurrency to `0` throttles the function completely — useful for emergency kill switches.
+
+**HANDS-ON — Enable provisioned concurrency (5 min)**
+
+1. Lambda → `my-first-function` → **Aliases** → `prod`
+2. **Configuration** tab → **Concurrency** → **Edit**
+3. Select: **Provisioned concurrency**
+4. Provisioned concurrency: `5`
+5. Click **Save**
+
+> Provisioned concurrency charges you per GB-second even when no requests arrive — size it carefully.
+
+---
+
+**CLI equivalents:**
+
+```bash
+# Set reserved concurrency
+aws lambda put-function-concurrency \
+  --function-name my-first-function \
+  --reserved-concurrent-executions 50
+
+# Remove reserved concurrency (back to unreserved pool)
+aws lambda delete-function-concurrency \
+  --function-name my-first-function
+
+# Enable provisioned concurrency on an alias
+aws lambda put-provisioned-concurrency-config \
+  --function-name my-first-function \
+  --qualifier prod \
+  --provisioned-concurrent-executions 5
+
+# Check current concurrency config
+aws lambda get-function-concurrency \
+  --function-name my-first-function
+```
+
+---
+
+### Lambda Environment Variables & Secrets
+
+**What it is:** Environment variables inject configuration into the Lambda runtime without hard-coding values in your code. For secrets, the best practice is to store them in AWS Secrets Manager or SSM Parameter Store and reference the name/ARN via an environment variable.
+
+```
+Hard-coded (bad):                  Environment variable (correct):
+  DB_HOST = "prod.db.internal"       DB_HOST read from os.environ
+  API_KEY = "sk-abc123"              SECRET_ARN read from os.environ
+                                       → code fetches secret at runtime
+  ↓ rotated? redeploy needed         ↓ rotated? Lambda picks it up
+  ↓ visible in source code           ↓ not in source; encrypted at rest
+```
+
+**HANDS-ON — Set environment variables (5 min)**
+
+1. Lambda → `my-first-function` → **Configuration** → **Environment variables** → **Edit**
+2. Add:
+
+| Key | Value |
+| --- | ----- |
+| `ENVIRONMENT` | `production` |
+| `LOG_LEVEL` | `INFO` |
+| `SECRET_NAME` | `my-app/db-credentials` |
+
+3. Click **Save**
+
+**Use them in your handler:**
+
+```python
+import os
+import json
+import boto3
+
+def lambda_handler(event, context):
+    env       = os.environ['ENVIRONMENT']
+    log_level = os.environ.get('LOG_LEVEL', 'INFO')
+    secret_name = os.environ['SECRET_NAME']
+
+    # Fetch the actual secret value at runtime
+    client = boto3.client('secretsmanager')
+    secret = client.get_secret_value(SecretId=secret_name)
+    creds  = json.loads(secret['SecretString'])
+
+    print(f"Running in {env} | log level {log_level}")
+    return {'statusCode': 200, 'body': 'OK'}
+```
+
+> **Encryption:** Lambda encrypts environment variables at rest using the account's default KMS key. For extra isolation, specify a custom KMS key under **Encryption configuration**.
+
+---
+
+**CLI equivalents:**
+
+```bash
+# Set or update environment variables
+aws lambda update-function-configuration \
+  --function-name my-first-function \
+  --environment "Variables={ENVIRONMENT=production,LOG_LEVEL=INFO}"
+
+# Read current environment variables
+aws lambda get-function-configuration \
+  --function-name my-first-function \
+  --query 'Environment.Variables'
+```
+
+---
+
+### Lambda VPC Configuration
+
+**What it is:** By default, Lambda runs in an AWS-managed VPC that has internet access but cannot reach resources in your private VPC (RDS, ElastiCache, internal services). VPC configuration places Lambda's elastic network interface (ENI) inside your subnet so it can reach private resources.
+
+```
+Default (no VPC config):                  With VPC config:
+  Lambda (AWS-managed VPC)                  Lambda ENI ─► your private subnet
+         │                                                      │
+         │ can reach                                    can reach
+         ▼                                                      ▼
+  Internet, public AWS APIs               RDS (private), ElastiCache,
+         ✗ cannot reach                   internal services
+  your private RDS                                      ✗ no direct internet
+                                                        ✓ use NAT Gateway for internet
+```
+
+**Cold start impact:**
+
+> Attaching Lambda to a VPC used to add ~10 seconds to cold starts (ENI creation). Since late 2019, AWS pre-creates and caches ENIs — VPC cold start overhead is now negligible (~hundreds of ms). It is safe to use VPC config for latency-sensitive functions.
+
+---
+
+**HANDS-ON — Configure VPC access (10 min)**
+
+1. Lambda → `my-first-function` → **Configuration** → **VPC** → **Edit**
+2. VPC: select your **Default VPC**
+3. Subnets: select **at least 2 private subnets** in different AZs
+4. Security groups: select a group that has outbound rules allowing traffic to your target (e.g. port 3306 to the RDS security group)
+5. Click **Save**
+
+**Add the required IAM permission to the execution role:**
+
+Lambda needs permission to manage ENIs in your VPC:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "ec2:CreateNetworkInterface",
+    "ec2:DescribeNetworkInterfaces",
+    "ec2:DeleteNetworkInterface"
+  ],
+  "Resource": "*"
+}
+```
+
+> AWS managed policy `AWSLambdaVPCAccessExecutionRole` includes all three permissions — attach it to the execution role instead of writing the policy manually.
+
+**For internet access from a VPC-connected Lambda:**
+- Place Lambda in a **private** subnet
+- Route `0.0.0.0/0` through a **NAT Gateway** in a public subnet
+- Lambda → NAT GW → Internet Gateway → internet
+
+---
+
+### Lambda Monitoring & Observability
+
+**What it is:** Lambda automatically sends metrics and logs to CloudWatch. You can augment this with X-Ray active tracing for end-to-end request visibility and Lambda Insights for system-level metrics.
+
+**Built-in CloudWatch metrics:**
+
+| Metric | What it tells you |
+| ------ | ----------------- |
+| `Invocations` | Total number of times the function was invoked |
+| `Errors` | Invocations that resulted in an unhandled exception |
+| `Duration` | How long the function ran (p50, p90, p99 percentiles) |
+| `Throttles` | Invocations rejected because concurrency limit was hit |
+| `ConcurrentExecutions` | Current simultaneous executions at the account level |
+| `IteratorAge` | For Kinesis/DynamoDB — how far behind the stream consumer is |
+| `DeadLetterErrors` | Failed async events that couldn't be sent to the DLQ |
+
+---
+
+**HANDS-ON — View metrics and logs (5 min)**
+
+1. Lambda → `my-first-function` → **Monitor** tab
+2. You will see graphs for Invocations, Duration, Error count, and Throttles over the last hour
+3. Click **View CloudWatch logs** → opens the log group `/aws/lambda/my-first-function`
+4. Click the latest log stream → read your `print()` output
+
+**HANDS-ON — Enable X-Ray tracing (2 min)**
+
+1. Lambda → `my-first-function` → **Configuration** → **Monitoring and operations tools** → **Edit**
+2. AWS X-Ray: toggle **Active tracing** → ON
+3. Click **Save**
+
+Now every invocation generates an X-Ray trace showing the time spent in Lambda init, handler, and any downstream calls (DynamoDB, S3, etc.) you instrument with the X-Ray SDK.
+
+**HANDS-ON — Enable Lambda Insights (2 min)**
+
+Lambda Insights collects CPU, memory, disk, and network system metrics at the execution environment level.
+
+1. Same page: **Enhanced monitoring** → toggle **Lambda Insights** → ON
+2. Click **Save** (this auto-attaches the `CloudWatchLambdaInsightsExecutionRolePolicy` policy)
+3. After a few invocations: CloudWatch → **Lambda Insights** → your function
+
+---
+
+**CloudWatch Log Insights query for Lambda errors:**
+
+```
+Navigate: CloudWatch → Log Insights → select /aws/lambda/my-first-function
+```
+
+```sql
+fields @timestamp, @message
+| filter @message like /ERROR/
+| sort @timestamp desc
+| limit 20
+```
+
+```sql
+-- Average, P99, and max duration over the last hour
+filter @type = "REPORT"
+| stats avg(@duration), pct(@duration, 99), max(@duration)
+    by bin(5m)
+```
+
+---
+
+### Lambda Best Practices
+
+**Initialisation — put expensive work outside the handler:**
+
+```python
+import boto3
+
+# Runs ONCE per cold start — connection is reused across warm invocations
+dynamodb = boto3.resource('dynamodb')
+table    = dynamodb.Table('my-table')
+
+def lambda_handler(event, context):
+    # This runs on EVERY invocation — keep it fast
+    item = table.get_item(Key={'id': event['id']})
+    return item
+```
+
+> Putting `boto3.resource()` inside the handler creates a new connection on every invocation — slow and wasteful.
+
+---
+
+**Function design:**
+
+| Rule | Why |
+| ---- | --- |
+| Keep functions single-purpose | Easier to test, version, and scale independently |
+| Set timeout as low as the 99th-percentile duration + headroom | Fail fast instead of hanging for 15 minutes |
+| Set memory to match actual usage | Memory also controls vCPU — too low means slow, too high means overpaying |
+| Never put secrets in environment variables in plain text | Use Secrets Manager; only store the secret ARN in env vars |
+| Use structured JSON logs (`json.dumps(...)`) | CloudWatch Logs Insights parses JSON fields natively |
+| Handle partial failures in batches (SQS/Kinesis) | Return `batchItemFailures` list so Lambda only retries failed items |
+
+---
+
+**Deployment:**
+
+| Rule | Why |
+| ---- | --- |
+| Always publish a version before updating an alias | Guarantees $LATEST is never in production |
+| Use container images for functions > 50 MB unzipped | No more layer juggling; up to 10 GB image size |
+| Pin layer versions in production | Layer versions are immutable — never reference by name |
+| Tag functions with `Environment`, `Team`, `CostCenter` | Enables cost allocation and filtering in Cost Explorer |
+
+---
+
+**Costs:**
+
+| Practice | Savings |
+| -------- | ------- |
+| Choose arm64 (Graviton) architecture | ~20% cheaper per GB-second than x86_64 |
+| Tune memory to the minimum that keeps p99 duration acceptable | Pay for what you use |
+| Avoid long-running functions (> 5 min) — use Step Functions instead | Lambda is not designed for long jobs |
+| Set SQS batch size to the maximum your handler can process | Fewer invocations = fewer requests billed |
+
+---
+
+### Reference
+
+**Clean up resources to avoid charges:**
+
+**Step 1 — Remove triggers:**
+- Lambda → `my-first-function` → **Configuration** → **Triggers** → select each trigger → **Delete**
+
+**Step 2 — Delete the Function URL:**
+- Lambda → `my-first-function` → **Configuration** → **Function URL** → **Delete**
+
+**Step 3 — Delete the function:**
+- Lambda → `my-first-function` → **Actions** → **Delete** → confirm
+
+**Step 4 — Delete the layer:**
+- Lambda → left sidebar → **Layers** → `requests-lib` → select version → **Delete**
+
+**Step 5 — Delete the SQS failure queue:**
+- SQS → `lambda-failure-queue` → **Delete** → confirm
+
+**Verify:** Lambda → Functions — no functions listed ✓
+
+---
+
+**Official documentation:**
+
+→ [AWS Lambda Developer Guide](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html)
+
+→ [Lambda — Getting Started](https://docs.aws.amazon.com/lambda/latest/dg/getting-started.html)
+
+→ [Lambda — Invocation Types](https://docs.aws.amazon.com/lambda/latest/dg/lambda-invocation.html)
+
+→ [Lambda — Concurrency and Scaling](https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html)
+
+→ [Lambda — Versions and Aliases](https://docs.aws.amazon.com/lambda/latest/dg/configuration-aliases.html)
+
+→ [Lambda — Destinations](https://docs.aws.amazon.com/lambda/latest/dg/invocation-async.html#invocation-async-destinations)
+
+→ [Lambda — Layers](https://docs.aws.amazon.com/lambda/latest/dg/configuration-layers.html)
+
+→ [Lambda — VPC Networking](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html)
+
+→ [Lambda — Monitoring with CloudWatch](https://docs.aws.amazon.com/lambda/latest/dg/monitoring-metrics.html)
 
 ---
 
@@ -7335,6 +8328,14 @@ SELECT * FROM test;
 - [AWS IAM — Security Best Practices](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)
 - [AWS EC2 User Guide — Concepts](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/concepts.html)
 - [AWS Lambda Developer Guide — Welcome](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html)
+- [Lambda — Getting Started](https://docs.aws.amazon.com/lambda/latest/dg/getting-started.html)
+- [Lambda — Invocation Types](https://docs.aws.amazon.com/lambda/latest/dg/lambda-invocation.html)
+- [Lambda — Concurrency and Scaling](https://docs.aws.amazon.com/lambda/latest/dg/lambda-concurrency.html)
+- [Lambda — Versions and Aliases](https://docs.aws.amazon.com/lambda/latest/dg/configuration-aliases.html)
+- [Lambda — Destinations](https://docs.aws.amazon.com/lambda/latest/dg/invocation-async.html#invocation-async-destinations)
+- [Lambda — Layers](https://docs.aws.amazon.com/lambda/latest/dg/configuration-layers.html)
+- [Lambda — VPC Networking](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html)
+- [Lambda — Monitoring with CloudWatch](https://docs.aws.amazon.com/lambda/latest/dg/monitoring-metrics.html)
 - [Elastic Load Balancing — What is Elastic Load Balancing](https://docs.aws.amazon.com/elasticloadbalancing/latest/userguide/what-is-load-balancing.html)
 - [Application Load Balancer — User Guide](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html)
 - [Network Load Balancer — User Guide](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html)
