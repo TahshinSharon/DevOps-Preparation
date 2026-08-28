@@ -32,6 +32,8 @@
   <a href="../4. Cloud-Engineering/README.md"><b>Cloud Engineering Notes</b></a>
   &nbsp;·&nbsp;
   <a href="../6. Kubernetes/README.md"><b>Kubernetes Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="../8. Ansible/README.md"><b>Ansible Notes</b></a>
 </p>
 
 ---

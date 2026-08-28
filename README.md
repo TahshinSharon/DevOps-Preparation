@@ -14,7 +14,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Status-Actively%20Updated-brightgreen?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/Topics-7-blue?style=flat-square" alt="Topics">
+  <img src="https://img.shields.io/badge/Topics-8-blue?style=flat-square" alt="Topics">
   <img src="https://img.shields.io/badge/Made%20For-DevOps%20Prep-orange?style=flat-square" alt="Made For">
 </p>
 
@@ -34,6 +34,8 @@
   <a href="./Kubernetes/README.md"><b>Kubernetes Notes</b></a>
   &nbsp;·&nbsp;
   <a href="./7. Terraform/README.md"><b>Terraform Notes</b></a>
+  &nbsp;·&nbsp;
+  <a href="./8. Ansible/README.md"><b>Ansible Notes</b></a>
 </p>
 
 ---
@@ -51,6 +53,7 @@
   - [Docker](#docker)
   - [Kubernetes](#kubernetes)
   - [Terraform](#terraform)
+  - [Ansible](#ansible)
 - [Conventions](#conventions)
 - [Contributing / Personal Use](#contributing--personal-use)
 - [References](#references)
@@ -86,8 +89,10 @@ DevOps-Preparation/
 │   └── README.md               ← Containers, images, Dockerfile, volumes, networks, Compose, ...
 ├── 6. Kubernetes/
 │   └── README.md               ← Pods, Deployments, Services, Namespaces, kubectl, Helm, ...
-└── 7. Terraform/
-    └── README.md               ← Providers, resources, variables, state, modules, workspaces, ...
+├── 7. Terraform/
+│   └── README.md               ← Providers, resources, variables, state, modules, workspaces, ...
+└── 8. Ansible/
+    └── README.md               ← Inventory, ad-hoc commands, playbooks, roles, vault, galaxy, ...
 ```
 
 > **Note:** the numbers above indicate the recommended reading order; the actual folders on disk are named without the `N. ` prefix (`Git-Github/`, `Linux/`, `Networking/`, `Cloud-Engineering/`, `Docker/`, `Kubernetes/`, `7. Terraform/`).
@@ -223,6 +228,15 @@ The industry-standard Infrastructure as Code tool for provisioning cloud resourc
 - **Terraform Basics** — installing the CLI, the core workflow (`init`, `validate`, `fmt`, `plan`, `apply`, `destroy`), providers (plugins, authentication, multi-provider), resources (block syntax, common AWS resources, implicit and explicit dependencies), variables and outputs (types, `.tfvars`, environment variables, sensitive outputs), and Terraform state (local vs remote, S3 backend, state commands, best practices).
 
 → [Open the Terraform notes](./7.%20Terraform/README.md)
+
+### Ansible
+
+The industry-standard agentless configuration management and automation tool for configuring systems, deploying applications, and orchestrating multi-tier workflows.
+
+- **Ansible Fundamentals** — what Ansible is, Ansible vs other config management tools (Puppet, Chef, SaltStack), how Ansible works (agentless SSH push-based architecture), and YAML basics (data types, lists, dicts, indentation rules).
+- **Ansible Basics** — installing the CLI, inventory (INI and YAML formats, group_vars, host_vars, dynamic inventory), ad-hoc commands (ping, shell, apt, copy, service), playbooks (plays, tasks, modules, loops, conditionals, tags, check mode), variables and facts (precedence, register, setup module, gather_facts), handlers (notify, listen, ordering), roles (directory structure, ansible-galaxy, requirements.yml), and Ansible Vault (encrypt, decrypt, vault IDs, CI/CD patterns).
+
+→ [Open the Ansible notes](./8.%20Ansible/README.md)
 
 ---
 
