@@ -36,8 +36,13 @@
 
 ---
 
+> 🎯 **[Common Interview Questions →](#common-interview-questions)** &nbsp;·&nbsp; 50 Networking interview questions (10 Easy · 20 Medium · 20 Hard) for DevOps / Cloud Engineer roles.
+
+---
+
 ## Table of Contents
 
+- [Common Interview Questions](#common-interview-questions)
 - [Introduction](#introduction)
 - [Command Note Template](#command-note-template)
 - [Network Sharing](#network-sharing)
@@ -2179,6 +2184,713 @@ _To be filled in._
 ### nmap
 
 _To be filled in._
+
+---
+
+## Common Interview Questions
+
+**50 commonly asked Networking interview questions** — every answer written from a **DevOps / Cloud Engineer interview perspective**: production scenarios, Kubernetes/cloud context, the follow-ups interviewers drill into, and the mistakes candidates make. Grouped as **10 Easy** (junior), **20 Medium** (mid-level), **20 Hard** (senior/SRE).
+
+---
+
+### Easy (Junior Level)
+
+**1. What is the OSI model? Name all seven layers.**
+
+The **OSI (Open Systems Interconnection)** model is a conceptual framework for how network communication works, split into 7 layers:
+
+| # | Layer | Examples |
+|---|-------|---------|
+| 7 | Application | HTTP, DNS, SMTP, SSH, FTP |
+| 6 | Presentation | TLS/SSL, JPEG, gzip encoding |
+| 5 | Session | NetBIOS, RPC session management |
+| 4 | Transport | TCP, UDP — port numbers, reliability |
+| 3 | Network | IP, ICMP, routing |
+| 2 | Data Link | Ethernet, MAC addresses, ARP, switches |
+| 1 | Physical | Cables, Wi-Fi signals, fiber, NICs |
+
+**Why DevOps interviewers care:** Troubleshooting uses layer-by-layer thinking. "Can you ping it?" = Layer 3. "Can you curl it?" = Layer 7. When you say "it's a Layer 4 issue" you're telling the interviewer you know TCP is failing, not DNS or the app. Common follow-up: *"Where does a load balancer sit?"* — Layer 4 (TCP/UDP) or Layer 7 (HTTP) depending on type.
+
+**2. What is the difference between TCP and UDP?**
+
+| Aspect | TCP | UDP |
+|--------|-----|-----|
+| Connection | 3-way handshake | Connectionless |
+| Reliability | Guaranteed delivery, ordering, retransmit | Best-effort, no guarantee |
+| Speed | Slower (overhead) | Faster |
+| Use cases | HTTP/S, SSH, databases | DNS, video streaming, VoIP, game state |
+
+**DevOps angle:** DNS queries use UDP (fast, small). DNS zone transfers use TCP (reliable, large). Kubernetes `kube-dns`/CoreDNS uses both. `etcd` uses TCP for Raft consensus — data must not be lost. Monitoring metrics (StatsD) use UDP intentionally — a dropped metric is better than blocking the app.
+
+**3. What is an IP address? What is the difference between IPv4 and IPv6?**
+
+An IP address is a unique identifier for a host on a network.
+
+- **IPv4:** 32-bit, dotted-decimal (`192.168.1.10`). ~4.3 billion addresses — exhausted. Requires NAT at scale.
+- **IPv6:** 128-bit, colon-hex (`2001:0db8::1`). 340 undecillion addresses. Built-in IPsec, no NAT needed.
+
+**DevOps angle:** AWS, GCP, and Azure all dual-stack their infrastructure. EKS pods get IPv6 addresses natively in dual-stack clusters. `curl` on a dual-stack host prefers IPv6 by default (`-4` forces IPv4). Always test your app against both. `::1` is IPv6 loopback (same as `127.0.0.1`).
+
+**4. What is DNS and how does it work?**
+
+DNS (Domain Name System) translates human-readable names (`app.example.com`) into IP addresses.
+
+Resolution flow: **Browser cache → OS cache → `/etc/hosts` → Recursive resolver (e.g. 8.8.8.8) → Root nameserver → TLD nameserver → Authoritative nameserver → Answer**.
+
+**DevOps angle:** DNS is the first thing to check when a service is unreachable. `dig app.example.com` or `nslookup app.example.com` from inside the cluster tells you whether CoreDNS resolves it. In Kubernetes, service DNS is `<svc>.<namespace>.svc.cluster.local`. A missing record or wrong TTL causes cascading failures at deploy time.
+
+**5. What is a subnet mask? What does `/24` mean?**
+
+A subnet mask defines which part of an IP address is the network and which part is the host.
+
+- `/24` = `255.255.255.0` — first 24 bits are network, last 8 bits are host. Gives **254 usable hosts** (256 − network − broadcast).
+- `/16` = `255.255.0.0` — 65,534 usable hosts.
+- `/32` = single host (used in security group rules, route table entries).
+
+**DevOps angle:** AWS VPC subnets are CIDR blocks. A `/24` subnet gives you 251 usable IPs in AWS (5 reserved by AWS). EKS nodes in a `/24` subnet cap your pod count — a common mistake that requires a VPC re-architecture to fix.
+
+**6. What is the default gateway?**
+
+The default gateway is the router a host sends packets to when the destination IP is outside its local subnet. Every packet leaving a host's network goes to the gateway first.
+
+```bash
+ip route show          # Linux — look for 'default via x.x.x.x'
+route -n               # legacy
+```
+
+**DevOps angle:** On a Kubernetes node, the default gateway is the VPC router. If a pod can reach the internet but not a specific VPC endpoint, the issue is routing (missing route or security group), not the gateway itself. Missing default gateway = no external connectivity.
+
+**7. What is DHCP and what does it assign?**
+
+DHCP (Dynamic Host Configuration Protocol) automatically assigns: **IP address, subnet mask, default gateway, DNS server IPs, and lease time** to clients on a network.
+
+DORA process: **Discover → Offer → Request → Acknowledge** (UDP broadcast, ports 67/68).
+
+**DevOps angle:** EC2 instances get IPs via DHCP from AWS's DHCP servers. EKS nodes get their primary IP via DHCP; pods get IPs from the VPC CNI plugin (secondary ENI IPs). DHCP lease expiry during a long-running instance can cause IP changes — always reference instances by hostname or Elastic IP, not raw IP.
+
+**8. What is NAT and why is it used?**
+
+NAT (Network Address Translation) maps private IPs to a public IP when traffic leaves a private network, and reverses it on the way back.
+
+- **SNAT (Source NAT):** Private host → internet (outbound). NAT gateway in AWS.
+- **DNAT (Destination NAT):** Inbound — maps public IP:port to a private host (port forwarding, load balancers).
+
+**DevOps angle:** Private subnets in AWS have no direct internet access. A NAT Gateway in a public subnet allows outbound traffic (pulling Docker images, hitting APIs). Cost-conscious teams use NAT instances or VPC endpoints to avoid NAT Gateway data charges.
+
+**9. What is the difference between a hub, switch, and router?**
+
+| Device | Layer | How it works |
+|--------|-------|-------------|
+| Hub | L1 | Broadcasts to all ports — dumb repeater, creates collisions |
+| Switch | L2 | Learns MAC addresses, forwards frames only to the correct port |
+| Router | L3 | Routes packets between different networks using IP addresses |
+
+**DevOps angle:** You almost never deal with hubs today. Switches are in your data center racks. Routers (or VPC route tables) are what you configure in cloud. A Kubernetes Service of type `NodePort` works at L4; a LoadBalancer creates a cloud L4/L7 load balancer in front of it.
+
+**10. What ports do common protocols use?**
+
+| Protocol | Port |
+|----------|------|
+| HTTP | 80 |
+| HTTPS | 443 |
+| SSH | 22 |
+| DNS | 53 (UDP/TCP) |
+| SMTP | 25 / 587 (TLS) |
+| MySQL | 3306 |
+| PostgreSQL | 5432 |
+| Redis | 6379 |
+| etcd | 2379 (client), 2380 (peer) |
+| Kubernetes API | 6443 |
+| kubelet | 10250 |
+
+**DevOps angle:** Security groups and firewall rules live and die by port numbers. Misconfiguring a port (e.g., blocking 10250 between control plane and nodes) breaks kubelet communication and causes `NotReady` nodes. Always document and automate your port rules in Terraform/Pulumi — manual security group changes are the #1 source of "works in dev, broken in prod."
+
+---
+
+### Medium (Mid-Level)
+
+**11. Explain the TCP three-way handshake.**
+
+1. **SYN** — client sends segment with SYN flag, random sequence number.
+2. **SYN-ACK** — server acknowledges client's SYN and sends its own SYN.
+3. **ACK** — client acknowledges server's SYN. Connection established.
+
+Teardown: **FIN → FIN-ACK → ACK** (4-way). TIME_WAIT state holds the connection for 2×MSL (typically 60s) after close.
+
+**DevOps angle:** High TIME_WAIT counts (`ss -s | grep TIME-WAIT`) on a load balancer or app server mean connections aren't being reused. Fix: enable **HTTP keep-alive**, tune `net.ipv4.tcp_tw_reuse = 1`, or use a connection pool. SYN flood attacks exploit the handshake — SYN cookies (`net.ipv4.tcp_syncookies = 1`) mitigate them without dropping legitimate traffic.
+
+**12. What is the difference between HTTP/1.1, HTTP/2, and HTTP/3?**
+
+| Version | Transport | Key improvement |
+|---------|-----------|----------------|
+| HTTP/1.1 | TCP | Keep-alive, pipelining (HOL blocking) |
+| HTTP/2 | TCP + TLS | Multiplexing (multiple streams over one connection), header compression, server push |
+| HTTP/3 | QUIC (UDP) | No TCP HOL blocking, faster handshake, built-in TLS 1.3, connection migration |
+
+**DevOps angle:** nginx, Envoy, and AWS ALB all support HTTP/2. GRPC runs over HTTP/2. HTTP/3 is supported by Cloudflare and is gaining adoption in service meshes. When debugging gRPC performance issues, check if the proxy supports HTTP/2 end-to-end — a proxy that downgrades to HTTP/1.1 breaks streaming RPCs.
+
+**13. What is HTTPS and how does TLS work?**
+
+HTTPS = HTTP over TLS. TLS provides **authentication** (certificate), **encryption** (symmetric after handshake), and **integrity** (MAC).
+
+TLS 1.3 handshake (simplified):
+1. Client Hello (supported ciphers, key share)
+2. Server Hello + Certificate + Finished
+3. Client Finished
+4. Application data (1-RTT, or 0-RTT for resumption)
+
+**DevOps angle:** `curl -v https://app.example.com` shows the TLS handshake. Certificate errors (`x509: certificate has expired`) are the #1 cause of TLS-related incidents. cert-manager in Kubernetes auto-renews Let's Encrypt certs. Always monitor cert expiry (`openssl s_client -connect host:443 | openssl x509 -noout -dates`). Misconfigured cipher suites block older clients — use Mozilla's SSL Config Generator.
+
+**14. What is a load balancer? What are the types?**
+
+A load balancer distributes incoming traffic across multiple backends to improve availability and scalability.
+
+| Type | Layer | Example |
+|------|-------|---------|
+| L4 (Network) | TCP/UDP | AWS NLB, HAProxy TCP mode |
+| L7 (Application) | HTTP/S | AWS ALB, nginx, Envoy, Traefik |
+
+**Algorithms:** Round-robin, least connections, IP hash (session affinity), weighted.
+
+**DevOps angle:** ALB (L7) can route by path (`/api/*` → API service, `/` → frontend), by header, or by host — essential for microservices. NLB (L4) preserves client IP and handles millions of req/s with lower latency. In Kubernetes, `Service type=LoadBalancer` provisions a cloud LB. Ingress controllers (nginx-ingress, AWS ALB Ingress) provide L7 routing inside the cluster.
+
+**15. What is BGP and why does it matter for cloud networking?**
+
+BGP (Border Gateway Protocol) is the routing protocol that exchanges routes between autonomous systems (AS) on the internet. It's the "glue of the internet" — decides which path packets take across ISPs.
+
+**DevOps angle:** AWS Direct Connect and VPN attachments to Transit Gateway use BGP to advertise VPC CIDR ranges to your on-prem network. Kubernetes networking (Calico in BGP mode) uses BGP to advertise pod CIDRs to physical routers — enabling direct pod-to-pod routing without overlay networks. A misconfigured BGP AS path or route filter causes route leaks and outages.
+
+**16. What is a VLAN and what problem does it solve?**
+
+A VLAN (Virtual LAN) logically segments a physical network into multiple isolated broadcast domains using IEEE 802.1Q tagging. Devices in different VLANs can't communicate without a router (or L3 switch).
+
+**DevOps angle:** Data center racks use VLANs to isolate management, storage, and application traffic on the same physical switches. In cloud, **VPCs and subnets** replace VLANs. In Kubernetes bare-metal deployments (on-prem), VLAN-aware CNI plugins (Multus + MACVLAN) attach pods directly to VLANs — needed for latency-sensitive workloads or legacy network integration.
+
+**17. Explain DNS record types.**
+
+| Record | Purpose | Example |
+|--------|---------|---------|
+| A | IPv4 address | `app.example.com → 1.2.3.4` |
+| AAAA | IPv6 address | `app.example.com → 2001::1` |
+| CNAME | Alias to another name | `www → app.example.com` |
+| MX | Mail server | Priority + hostname |
+| TXT | Arbitrary text (SPF, DKIM, domain verification) | `v=spf1 include:...` |
+| NS | Authoritative nameservers for a zone | |
+| PTR | Reverse DNS (IP → name) | Used by spam filters, SSH logging |
+| SRV | Service discovery (host + port + priority) | Used by etcd, gRPC, Kubernetes |
+
+**DevOps angle:** CNAME cannot point to a bare domain (apex/root) — use ALIAS/ANAME records (Route 53 Alias) instead. A misconfigured CNAME chain causes resolution failures. TXT records are needed for Let's Encrypt DNS-01 challenges and AWS SES domain verification.
+
+**18. What is the difference between `curl` and `wget`?**
+
+| Tool | Primary use | Output | Key strength |
+|------|------------|--------|-------------|
+| `curl` | Transfer data, API testing | stdout | Full protocol control, headers, auth, methods |
+| `wget` | Download files | file | Recursive download, resume (`-c`), offline mirroring |
+
+```bash
+curl -sv -o /dev/null https://app.example.com    # full headers, discard body
+curl -X POST -H "Content-Type: application/json" -d '{"k":"v"}' https://api/endpoint
+wget -q -O - https://checkip.amazonaws.com       # get public IP silently
+```
+
+**DevOps angle:** Use `curl` for API calls in scripts, health checks, and webhook testing. `curl -w "%{http_code} %{time_total}s\n" -o /dev/null -s URL` gives status code + latency — great for smoke tests in CI pipelines. `wget` is preferred when downloading large binaries with retry support.
+
+**19. How does `traceroute` work? What information does it give you?**
+
+`traceroute` sends packets with increasing TTL (starting at 1). Each router that drops the packet (TTL=0) returns an ICMP Time Exceeded message, revealing its IP and round-trip time.
+
+```bash
+traceroute -n api.example.com      # -n skips reverse DNS (faster)
+mtr --report -n api.example.com    # continuous traceroute + stats
+```
+
+**DevOps angle:** Use `traceroute` / `mtr` when latency spikes or packets drop between two points. In cloud: if traceroute stops at a specific hop (AWS Transit Gateway, a firewall) — that's where packets are being dropped. Asymmetric routes (different path in/out) are normal in cloud and explain why latency looks different from each side. `mtr --report` shows per-hop packet loss — a middle hop showing 100% loss may be normal (ICMP rate-limiting by routers) if the final destination responds.
+
+**20. What is `iptables` and how does it filter traffic?**
+
+`iptables` is the Linux firewall framework operating in the kernel's netfilter hooks. Rules are organized into **tables** (filter, nat, mangle, raw) and **chains** (INPUT, OUTPUT, FORWARD, PREROUTING, POSTROUTING).
+
+```bash
+sudo iptables -L -n -v --line-numbers   # list rules
+sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+sudo iptables -A INPUT -j DROP          # default deny
+sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080
+```
+
+**DevOps angle:** Kubernetes kube-proxy uses iptables (or IPVS) to implement Service ClusterIPs — every `kubectl get svc` entry is backed by iptables DNAT rules. `iptables-save | grep <ClusterIP>` shows them. Too many services = too many iptables rules = slow connection setup. IPVS mode (`kube-proxy --proxy-mode=ipvs`) scales better for large clusters (1000+ services).
+
+**21. What is `ss` and how is it different from `netstat`?**
+
+Both show socket statistics, but `ss` reads `/proc/net/tcp` directly — faster, more detail, still maintained. `netstat` is deprecated (part of `net-tools`).
+
+```bash
+ss -lntp                          # listening TCP with PIDs
+ss -tnp state established         # active connections
+ss -s                             # summary
+ss -tnp 'dport = :5432'           # connections TO postgres
+ss -tnp 'sport = :8080'           # connections FROM 8080
+```
+
+**DevOps angle:** On minimal container images (Alpine, distroless), neither tool is installed. Options: exec a debug sidecar, or read `/proc/net/tcp` directly (decode hex port/IP). In Kubernetes: `kubectl exec -it <pod> -- ss -lntp` to inspect what a pod is actually listening on — often different from what `containerPort` says.
+
+**22. Explain how Kubernetes networking works (pod-to-pod, pod-to-service).**
+
+**Pod-to-pod:** Every pod gets a unique IP from the cluster CIDR. The CNI plugin (Calico, Flannel, Cilium, AWS VPC CNI) ensures all pods can reach each other without NAT. Flannel uses VXLAN overlays; Calico uses BGP or VXLAN; AWS VPC CNI assigns real VPC IPs to pods.
+
+**Pod-to-service:** A Service gets a virtual ClusterIP. kube-proxy (iptables/IPVS) programs DNAT rules: traffic to ClusterIP:port is load-balanced to healthy pod endpoints. Endpoint updates happen via the Endpoints/EndpointSlice API.
+
+**DNS:** CoreDNS resolves `<svc>.<ns>.svc.cluster.local → ClusterIP`. Pods use CoreDNS as their resolver (`/etc/resolv.conf` injected by kubelet).
+
+**Gotcha:** A pod that can't reach a service — check: Does the service selector match pod labels? (`kubectl get endpoints <svc>`). Is the target port correct? Is the pod in `Ready` state? Is there a NetworkPolicy blocking it?
+
+**23. What is a VPN? What types are used in DevOps?**
+
+A VPN (Virtual Private Network) creates an encrypted tunnel over a public network, making remote hosts appear on the same private network.
+
+| Type | Use case |
+|------|---------|
+| Site-to-site VPN | On-prem DC ↔ AWS VPC via IPsec (AWS VPN Gateway) |
+| Client VPN | Engineers → VPC resources (AWS Client VPN, WireGuard, OpenVPN) |
+| WireGuard | Modern, fast, kernel-native, simple config — replacing OpenVPN |
+
+**DevOps angle:** Bastion hosts are being replaced by VPNs + SSM Session Manager. WireGuard's minimal attack surface (`~4,000 lines of code` vs OpenVPN's `~600,000`) makes it the modern default for internal access. AWS Direct Connect + BGP gives dedicated, non-internet connectivity — preferred for latency-sensitive or compliance workloads.
+
+**24. What is a CDN and how does it reduce latency?**
+
+A CDN (Content Delivery Network) caches content at edge PoPs (Points of Presence) geographically close to users. Requests are served from the nearest edge, reducing round-trip time and origin load.
+
+**How it works:** DNS resolves the CDN domain to the nearest edge IP → edge checks cache → cache hit: serve immediately; cache miss: fetch from origin, cache, serve.
+
+**DevOps angle:** Cloudflare, AWS CloudFront, Fastly. Cache headers (`Cache-Control`, `ETag`, `Last-Modified`) control what gets cached and for how long. A deploy that doesn't invalidate CloudFront cache serves stale JS/CSS for the TTL duration. Use versioned asset filenames (`app.abc123.js`) to bust caches automatically. Use CDN for static assets, not API responses (unless you're sure they're cacheable).
+
+**25. Explain the difference between symmetric and asymmetric encryption.**
+
+| Type | Keys | Speed | Use |
+|------|------|-------|-----|
+| Symmetric | Same key to encrypt/decrypt | Fast | Bulk data encryption (AES-256-GCM) |
+| Asymmetric | Public key encrypts, private key decrypts | Slow | Key exchange, signatures, auth (RSA, ECDSA, Ed25519) |
+
+**TLS combines both:** Asymmetric crypto during the handshake (to securely exchange a session key), then symmetric (AES) for the actual data — best of both worlds.
+
+**DevOps angle:** SSH uses Ed25519 (asymmetric) for auth; the session data is AES-encrypted symmetrically. GPG signing of container images (cosign/Sigstore) uses asymmetric keys. AWS KMS stores asymmetric keys for envelope encryption: KMS key encrypts a data key, data key encrypts the data — only KMS can decrypt the data key.
+
+**26. What is a reverse proxy? How is it different from a forward proxy?**
+
+| Type | Who configures it | What it hides | Example |
+|------|------------------|--------------|---------|
+| Forward proxy | Client | Client IP from internet | Squid, company web filter |
+| Reverse proxy | Server operator | Server IPs from clients | nginx, HAProxy, Envoy, AWS ALB |
+
+**DevOps angle:** nginx as a reverse proxy in front of a Go/Python app: terminates TLS, handles compression, rate-limits, adds security headers, load-balances across app instances. Kubernetes Ingress controllers are reverse proxies. `X-Forwarded-For` header carries the original client IP — your app must trust it only from known proxy IPs, or it's spoofable.
+
+**27. What is CIDR? How do you calculate host ranges?**
+
+CIDR (Classless Inter-Domain Routing) notation: `IP/prefix-length`. The prefix length defines how many bits are the network portion.
+
+```
+10.0.1.0/24:
+  Network:    10.0.1.0
+  Broadcast:  10.0.1.255
+  Usable:     10.0.1.1 – 10.0.1.254  (254 hosts)
+
+10.0.0.0/16:
+  Usable hosts: 2^(32-16) - 2 = 65,534
+```
+
+**Formula:** Usable hosts = `2^(32 - prefix) - 2` (subtract network and broadcast).
+
+**DevOps angle:** AWS reserves 5 IPs per subnet (network, VPC router, DNS, future, broadcast) — a `/24` gives 251 usable. Kubernetes clusters need enough pod CIDR space — plan `--cluster-cidr=10.244.0.0/16` for up to 256 nodes × 256 pods. Overlapping CIDRs between VPCs, on-prem, and pod networks are a classic VPC peering issue.
+
+**28. What is SSH tunneling / port forwarding?**
+
+SSH can forward ports through an encrypted tunnel, bypassing firewalls or accessing services on remote networks.
+
+```bash
+# Local forward: access remote DB locally
+ssh -L 5432:db-host:5432 bastion-host
+# Now: psql -h localhost -p 5432
+
+# Remote forward: expose local service to remote host
+ssh -R 8080:localhost:3000 remote-server
+
+# Dynamic forward (SOCKS proxy): route all traffic
+ssh -D 1080 bastion-host
+# Then: curl --socks5 localhost:1080 http://internal-service
+
+# Kubernetes: kubectl port-forward (same concept, no SSH needed)
+kubectl port-forward svc/postgres 5432:5432
+```
+
+**DevOps angle:** SSH tunneling is the safe way to access production databases without opening public ports. Modern alternative: AWS SSM Session Manager port forwarding (`aws ssm start-session --target i-xxx --document-name AWS-StartPortForwardingSession`) — no open port 22 at all.
+
+**29. What is the purpose of `/etc/hosts`?**
+
+`/etc/hosts` is a static lookup table: hostname → IP, checked before DNS (by default via `/etc/nsswitch.conf`).
+
+```bash
+cat /etc/hosts
+# 127.0.0.1   localhost
+# 10.0.0.50   db.internal db
+# 192.168.1.5 staging-api.local
+```
+
+**DevOps angle:** In Kubernetes, each pod's `/etc/hosts` is injected by kubelet with the pod's own IP and hostname, plus any `hostAliases` from the pod spec. Useful for: overriding DNS in tests, adding entries for hosts that aren't in DNS, canary testing by pointing a name at a new IP on one machine. Warning: it's a local-only override — doesn't propagate to other pods/hosts.
+
+**30. What is `nmap` and what do you use it for?**
+
+`nmap` is a network scanner for host discovery, port scanning, service/OS detection, and vulnerability scripting.
+
+```bash
+nmap -sV -p 22,80,443,8080 10.0.1.0/24    # service version on specific ports
+nmap -sn 10.0.0.0/24                       # ping sweep (host discovery, no port scan)
+nmap -sT -p- --open host                   # all open TCP ports (full connect)
+nmap --script=http-title -p 80 10.0.1.0/24 # grab HTTP titles
+```
+
+**DevOps angle:** Use `nmap` to audit what ports are exposed after a security group change. A common interview scenario: *"You deployed a new security group rule — verify only expected ports are open."* → `nmap -sV target`. On AWS, also cross-check with `aws ec2 describe-security-groups` — the firewall is in the VPC, not the host, so local `ss` doesn't show blocked ports.
+
+---
+
+### Hard (Senior / SRE Level)
+
+**31. Explain how a packet travels from a browser to a web server (full stack walkthrough).**
+
+1. **DNS:** Browser checks cache → OS cache → `/etc/hosts` → recursive resolver → authoritative NS → returns A record (IP).
+2. **TCP:** Browser opens socket, 3-way handshake with server IP:443.
+3. **TLS:** TLS 1.3 handshake — server cert validated, session key derived.
+4. **HTTP/2:** Browser sends request over encrypted stream.
+5. **Network path:** Packet leaves NIC → through host iptables → OS routing table → default gateway → ISP → BGP routing across internet → CDN edge or origin LB → backend server.
+6. **Server:** Accept → process → response → TCP ACK → browser renders.
+
+**DevOps angle:** This end-to-end view is the mental model for debugging. Narrow down: DNS? TCP reachability? TLS cert? App-level 5xx? Tools: `dig`, `curl -v`, `traceroute`, `tcpdump`. In Kubernetes: add pod → Ingress → Service → Endpoint → container networking to the path.
+
+**32. How does Kubernetes Service networking work internally? Explain ClusterIP and kube-proxy.**
+
+A ClusterIP Service gets a virtual IP from `--service-cluster-ip-range`. No process listens on this IP — it only exists in iptables/IPVS rules programmed by kube-proxy on every node.
+
+**iptables mode:** kube-proxy writes `DNAT` rules: packets to `ClusterIP:port` are redirected to a random healthy pod endpoint. Rules are re-evaluated per-connection. Problem: O(n) rule chain traversal as services scale.
+
+**IPVS mode:** Uses kernel's IPVS (LVS) hash tables — O(1) lookup. Supports more algorithms (rr, lc, sh, dh). Required for clusters with 1000+ services.
+
+**Cilium (eBPF mode):** Replaces kube-proxy entirely — eBPF maps in kernel do the load balancing without iptables. Latency-optimal, observability built-in.
+
+**Debugging:**
+```bash
+iptables -t nat -L KUBE-SERVICES -n          # ClusterIP DNAT rules
+ipvsadm -Ln                                  # IPVS virtual servers
+kubectl get endpoints <svc>                  # pod IPs behind the service
+```
+
+**33. Explain BGP route propagation, AS paths, and how route leaks happen.**
+
+BGP routers exchange **Network Layer Reachability Information (NLRI)** — prefix + attributes. The **AS_PATH** attribute lists autonomous systems the route traversed — used for loop prevention and path selection.
+
+**Selection order (simplified):** Highest LOCAL_PREF → shortest AS_PATH → lowest MED → eBGP > iBGP → lowest router ID.
+
+**Route leak:** An AS accidentally re-advertises routes it received from one peer to another — e.g., a customer AS re-advertises a provider's full table to another provider, attracting all internet traffic through their network. Famous examples: Pakistan Telecom hijacking YouTube (2008), Cloudflare Verizon incident (2019).
+
+**DevOps angle:** AWS Transit Gateway BGP: each VPN/Direct Connect attachment has a BGP session. A misconfigured `advertise_prefixes` in a VPN customer gateway can leak VPC CIDRs or even accept unexpected routes, causing traffic to bypass firewalls. Always use BGP communities and route filters.
+
+**34. How does VXLAN work and why does Kubernetes use it?**
+
+VXLAN (Virtual Extensible LAN) encapsulates L2 Ethernet frames inside UDP packets (port 4789). It creates a virtual L2 overlay over an L3 network.
+
+```
+Original Ethernet frame
+→ VXLAN header (24-byte, includes 24-bit VNI)
+→ UDP header (src/dst port 4789)
+→ IP header (VTEP-to-VTEP)
+→ Ethernet (underlay)
+```
+
+VTEPs (VXLAN Tunnel Endpoints) are usually the host NICs or virtual switches. Each VXLAN Network Identifier (VNI) defines a L2 segment — supports 16 million segments vs VLAN's 4096.
+
+**Kubernetes (Flannel/Calico VXLAN):** Each node is a VTEP. Pod traffic to another node is encapsulated in VXLAN, sent over the node network. Encapsulation overhead: ~50 bytes per packet, ~10% throughput reduction. Calico in native routing mode (BGP) avoids this — no encapsulation, but requires L2 adjacency or a BGP-capable underlay.
+
+**35. What is eBPF and how is it changing Kubernetes networking?**
+
+eBPF (extended Berkeley Packet Filter) allows running sandboxed programs in the kernel without modifying kernel source or loading kernel modules. Programs are JIT-compiled and verified for safety.
+
+**What eBPF can do in networking:**
+- Attach to XDP (eXpress Data Path) hooks — process packets before they hit the networking stack (line-rate DDoS mitigation)
+- Implement socket-level load balancing (Cilium's kube-proxy replacement)
+- Track all network flows with zero overhead vs iptables
+- Enforce NetworkPolicy at the kernel level without iptables rules
+
+**Cilium with eBPF:**
+- No iptables — all service proxy and policy enforcement in BPF maps
+- `cilium monitor` — real-time packet-level visibility
+- Hubble — eBPF-based observability layer, Prometheus metrics + flow logs
+- 90%+ latency reduction vs iptables mode at scale
+
+**Interview follow-up:** *"Why is iptables slow at scale?"* → O(n) linear rule traversal for each new connection. 10,000 services = 250,000+ iptables rules. eBPF hash maps = O(1) regardless of rule count.
+
+**36. Explain TCP congestion control mechanisms.**
+
+TCP congestion control prevents a sender from overwhelming the network. Linux default: **CUBIC** (optimized for high-bandwidth, high-latency links). Google's **BBR** (Bottleneck Bandwidth and Round-trip propagation time) is widely used on cloud servers.
+
+Phases:
+1. **Slow start:** Exponentially increase `cwnd` (congestion window) from 1 MSS until threshold or loss.
+2. **Congestion Avoidance:** Linear increase per RTT.
+3. **Fast Retransmit:** 3 duplicate ACKs → retransmit without waiting for timeout.
+4. **Fast Recovery (CUBIC/BBR):** Don't drop to 1 MSS — reduce window by factor, continue.
+
+```bash
+sysctl net.ipv4.tcp_congestion_control     # current algorithm
+sysctl net.ipv4.tcp_available_congestion_control
+sysctl -w net.ipv4.tcp_congestion_control=bbr
+```
+
+**DevOps angle:** BBR significantly improves throughput on lossy or high-latency links (satellite, cross-region). Google enabled BBR on all their servers and measured 4% median throughput increase globally. AWS instances default to CUBIC — switching to BBR can help cross-region replication and streaming workloads.
+
+**37. How does DNS at scale work? Explain TTL, negative caching, and split-horizon DNS.**
+
+**TTL (Time To Live):** How long resolvers cache a DNS answer. Low TTL (30–60s) enables fast failover but increases resolver load and latency. High TTL (300–3600s) reduces load but slows down IP changes during incidents.
+
+**Negative caching (RFC 2308):** NXDOMAIN answers are cached for the SOA record's minimum TTL. A deleted record that your app tries to resolve gets a cached NXDOMAIN — app sees "DNS failure" even after the record is restored, until the cache expires.
+
+**Split-horizon DNS:** Different DNS answers for the same name depending on the querier's location/network.
+- Internal resolvers see `db.internal → 10.0.1.5` (private IP).
+- External resolvers see `db.example.com → ` (no answer — not exposed).
+- Used heavily in AWS: Route 53 private hosted zones resolve differently inside VPCs vs public internet.
+
+**Debugging:**
+```bash
+dig +nocmd +noall +answer +ttl example.com   # show TTL remaining
+dig @8.8.8.8 vs @169.254.169.253             # public vs AWS internal resolver
+```
+
+**38. What is a network namespace and how does Docker/Kubernetes use it?**
+
+A Linux network namespace gives a process its own isolated network stack: interfaces, routes, iptables rules, sockets, and `/proc/net/*`. Processes in different namespaces are invisible to each other at the network level.
+
+```bash
+ip netns list                         # list network namespaces
+ip netns exec <ns> ip a               # run command in a namespace
+ip netns exec <ns> ss -lntp           # inspect sockets in that ns
+```
+
+**Docker:** Each container gets its own netns. `docker run` creates a veth pair: one end in the container netns (eth0), one end in the host netns (attached to docker0 bridge). Traffic flows: container eth0 → veth → docker0 bridge → host routing → NAT → internet.
+
+**Kubernetes:** Each pod shares one netns among all its containers (that's why containers in a pod communicate via `localhost`). The CNI plugin sets up veth pairs from the pod netns to the node. `crictl inspect <container-id>` shows the netns path.
+
+**Debugging:** `ls -la /proc/<pid>/ns/net` — if two containers share the same netns symlink target, they share a network stack.
+
+**39. Explain how AWS VPC networking works (subnets, route tables, security groups, NACLs).**
+
+**VPC:** An isolated virtual network with a defined CIDR block (e.g., `10.0.0.0/16`).
+
+**Subnets:** Partitions of the VPC CIDR, tied to one AZ. Public = has route `0.0.0.0/0 → IGW`. Private = has route `0.0.0.0/0 → NAT GW` (or no default route).
+
+**Route tables:** Each subnet has one. Routes: `local` (VPC CIDR, always present), IGW, NAT GW, Transit GW, VPC peering. The most specific route wins.
+
+**Security groups:** Stateful L4 firewall on ENIs. Inbound + outbound rules. Return traffic is automatically allowed. Applied at the instance/ENI level.
+
+**NACLs (Network ACLs):** Stateless L4 firewall at the subnet boundary. Rules processed in order (lowest rule # first). BOTH inbound and outbound rules must allow traffic (stateless = return traffic needs explicit allow). Used for broad subnet-level controls (e.g., block a CIDR range).
+
+**Debugging order:** SG → NACL → route table → IGW/NAT → OS firewall (iptables). A common mistake: SG allows traffic but NACL blocks return packets (stateless — easy to forget).
+
+**40. How would you diagnose and fix a network performance problem in production?**
+
+**Systematic approach:**
+
+```bash
+# 1. Is it DNS?
+time dig app.example.com          # should be <10ms internally
+dig +short @169.254.169.253 app   # AWS VPC resolver
+
+# 2. Is it latency (RTT)?
+ping -c 20 target                 # baseline RTT, packet loss
+mtr --report -n target            # per-hop latency + loss
+
+# 3. Is it bandwidth?
+iperf3 -c target -t 10            # throughput between two nodes
+ethtool eth0 | grep Speed         # interface negotiated speed
+
+# 4. Is it TCP?
+ss -s                             # connection state summary
+ss -tnp | awk '{print $1}' | sort | uniq -c  # states distribution
+sysctl net.ipv4.tcp_retrans_collapse          # retransmit rate
+
+# 5. Is it the application?
+curl -w "@curl-format.txt" -s -o /dev/null https://app  # timing breakdown
+# curl-format: time_namelookup, time_connect, time_appconnect, time_starttransfer, time_total
+
+# 6. Packet-level capture
+sudo tcpdump -i eth0 -nn host target -w capture.pcap
+# Analyze in Wireshark: look for retransmits, out-of-order, zero-window
+```
+
+**Common root causes and fixes:**
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| High DNS latency | Resolver overloaded, misconfigured | Use VPC resolver, cache at app level |
+| Packet loss between nodes | MTU mismatch (jumbo frames + VXLAN) | `ip link show` → set MTU; check encapsulation overhead |
+| High TIME_WAIT | Short-lived connections not reused | Enable keep-alive, connection pooling |
+| Throughput low cross-AZ | Not using placement groups for HPC | Use cluster placement groups, enhanced networking |
+| Intermittent drops | NIC queue overflow | `ethtool -S eth0 | grep drop`; tune RX/TX ring buffers |
+
+**41. What is an anycast IP and how does it work?**
+
+Anycast assigns the same IP address to multiple servers in different locations. BGP advertises the same prefix from multiple ASes — routers send traffic to the topologically nearest instance.
+
+**How it works:** Each PoP announces `203.0.113.0/24` via BGP. A user in Tokyo hits the Tokyo PoP; a user in London hits the London PoP — same destination IP, different physical server.
+
+**DevOps angle:** Cloudflare's entire network (1.1.1.1 DNS, DDoS mitigation) runs on anycast. AWS Global Accelerator uses anycast to route users to the nearest AWS edge, then routes over the AWS backbone instead of the public internet — reducing latency and jitter for latency-sensitive applications. Key: anycast gives geographic load balancing at the routing layer without DNS.
+
+**42. How does packet fragmentation work and why does it cause problems?**
+
+When a packet exceeds the **MTU (Maximum Transmission Unit)** of a link, it's fragmented: split into smaller packets, each with a fragment offset. Reassembled at the destination (not at routers, in IP).
+
+**IPv4:** Routers can fragment. `DF` (Don't Fragment) bit prevents fragmentation — if set and packet exceeds MTU, router drops and sends ICMP Type 3 Code 4 (Fragmentation Needed). Path MTU Discovery uses this to find the smallest MTU along the path.
+
+**IPv6:** Routers cannot fragment — only the source can. PMTUD is mandatory.
+
+**DevOps angle:** VXLAN adds ~50 bytes overhead. If the underlay MTU is 1500 and overlay is also 1500, VXLAN packets exceed MTU. Fix: set pod/container MTU to 1450 (1500 − 50 VXLAN header). Kubernetes CNI plugins (Flannel, Calico) must account for this. PMTUD black holes occur when ICMP is blocked by firewalls — packets never arrive, connection hangs silently. Fix: `iptables -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu` (TCP MSS clamping).
+
+**43. What is OSPF and how does it compare to BGP for internal routing?**
+
+**OSPF (Open Shortest Path First):** Link-state IGP. Each router floods its link states to all routers in the area. Every router builds a complete topology map and runs Dijkstra's algorithm to compute shortest paths. Fast convergence (seconds), suitable for large enterprise networks.
+
+| Aspect | OSPF | BGP |
+|--------|------|-----|
+| Type | IGP (interior) | EGP (exterior, also used internally as iBGP) |
+| Algorithm | Dijkstra (link-state) | Path vector |
+| Convergence | Fast (seconds) | Slower (minutes possible) |
+| Scale | Up to ~500 routers per area | Entire internet |
+| Policy control | Limited | Rich (communities, AS path, MED) |
+| Use case | Campus/data center | Internet, multi-AS, cloud peering |
+
+**DevOps angle:** On-prem data centers run OSPF/IS-IS internally. AWS uses its own proprietary IGP internally. When you set up Direct Connect, the edge is BGP — your on-prem router speaks BGP to AWS. Calico in BGP mode acts like a simple BGP router, advertising pod CIDRs — simpler for data center integration than OSPF because most ToR switches already support BGP.
+
+**44. Explain TIME_WAIT in TCP and how to handle it at scale.**
+
+After a TCP connection closes, the side that sends the last FIN enters **TIME_WAIT** for **2×MSL** (Maximum Segment Lifetime, typically 60 seconds on Linux). Purpose: ensure the remote side received the final ACK, and prevent stale packets from a previous connection being misinterpreted by a new connection with the same 4-tuple.
+
+**At scale:** A high-throughput server or load balancer can accumulate hundreds of thousands of TIME_WAIT connections, exhausting ephemeral ports (`net.ipv4.ip_local_port_range`).
+
+**Mitigations:**
+```bash
+# Kernel tunables:
+net.ipv4.tcp_tw_reuse = 1         # reuse TIME_WAIT sockets for new outbound connections
+net.ipv4.ip_local_port_range = 1024 65535   # maximize ephemeral port range
+net.ipv4.tcp_fin_timeout = 30     # reduce FIN_WAIT_2 timeout
+
+# Application-level:
+# Use HTTP keep-alive — reuse connections instead of opening new ones
+# Use connection pooling (pgBouncer for Postgres, etc.)
+# Load balancer: enable connection draining, use persistent connections upstream
+```
+
+**Note:** `tcp_tw_reuse` only helps outbound (client-side). `tcp_tw_recycle` was removed in Linux 4.12 — never use it. The real fix at scale is **connection reuse**.
+
+**45. How does Envoy proxy work? Why is it used in service meshes?**
+
+Envoy is a high-performance L4/L7 proxy written in C++, designed for cloud-native environments. It is the data plane of Istio, AWS App Mesh, and many other service meshes.
+
+**Architecture:**
+- **Listeners:** Bind to ports, accept connections.
+- **Filters:** Process traffic (HTTP connection manager, TCP proxy, gRPC transcoding, rate limiting, compression).
+- **Clusters:** Upstream endpoints (with load balancing, health checking, circuit breaking).
+- **Routes:** Match traffic and forward to clusters.
+
+**Key features for service meshes:**
+- **Dynamic configuration via xDS API (ADS/CDS/EDS/LDS/RDS):** Istio's Istiod pushes config changes to all Envoy sidecars in real time — no restarts.
+- **Observability:** Emits Prometheus metrics, distributed traces (Jaeger/Zipkin via B3 headers), access logs.
+- **Resilience:** Circuit breaker, outlier detection (auto-eject unhealthy hosts), retries, timeouts — configured declaratively.
+- **mTLS:** Built-in TLS termination and origination.
+
+**Interview follow-up:** *"What is the xDS API?"* → Discovery Service API — Envoy subscribes to Listener/Cluster/Endpoint/Route Discovery Services. Istio's control plane (Istiod) implements xDS and pushes changes to Envoy sidecars dynamically, without config file changes or process restarts.
+
+**46. What is ECMP (Equal-Cost Multi-Path) routing?**
+
+ECMP distributes traffic across multiple equal-cost next-hops (routes with the same metric to a destination). The router hashes packet fields (src IP, dst IP, src/dst port, protocol) to select a consistent path per flow.
+
+```bash
+ip route show                  # multiple 'nexthop' entries = ECMP
+```
+
+**DevOps angle:** AWS uses ECMP within its backbone. VPC Transit Gateway ECMP: if you have multiple VPN tunnels or Direct Connect circuits to the same TGW, ECMP spreads traffic across them — providing both bandwidth aggregation AND redundancy. Kubernetes with Cilium uses ECMP for external load balancing (no cloud LB needed for bare-metal). **Stateful ECMP problem:** NAT/firewalls with stateful tracking can break if a flow switches paths mid-connection. Solution: consistent hashing (same flow always hits same path).
+
+**47. How do you secure a Kubernetes cluster's network?**
+
+**Defense-in-depth approach:**
+
+**1. Network Policies (L3/L4 isolation):**
+```yaml
+# Default deny all, then allow explicitly
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: prod}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+```
+
+**2. CNI enforcement:** NetworkPolicy requires a CNI that enforces it (Calico, Cilium, Weave). Flannel does NOT enforce NetworkPolicy alone.
+
+**3. Encrypt pod-to-pod traffic:** Cilium transparent encryption (WireGuard or IPsec), Istio mTLS.
+
+**4. API server access:** Private cluster (no public API endpoint), IP allowlisting, RBAC, audit logging.
+
+**5. Egress control:** Dedicated egress gateway (Istio), `EgressNetworkPolicy` (OpenShift), or DNS-based egress filtering (Cilium DNS policy).
+
+**6. Runtime security:** Falco for syscall-level anomaly detection. Seccomp/AppArmor profiles per pod. `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true` in `securityContext`.
+
+**Interview probe:** *"A pod is exfiltrating data to an external IP — how do you detect and stop it?"* → Cilium Hubble shows all flows. NetworkPolicy `Egress` deny rule + allowlist for known services. Falco rule triggers on unexpected network connections. Add `EgressNetworkPolicy` scoped to the namespace.
+
+**48. What is DNS-based service discovery and how does it work in microservices?**
+
+Service discovery via DNS: services register their name and IP with a DNS server; clients resolve the name to get current IPs. In dynamic environments, IPs change frequently — DNS TTL and health-check-based record updates make DNS the discovery mechanism.
+
+**Kubernetes:** CoreDNS is the cluster DNS. Services automatically get a DNS entry: `<svc>.<ns>.svc.cluster.local`. Headless services (`clusterIP: None`) return all pod IPs as A records — enabling client-side load balancing (gRPC, Cassandra). StatefulSet pods get individual DNS entries: `<pod-name>.<svc>.<ns>.svc.cluster.local` — essential for stateful apps (Kafka, Cassandra, etcd) that need to address specific replicas.
+
+**External service discovery:** Consul (DNS + health checks), AWS Cloud Map (integrates with Route 53 and App Mesh), etcd (used by Kubernetes itself for its control plane data).
+
+**Gotcha:** DNS caching in the JVM (default: cache forever), Go standard library (respects TTL), and nginx (caches at startup by default) can cause stale IP issues after pod restarts. Fix in nginx: use a resolver with `valid=` timeout and dynamic upstream variables.
+
+**49. How does a CDN handle cache invalidation and what are the risks?**
+
+**Cache invalidation methods:**
+- **TTL expiry:** Cached object expires after `Cache-Control: max-age=X`. Simple but imprecise.
+- **Purge by URL:** `curl -X PURGE https://cdn.example.com/path` — instant but must enumerate all edge PoPs.
+- **Surrogate keys / Cache tags:** Tag responses with logical keys (e.g., `product-123`); purge all responses tagged with that key in one API call. Supported by Fastly, Cloudflare.
+- **Versioned URLs:** `app.abc123.js` — change the hash at deploy, old URL remains cached, new URL is a cache miss. No invalidation needed.
+
+**Risks:**
+- **Stale content served during invalidation propagation delay** (seconds to minutes across PoPs).
+- **Cache stampede (thundering herd):** TTL expires simultaneously for a popular object → all requests hit origin at once. Mitigation: staggered TTLs, request coalescing (edge holds first request, queues rest until response arrives).
+- **Purging too aggressively** flushes cache unnecessarily → origin overload spike.
+- **Sensitive data cached:** `Vary: Cookie` / `Cache-Control: private` must be set correctly or private responses leak to other users.
+
+**DevOps angle:** A deploy that serves stale HTML pointing to the new `app.hash.js` but the CSS still has the old hash creates a mixed-content/visual regression. Use versioned assets + immutable caching for static assets, short TTLs for HTML.
+
+**50. How does mTLS work and how do service meshes implement it?**
+
+**mTLS (Mutual TLS):** Both client AND server present certificates for authentication — bidirectional identity verification, unlike regular TLS where only the server authenticates.
+
+```
+Client → [Client Cert + Server Cert Verification] → Server
+Server → [Server Cert + Client Cert Verification] → Client
+```
+
+**Service mesh implementation (Istio/Linkerd):**
+1. A **sidecar proxy** (Envoy/linkerd-proxy) is injected into every pod.
+2. The control plane issues short-lived X.509 certificates to each workload via SPIFFE/SPIRE.
+3. The sidecar intercepts all pod traffic using iptables rules (init container adds `REDIRECT` rules).
+4. Sidecar-to-sidecar communication is automatically mTLS — the app itself is unaware.
+5. Istio's `PeerAuthentication` policy enforces `STRICT` mTLS (plaintext rejected) per namespace/workload.
+
+**Benefits:** Zero-trust networking inside the cluster — even if a pod is compromised, it can only reach services its certificate is authorized for (combined with `AuthorizationPolicy`).
+
+**Debugging:**
+```bash
+istioctl proxy-config listener <pod>    # verify mTLS config
+istioctl authn tls-check <pod> <svc>   # check mTLS handshake status
+kubectl exec -it <pod> -c istio-proxy -- curl -v https://other-svc  # test within mesh
+```
 
 ---
 
