@@ -174,6 +174,18 @@
   - [RDS Best Practices](#rds-best-practices)
   - [Aurora RDS](#aurora-rds)
   - [Reference](#reference-2)
+- [Lambda Functions](#lambda-functions)
+  - [One Shot Revision](#one-shot-revision-14)
+  - [Lambda Functions Overview](#lambda-functions-overview)
+  - [Lambda Function Code Patterns](#lambda-function-code-patterns)
+  - [Lambda with SQS](#lambda-with-sqs)
+  - [Lambda with API Gateway](#lambda-with-api-gateway)
+  - [Lambda with DynamoDB Streams](#lambda-with-dynamodb-streams)
+  - [Lambda with RDS](#lambda-with-rds)
+  - [Lambda with EventBridge](#lambda-with-eventbridge)
+  - [Lambda Security](#lambda-security)
+  - [Lambda Functions Best Practices](#lambda-functions-best-practices)
+  - [Reference](#reference-4)
 - [Useful Tips & Tricks](#useful-tips--tricks)
 - [References](#references)
 
@@ -8297,6 +8309,1005 @@ SELECT * FROM test;
 → [Amazon Aurora — User Guide](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/CHAP_AuroraOverview.html)
 
 → [Aurora — Comparing Aurora and RDS](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.AuroraMySQL.Overview.html)
+
+---
+
+## Lambda Functions
+
+**What you will build in this section:**
+You will build event-driven serverless pipelines that integrate Lambda with the core AWS services used in production. By the end you will have real working systems that:
+- Process messages from SQS queues with automatic scaling and error isolation
+- Serve HTTP traffic via API Gateway with structured request/response handling
+- React to DynamoDB table changes in real time using Streams
+- Access an RDS database securely from a Lambda function inside a VPC
+- Run on a schedule and respond to custom events via EventBridge
+
+**Architecture of what we're building:**
+
+```
+  HTTP Request        SQS Message        DB Change         Schedule / Event
+       │                  │                  │                  │
+       ▼                  ▼                  ▼                  ▼
+[API Gateway]       [SQS Queue]    [DynamoDB Stream]    [EventBridge Rule]
+       │                  │                  │                  │
+       └──────────────────┴──────────────────┴──────────────────┘
+                                   │
+                          [Lambda Function]
+                          ┌──────────────┐
+                          │  handler()   │
+                          │  • process   │
+                          │  • validate  │
+                          │  • respond   │
+                          └──────┬───────┘
+                    ┌────────────┼──────────────┐
+                    ▼            ▼              ▼
+              [RDS MySQL]  [DynamoDB]  [CloudWatch Logs]
+```
+
+**The things we'll build — in order:**
+
+```
+1. Code Patterns  →  2. SQS Integration  →  3. API Gateway  →  4. DynamoDB Streams
+         │
+5. RDS Access  →  6. EventBridge  →  7. Security  →  8. Best Practices
+```
+
+**Prerequisites — check these before starting:**
+- [ ] Completed the AWS Lambda section (function creation, IAM roles, basic triggers)
+- [ ] An SQS queue and a DynamoDB table already created
+- [ ] An RDS instance running in a private subnet (from the RDS Basics section)
+- [ ] Basic Python familiarity
+
+---
+
+### One Shot Revision
+
+| Step | Topic | What you do |
+| ---- | ----- | ----------- |
+| 1 | [Lambda Functions Overview](#lambda-functions-overview) | Revisit the execution model with a focus on integration patterns |
+| 2 | [Lambda Function Code Patterns](#lambda-function-code-patterns) | Write handlers that log correctly, handle errors, and reuse connections |
+| 3 | [Lambda with SQS](#lambda-with-sqs) | Wire an SQS queue to Lambda and handle batch failures with partial success |
+| 4 | [Lambda with API Gateway](#lambda-with-api-gateway) | Build a REST endpoint backed by Lambda using proxy integration |
+| 5 | [Lambda with DynamoDB Streams](#lambda-with-dynamodb-streams) | React to table inserts and updates in real time |
+| 6 | [Lambda with RDS](#lambda-with-rds) | Connect Lambda to a private MySQL database using VPC and connection pooling |
+| 7 | [Lambda with EventBridge](#lambda-with-eventbridge) | Schedule Lambda on a cron, and trigger it from a custom event bus |
+| 8 | [Lambda Security](#lambda-security) | Lock down the execution role, encrypt environment variables, and audit with CloudTrail |
+| 9 | [Lambda Functions Best Practices](#lambda-functions-best-practices) | Production rules that prevent cold starts, timeouts, and runaway costs |
+| 10 | [Reference](#reference-4) | Clean up all resources + official docs |
+
+---
+
+### Lambda Functions Overview
+
+**Read this first — it maps how Lambda fits into a larger system.**
+
+Lambda is invoked by a source, runs your handler, and returns a result (synchronous) or passes it to a destination (asynchronous). The crucial distinction for integration design:
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│              Invocation Model — Choose the Right One               │
+│                                                                    │
+│  Synchronous (caller waits)          Asynchronous (fire & forget)  │
+│  ─────────────────────────           ────────────────────────────  │
+│  API Gateway → Lambda → response     S3, SNS, EventBridge → Lambda │
+│  Function URL → Lambda               Lambda retries up to 2× on    │
+│  CLI/SDK invoke --invocation-type    failure. Use Destinations or   │
+│    RequestResponse                   DLQ for failures.             │
+│                                                                    │
+│  Poll-based (Lambda polls)                                         │
+│  ──────────────────────────────────                                │
+│  SQS, Kinesis, DynamoDB Streams, MSK                               │
+│  Lambda manages the polling loop.                                  │
+│  You control batch size + window.                                  │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Execution environment lifecycle (internals that affect your code):**
+
+| Phase | What happens | Your code runs |
+| ----- | ------------ | -------------- |
+| **Init** | Download code, start runtime, run module-level code | Module-level (`import`, DB connections, config) |
+| **Invoke** | Call `handler()` with event + context | Inside `handler()` only |
+| **Shutdown** | Runtime frozen or terminated | Registered shutdown extensions only |
+
+> Module-level code runs once per execution environment, not per invocation. Put expensive initialisation (DB connections, SDK clients) outside the handler.
+
+**Key limits to design around:**
+
+| Limit | Default | Notes |
+| ----- | ------- | ----- |
+| Max timeout | 15 minutes | Set the lowest value your function realistically needs |
+| Memory | 128 MB – 10 GB | CPU scales linearly with memory |
+| Deployment package | 50 MB (zipped) / 250 MB (unzipped) | Use Layers for large dependencies |
+| Concurrent executions | 1,000 per region (soft) | Request increase for production workloads |
+| Payload (sync) | 6 MB request / 6 MB response | Use S3 for larger payloads |
+| Payload (async) | 256 KB | |
+| `/tmp` ephemeral storage | 512 MB – 10 GB | Not shared between environments |
+| Environment variables | 4 KB total | Use Parameter Store / Secrets Manager for larger configs |
+
+---
+
+### Lambda Function Code Patterns
+
+**HANDS-ON — Write a production-quality handler (10 min)**
+
+**Navigate:** Lambda → `my-first-function` → **Code** tab
+
+---
+
+**Pattern 1 — Module-level initialisation (connection reuse)**
+
+Move anything expensive outside the handler so it is reused across warm invocations:
+
+```python
+import json
+import boto3
+import logging
+
+# ── runs ONCE per execution environment ──────────────────────────────
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+s3  = boto3.client('s3')           # SDK client — reused across invocations
+ssm = boto3.client('ssm')
+
+def get_config():
+    """Fetch config once at cold-start; cached for warm invocations."""
+    response = ssm.get_parameter(Name='/myapp/db-host', WithDecryption=True)
+    return response['Parameter']['Value']
+
+DB_HOST = get_config()             # fetched once, then frozen with the env
+
+# ── runs on EVERY invocation ─────────────────────────────────────────
+def lambda_handler(event, context):
+    logger.info("event=%s remaining_ms=%d", json.dumps(event),
+                context.get_remaining_time_in_millis())
+    # ... your business logic ...
+    return {"statusCode": 200, "body": "ok"}
+```
+
+---
+
+**Pattern 2 — Structured logging (CloudWatch Insights friendly)**
+
+Log JSON so you can query with `filter @message | parse ...` in CloudWatch Insights:
+
+```python
+import json, logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    log = {
+        "requestId": context.aws_request_id,
+        "function":  context.function_name,
+        "event":     event,
+    }
+    try:
+        result = process(event)
+        log["status"] = "success"
+        log["result"] = result
+        logger.info(json.dumps(log))
+        return result
+    except Exception as e:
+        log["status"] = "error"
+        log["error"]  = str(e)
+        logger.error(json.dumps(log))
+        raise        # re-raise so Lambda marks the invocation as failed
+```
+
+---
+
+**Pattern 3 — Safe environment variable access**
+
+```python
+import os
+
+def get_env(key: str, default: str = None) -> str:
+    value = os.environ.get(key, default)
+    if value is None:
+        raise EnvironmentError(f"Required env var '{key}' is not set")
+    return value
+
+TABLE_NAME = get_env("TABLE_NAME")
+REGION     = get_env("AWS_REGION", "us-east-1")   # always present in Lambda
+```
+
+---
+
+**Pattern 4 — Idempotent handler**
+
+SQS and EventBridge can deliver the same event more than once. Make your handler safe to repeat:
+
+```python
+import boto3, time
+
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('processed-events')
+
+def lambda_handler(event, context):
+    event_id = event['id']
+
+    # Check if already processed
+    resp = table.get_item(Key={'eventId': event_id})
+    if 'Item' in resp:
+        print(f"Duplicate event {event_id}, skipping")
+        return {"status": "duplicate"}
+
+    # Process
+    do_work(event)
+
+    # Mark as processed (TTL = 24 hours)
+    table.put_item(Item={'eventId': event_id, 'ttl': int(time.time()) + 86400})
+    return {"status": "processed"}
+```
+
+---
+
+### Lambda with SQS
+
+**HANDS-ON — Process queue messages with batch error handling (15 min)**
+
+**Navigate:** Lambda → **Create function** → `sqs-processor`
+
+---
+
+**Step 1 — Create the SQS trigger**
+
+1. Lambda console → `sqs-processor` → **Configuration** → **Triggers** → **Add trigger**
+2. Source: **SQS**
+3. Queue: select your queue
+4. **Batch size:** `10` *(Lambda fetches up to 10 messages per invocation)*
+5. **Batch window:** `5` seconds *(wait up to 5s to fill a batch — reduces invocations)*
+6. Enable **Report batch item failures** ✓
+7. Click **Add**
+
+---
+
+**Step 2 — Write the handler with partial batch failure**
+
+```python
+import json
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    """
+    Process SQS messages. Return only the IDs of messages that FAILED
+    so Lambda leaves them in the queue for retry. Successfully processed
+    messages are automatically deleted.
+    """
+    failed_message_ids = []
+
+    for record in event['Records']:
+        message_id = record['messageId']
+        try:
+            body = json.loads(record['body'])
+            logger.info("Processing message %s: %s", message_id, body)
+            process_message(body)
+        except Exception as e:
+            logger.error("Failed to process %s: %s", message_id, str(e))
+            failed_message_ids.append({"itemIdentifier": message_id})
+
+    # Return failed IDs — Lambda retries only these, not the whole batch
+    return {"batchItemFailures": failed_message_ids}
+
+def process_message(body: dict):
+    if body.get('fail'):
+        raise ValueError("Intentional failure for testing")
+    logger.info("Processed: %s", body)
+```
+
+---
+
+**Step 3 — Configure the SQS Dead Letter Queue (DLQ)**
+
+If a message fails all retries, it goes to the DLQ:
+
+1. SQS → your queue → **Edit**
+2. **Dead-letter queue** → Enable → select or create `my-queue-dlq`
+3. **Maximum receives:** `3` *(after 3 failed deliveries → DLQ)*
+4. Save
+
+> Monitor the DLQ with a CloudWatch alarm on `ApproximateNumberOfMessagesVisible > 0`.
+
+---
+
+**How Lambda polls SQS:**
+
+```
+SQS Queue                Lambda Service                 Your Function
+    │                         │                               │
+    │── long-poll (20s) ──────►│                               │
+    │◄─ up to 10 messages ─────│                               │
+    │                         │── invoke with batch ──────────►│
+    │                         │                               │ process
+    │                         │◄─ batchItemFailures ──────────│
+    │◄─ delete successes ──────│                               │
+    │   re-enqueue failures    │                               │
+```
+
+---
+
+**Common mistakes:**
+
+| Mistake | Symptom | Fix |
+| ------- | ------- | --- |
+| Not enabling Report batch item failures | One bad message fails the whole batch; everything retried | Enable the setting and return `batchItemFailures` |
+| Timeout shorter than max processing time | Messages time out and re-queue endlessly | Set Lambda timeout > worst-case message processing time |
+| DLQ not configured | Failed messages loop forever and block the queue | Always attach a DLQ to production queues |
+| Ignoring DLQ | Failures silently accumulate | Add a CloudWatch alarm on DLQ depth |
+
+---
+
+### Lambda with API Gateway
+
+**HANDS-ON — Build a REST endpoint backed by Lambda (15 min)**
+
+**Navigate:** API Gateway → **Create API** → **REST API** → **Build**
+
+---
+
+**Step 1 — Create the API**
+
+| Field | Value |
+| ----- | ----- |
+| Protocol | REST |
+| API name | `my-lambda-api` |
+| Endpoint type | **Regional** *(lower latency within the same region)* |
+
+Click **Create API**
+
+---
+
+**Step 2 — Create a resource and method**
+
+1. **Actions** → **Create Resource** → Resource name: `items` → **Create Resource**
+2. Select `/items` → **Actions** → **Create Method** → **GET**
+3. Integration type: **Lambda Function**
+4. Enable **Lambda Proxy Integration** ✓ *(passes the full HTTP request as the event)*
+5. Lambda function: `my-first-function`
+6. **Save** → **OK** to grant API Gateway permission
+
+---
+
+**Step 3 — Write the proxy-integration handler**
+
+API Gateway proxy integration sends the entire HTTP request as a single JSON event:
+
+```python
+import json
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    """
+    API Gateway proxy integration handler.
+    event contains: httpMethod, path, queryStringParameters,
+                    headers, body, pathParameters, requestContext
+    Must return: statusCode, headers (optional), body (string)
+    """
+    method = event.get('httpMethod', 'UNKNOWN')
+    path   = event.get('path', '/')
+    params = event.get('queryStringParameters') or {}
+
+    logger.info("%s %s params=%s", method, path, params)
+
+    if method == 'GET' and path == '/items':
+        items = fetch_items(limit=int(params.get('limit', 10)))
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json",
+                        "Access-Control-Allow-Origin": "*"},
+            "body": json.dumps({"items": items, "count": len(items)})
+        }
+
+    return {
+        "statusCode": 404,
+        "body": json.dumps({"error": "Not found"})
+    }
+
+def fetch_items(limit: int) -> list:
+    return [{"id": i, "name": f"item-{i}"} for i in range(1, limit + 1)]
+```
+
+---
+
+**Step 4 — Deploy the API**
+
+1. **Actions** → **Deploy API**
+2. Stage: **[New Stage]** → Stage name: `prod`
+3. Click **Deploy**
+4. Copy the **Invoke URL** → test with curl:
+
+```bash
+curl "https://<api-id>.execute-api.<region>.amazonaws.com/prod/items?limit=3"
+```
+
+---
+
+**Request flow:**
+
+```
+Browser / curl
+    │
+    ▼
+[API Gateway]  ──── validates + routes ────►  [Lambda]
+    │                                              │
+    │◄─── returns {statusCode, headers, body} ─────│
+    │
+    ▼
+HTTP Response to client
+```
+
+---
+
+**HTTP method → Lambda event mapping (proxy integration):**
+
+| HTTP concept | Event field |
+| ------------ | ----------- |
+| Query string | `event['queryStringParameters']` |
+| Path parameter `/items/{id}` | `event['pathParameters']['id']` |
+| Request body | `event['body']` *(string — parse with `json.loads`)* |
+| HTTP method | `event['httpMethod']` |
+| Headers | `event['headers']` |
+| Stage variables | `event['stageVariables']` |
+
+---
+
+### Lambda with DynamoDB Streams
+
+**HANDS-ON — React to table changes in real time (10 min)**
+
+**Navigate:** DynamoDB → your table → **Exports and streams** → **DynamoDB stream details**
+
+---
+
+**Step 1 — Enable the stream**
+
+1. DynamoDB → **Tables** → select your table → **Exports and streams** tab
+2. **DynamoDB stream details** → **Enable**
+3. View type: **New and old images** *(gives you both before and after for UPDATE events)*
+4. Click **Enable stream**
+
+---
+
+**Step 2 — Wire Lambda to the stream**
+
+1. Lambda → **Create function** → `dynamo-stream-processor`
+2. **Configuration** → **Triggers** → **Add trigger**
+3. Source: **DynamoDB**
+4. Table: select your table
+5. **Batch size:** `100`
+6. **Starting position:** **Latest** *(only process new changes, not backfill)*
+7. **Add**
+
+---
+
+**Step 3 — Write the stream handler**
+
+```python
+import json
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    for record in event['Records']:
+        event_name = record['eventName']          # INSERT | MODIFY | REMOVE
+        keys       = record['dynamodb']['Keys']
+
+        logger.info("Event: %s Keys: %s", event_name, json.dumps(keys))
+
+        if event_name == 'INSERT':
+            new_image = record['dynamodb']['NewImage']
+            handle_insert(deserialise(new_image))
+
+        elif event_name == 'MODIFY':
+            old_image = record['dynamodb']['OldImage']
+            new_image = record['dynamodb']['NewImage']
+            handle_update(deserialise(old_image), deserialise(new_image))
+
+        elif event_name == 'REMOVE':
+            old_image = record['dynamodb']['OldImage']
+            handle_delete(deserialise(old_image))
+
+def deserialise(dynamo_item: dict) -> dict:
+    """Convert DynamoDB typed JSON to plain Python dict."""
+    from boto3.dynamodb.types import TypeDeserializer
+    d = TypeDeserializer()
+    return {k: d.deserialize(v) for k, v in dynamo_item.items()}
+
+def handle_insert(item):
+    logger.info("New item: %s", item)
+
+def handle_update(old, new):
+    changed = {k: new[k] for k in new if new.get(k) != old.get(k)}
+    logger.info("Changed fields: %s", changed)
+
+def handle_delete(item):
+    logger.info("Deleted item: %s", item)
+```
+
+---
+
+**Stream record structure:**
+
+```
+event['Records'][0]
+├── eventName         = "INSERT" | "MODIFY" | "REMOVE"
+├── eventSource       = "aws:dynamodb"
+├── dynamodb
+│   ├── Keys          = {"pk": {"S": "user#123"}}        ← always present
+│   ├── NewImage      = {...}                             ← INSERT and MODIFY
+│   ├── OldImage      = {...}                             ← MODIFY and REMOVE
+│   ├── SequenceNumber = "..."
+│   └── StreamViewType = "NEW_AND_OLD_IMAGES"
+└── eventID
+```
+
+---
+
+### Lambda with RDS
+
+**HANDS-ON — Connect Lambda to a private MySQL database (20 min)**
+
+Connecting Lambda to RDS requires VPC placement. Lambda must be in the same VPC as RDS, and the RDS security group must allow inbound on port 3306 from the Lambda security group.
+
+---
+
+**Step 1 — Create a security group for Lambda**
+
+1. EC2 → **Security Groups** → **Create security group**
+2. Name: `lambda-rds-sg`
+3. VPC: same VPC as your RDS instance
+4. No inbound rules needed *(Lambda connects outbound)*
+5. Outbound: allow all *(default)*
+6. **Create**
+
+**Add inbound rule to the RDS security group:**
+
+1. EC2 → **Security Groups** → `rds-sg`
+2. **Inbound rules** → **Edit** → **Add rule**
+3. Type: **MySQL/Aurora** (port 3306)
+4. Source: `lambda-rds-sg` *(security group reference, not CIDR)*
+5. **Save**
+
+---
+
+**Step 2 — Configure Lambda VPC settings**
+
+1. Lambda → your function → **Configuration** → **VPC**
+2. **Edit** → select the same VPC as RDS
+3. Subnets: select at least 2 private subnets
+4. Security groups: `lambda-rds-sg`
+5. **Save**
+
+> VPC-attached Lambda functions lose internet access by default. If your function needs to call other AWS services (S3, SSM, Secrets Manager), add a VPC endpoint or a NAT Gateway.
+
+---
+
+**Step 3 — Store the DB password in Secrets Manager**
+
+```bash
+aws secretsmanager create-secret \
+  --name /myapp/rds-password \
+  --secret-string '{"username":"admin","password":"YOUR_PASSWORD","host":"my-rds-db.xxxx.us-east-1.rds.amazonaws.com","dbname":"mydb"}'
+```
+
+Grant the Lambda execution role access:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["secretsmanager:GetSecretValue"],
+  "Resource": "arn:aws:secretsmanager:us-east-1:*:secret:/myapp/rds-password*"
+}
+```
+
+---
+
+**Step 4 — Write the handler with connection pooling**
+
+```python
+import json
+import logging
+import boto3
+import pymysql
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# ── module-level: runs once per execution environment ──────────────
+secrets = boto3.client('secretsmanager')
+
+def get_secret():
+    response = secrets.get_secret_value(SecretId='/myapp/rds-password')
+    return json.loads(response['SecretString'])
+
+secret = get_secret()
+conn   = None          # reused across warm invocations
+
+def get_connection():
+    global conn
+    try:
+        if conn and conn.open:
+            conn.ping(reconnect=True)   # keep-alive
+            return conn
+    except Exception:
+        pass
+    conn = pymysql.connect(
+        host        = secret['host'],
+        user        = secret['username'],
+        password    = secret['password'],
+        database    = secret['dbname'],
+        connect_timeout = 5,
+        cursorclass = pymysql.cursors.DictCursor,
+    )
+    logger.info("New DB connection established")
+    return conn
+
+# ── handler: runs on every invocation ──────────────────────────────
+def lambda_handler(event, context):
+    db = get_connection()
+    with db.cursor() as cursor:
+        cursor.execute("SELECT id, name, created_at FROM users LIMIT 10")
+        rows = cursor.fetchall()
+    logger.info("Fetched %d rows", len(rows))
+    return {
+        "statusCode": 200,
+        "body": json.dumps(rows, default=str)
+    }
+```
+
+> **pymysql** is a pure-Python driver — package it as a Lambda Layer or include it in your deployment zip. For high-concurrency workloads use **RDS Proxy** to pool connections at the AWS level.
+
+---
+
+**Step 5 — Add RDS Proxy (production pattern)**
+
+RDS has a connection limit per instance type (e.g., `db.t3.micro` ≈ 66 connections). Lambda can burst to thousands of concurrent executions, each opening its own connection. RDS Proxy sits in between:
+
+```
+[Lambda — 1000 concurrent]
+          │
+          ▼
+    [RDS Proxy]        ← pools & multiplexes connections
+          │
+          ▼
+    [RDS MySQL]        ← sees only ~10–20 actual connections
+```
+
+1. RDS → **Proxies** → **Create proxy**
+2. Proxy identifier: `my-rds-proxy`
+3. Database: select your RDS instance
+4. Secrets Manager secret: `/myapp/rds-password`
+5. VPC & security groups: same as your RDS
+6. **Create**
+
+Update your Lambda's `host` to point to the proxy endpoint instead of the RDS instance endpoint.
+
+---
+
+**Common mistakes:**
+
+| Mistake | Symptom | Fix |
+| ------- | ------- | --- |
+| Lambda not in the same VPC | `Connection timed out` | Add Lambda to the VPC, subnet, security group |
+| Opening a new connection per invocation | `Too many connections` error at scale | Use module-level connection reuse + RDS Proxy |
+| Hardcoding DB credentials | Credentials exposed in code or env vars | Use Secrets Manager with rotation enabled |
+| Lambda in public subnet | No internet; RDS unreachable | Put Lambda in private subnet with NAT or VPC endpoints |
+
+---
+
+### Lambda with EventBridge
+
+**HANDS-ON — Schedule a function and trigger it from a custom event (10 min)**
+
+**Navigate:** EventBridge → **Rules** → **Create rule**
+
+---
+
+**Step 1 — Scheduled trigger (cron)**
+
+| Field | Value |
+| ----- | ----- |
+| Rule name | `daily-cleanup-rule` |
+| Rule type | **Schedule** |
+| Schedule pattern | **Cron expression**: `cron(0 2 * * ? *)` *(daily at 02:00 UTC)* |
+| Target | **Lambda function** → `my-cleanup-function` |
+
+Click **Create rule**
+
+**Cron quick reference:**
+
+| Expression | Meaning |
+| ---------- | ------- |
+| `cron(0 2 * * ? *)` | Every day at 02:00 UTC |
+| `cron(0/15 * * * ? *)` | Every 15 minutes |
+| `cron(0 8 ? * MON-FRI *)` | Weekdays at 08:00 UTC |
+| `rate(5 minutes)` | Every 5 minutes (simpler syntax) |
+
+> EventBridge cron uses 6 fields: `minute hour day-of-month month day-of-week year`. The `?` means "any" and is required in either day-of-month or day-of-week (not both).
+
+---
+
+**Step 2 — Custom event bus trigger**
+
+Use a custom event bus to decouple producers from consumers:
+
+```python
+# Producer — another Lambda, microservice, or script
+import boto3, json
+
+events = boto3.client('events')
+
+def publish_order_placed(order_id: str, amount: float):
+    events.put_events(Entries=[{
+        "Source":       "myapp.orders",
+        "DetailType":   "OrderPlaced",
+        "Detail":       json.dumps({"orderId": order_id, "amount": amount}),
+        "EventBusName": "my-app-bus",
+    }])
+```
+
+**Create the rule to route the event to Lambda:**
+
+1. EventBridge → **Event buses** → **Create event bus** → name: `my-app-bus`
+2. **Rules** → **Create rule** → Rule type: **Rule with an event pattern**
+3. Event bus: `my-app-bus`
+4. Event pattern:
+
+```json
+{
+  "source": ["myapp.orders"],
+  "detail-type": ["OrderPlaced"]
+}
+```
+
+5. Target: Lambda → `order-processor-function`
+
+---
+
+**Step 3 — Handler for both schedule and custom events**
+
+```python
+import json
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    source = event.get('source', 'unknown')
+    logger.info("Triggered by source: %s", source)
+
+    if source == 'aws.events':
+        # Scheduled event (EventBridge cron / rate)
+        run_scheduled_cleanup()
+
+    elif source == 'myapp.orders':
+        detail = event.get('detail', {})
+        handle_order_placed(detail['orderId'], detail['amount'])
+
+    else:
+        logger.warning("Unknown event source: %s", source)
+
+def run_scheduled_cleanup():
+    logger.info("Running daily cleanup...")
+
+def handle_order_placed(order_id: str, amount: float):
+    logger.info("Processing order %s for $%.2f", order_id, amount)
+```
+
+---
+
+### Lambda Security
+
+**Key principle:** Lambda functions follow the least-privilege model — the execution role grants only the permissions the function needs, nothing more.
+
+---
+
+**Execution role (what Lambda can do):**
+
+Create a tight policy instead of using `AdministratorAccess`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:*:*:*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::my-bucket/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue"],
+      "Resource": "arn:aws:secretsmanager:us-east-1:*:secret:/myapp/*"
+    }
+  ]
+}
+```
+
+---
+
+**Resource-based policy (who can invoke Lambda):**
+
+Lambda also has an inbound policy controlling which services can trigger it. Verify it with:
+
+```bash
+aws lambda get-policy --function-name my-first-function
+```
+
+Never leave an overly permissive resource policy like `"Principal": "*"` without a `Condition` restricting the invoker account.
+
+---
+
+**Environment variable encryption:**
+
+By default Lambda encrypts environment variables at rest with the default AWS KMS key. For compliance requirements:
+
+1. Lambda → **Configuration** → **Environment variables** → **Edit**
+2. Expand **Encryption configuration**
+3. Select **Use a customer managed key** → choose your CMK
+4. **Save**
+
+For secrets that rotate, skip environment variables entirely and use Secrets Manager:
+
+```python
+import boto3, json
+sm = boto3.client('secretsmanager')
+
+def get_api_key():
+    r = sm.get_secret_value(SecretId='/myapp/api-key')
+    return json.loads(r['SecretString'])['value']
+```
+
+---
+
+**Function URL authentication:**
+
+| Auth type | Use when |
+| --------- | -------- |
+| `NONE` | Public endpoint — add your own token/auth check in the handler |
+| `AWS_IAM` | Internal services calling Lambda with SigV4 signed requests |
+
+Never expose a function URL with `AuthType: NONE` without validating the caller in your handler.
+
+---
+
+**Security checklist:**
+
+- [ ] Execution role follows least privilege — no wildcard `Action: *`
+- [ ] No credentials hardcoded in code or environment variables in plaintext
+- [ ] Sensitive values stored in Secrets Manager or SSM Parameter Store (SecureString)
+- [ ] Function URL uses `AWS_IAM` or validates tokens in the handler
+- [ ] VPC-attached functions use security groups that restrict unnecessary traffic
+- [ ] CloudTrail enabled to audit all Lambda API calls
+- [ ] Dead Letter Queue configured for async functions
+- [ ] Function timeout is set as low as safely possible
+
+---
+
+### Lambda Functions Best Practices
+
+**Category 1 — Performance**
+
+| Rule | Why | How |
+| ---- | --- | --- |
+| Initialise SDK clients and DB connections outside the handler | Reused across warm invocations — significant latency saving | Module-level `boto3.client(...)` |
+| Set memory based on measured duration, not guesswork | More memory = more CPU; often halving duration costs less | Run Lambda Power Tuning |
+| Use Provisioned Concurrency for latency-critical paths | Eliminates cold starts | Set on the alias, not `$LATEST` |
+| Keep deployment packages small | Smaller zip = faster cold start | Use Layers for large dependencies; strip dev packages |
+| Set the lowest realistic timeout | Prevents runaway executions consuming concurrency slots | Start at 2× your p99 duration, then tune down |
+
+**Category 2 — Reliability**
+
+| Rule | Why | How |
+| ---- | --- | --- |
+| Always configure a DLQ or Destination for async functions | Failed events are silently dropped otherwise | Set `OnFailure` destination to SQS/SNS |
+| Return `batchItemFailures` for SQS/Kinesis | Avoids retrying the whole batch on a single bad message | Return `{"batchItemFailures": [...]}` |
+| Make handlers idempotent | Lambda can retry on failure or duplicate delivery | Track processed event IDs in DynamoDB with TTL |
+| Use reserved concurrency to isolate critical functions | A noisy function cannot starve others | Set reserved concurrency on the function |
+| Never exceed 80% of the account concurrency limit in one function | Leaves headroom for others | Monitor `ConcurrentExecutions` metric |
+
+**Category 3 — Cost**
+
+| Rule | Why | How |
+| ---- | --- | --- |
+| Remove unnecessary waiting (`time.sleep`, polling loops) | You pay for duration | Use SQS, EventBridge, or Step Functions for orchestration |
+| Tune memory vs. duration with Lambda Power Tuning | Sweet spot is not always minimum memory | Run the open-source power tuning step function |
+| Use arm64 (Graviton2) architecture | ~20% cheaper, ~34% faster for most workloads | Change architecture in function config |
+| Compress and cache large payloads in S3 | Avoids 6 MB payload limit; cheaper than passing data between functions | Pass S3 key instead of raw data |
+
+**Category 4 — Observability**
+
+| Rule | Why | How |
+| ---- | --- | --- |
+| Log request ID on every log line | Correlate all logs for one invocation | `context.aws_request_id` |
+| Use structured JSON logging | Query with CloudWatch Insights | `logger.info(json.dumps({...}))` |
+| Enable X-Ray active tracing | Visualise latency across services | Lambda → Configuration → Monitoring → Enable X-Ray |
+| Monitor `Throttles` and `ConcurrentExecutions` | Throttles cause silent failures | Set CloudWatch alarms |
+| Set a log retention policy | Logs accumulate and cost money | CloudWatch → Log groups → set retention to 30/90 days |
+
+---
+
+**Common interview questions:**
+
+| Question | Answer |
+| -------- | ------ |
+| What is a Lambda cold start and how do you mitigate it? | First invocation initialises the execution environment (download code, start runtime, run init code). Mitigate with Provisioned Concurrency, keeping packages small, and moving init work outside the handler. |
+| How does Lambda scale? | Lambda creates a new execution environment per concurrent request. Scaling is automatic up to the account concurrency limit (default 1,000/region, soft limit). |
+| How do you pass secrets to Lambda securely? | Store in Secrets Manager or SSM Parameter Store (SecureString). Retrieve at cold start outside the handler and cache in a module-level variable. Never put secrets in environment variables in plaintext or in source code. |
+| Why does Lambda lose internet access in a VPC? | VPC Lambdas use ENIs in your private subnets and route traffic through your VPC routing table. Without a NAT Gateway or VPC endpoints, there is no path to the internet or AWS public endpoints. |
+| How do you prevent Lambda from overwhelming RDS with connections? | Use RDS Proxy. It pools connections at the AWS level and multiplexes thousands of Lambda concurrent executions into a small pool of actual database connections. |
+| What is the difference between reserved and provisioned concurrency? | Reserved concurrency caps the maximum concurrent executions for one function (protects the account limit). Provisioned concurrency pre-warms execution environments to eliminate cold starts. |
+| How do you handle partial failures in an SQS batch? | Return `{"batchItemFailures": [{"itemIdentifier": "<messageId>"}]}` for each failed message. Lambda deletes successful messages and re-enqueues only the failed ones. |
+| What happens if a Lambda function exceeds its timeout? | Lambda forcibly terminates the execution and marks the invocation as failed. For async invocations it retries up to 2×. Ensure your timeout is set higher than your worst-case processing time. |
+
+---
+
+### Reference
+
+**Clean up resources (to avoid charges)**
+
+**Step 1 — Delete Lambda functions**
+- Lambda → select `sqs-processor`, `dynamo-stream-processor`, `order-processor-function` → **Actions** → **Delete**
+
+**Step 2 — Remove API Gateway**
+- API Gateway → `my-lambda-api` → **Actions** → **Delete API** → confirm
+
+**Step 3 — Disable DynamoDB Stream**
+- DynamoDB → your table → **Exports and streams** → **DynamoDB stream details** → **Disable**
+
+**Step 4 — Delete EventBridge rules and event bus**
+- EventBridge → **Rules** → `daily-cleanup-rule` → **Delete**
+- EventBridge → **Event buses** → `my-app-bus` → **Delete**
+
+**Step 5 — Delete RDS Proxy (if created)**
+- RDS → **Proxies** → `my-rds-proxy` → **Actions** → **Delete**
+
+**Step 6 — Delete security groups**
+- EC2 → **Security Groups** → `lambda-rds-sg` → **Actions** → **Delete security groups**
+
+**Step 7 — Delete Secrets Manager secret**
+- Secrets Manager → `/myapp/rds-password` → **Actions** → **Delete secret** → schedule deletion
+
+**Verify:** Lambda → **Functions** — none of the lab functions listed ✓
+
+---
+
+**Official documentation:**
+
+→ [AWS Lambda — Developer Guide](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html)
+
+→ [Lambda with Amazon SQS](https://docs.aws.amazon.com/lambda/latest/dg/with-sqs.html)
+
+→ [Lambda with API Gateway](https://docs.aws.amazon.com/lambda/latest/dg/services-apigateway.html)
+
+→ [Lambda with DynamoDB Streams](https://docs.aws.amazon.com/lambda/latest/dg/with-ddb.html)
+
+→ [Connecting Lambda to RDS — VPC Configuration](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html)
+
+→ [Amazon RDS Proxy](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html)
+
+→ [Lambda with EventBridge](https://docs.aws.amazon.com/lambda/latest/dg/services-cloudwatchevents.html)
+
+→ [Lambda Security Best Practices](https://docs.aws.amazon.com/lambda/latest/dg/best-practices.html)
+
+→ [Lambda Power Tuning — open source tool](https://github.com/alexcasalboni/aws-lambda-power-tuning)
 
 ---
 
